@@ -1,0 +1,33 @@
+program: src/wandb_sweep_wrapper_single_seed.py
+method: random
+metric:
+  goal: minimize
+  name: critic_loss
+
+parameters:
+  config:
+    value: mappo
+  env-config:
+    value: "gymma" 
+  env_args.time_limit:
+    value: 150 
+  env_args.key:
+    value: "vmas-discovery"
+  name:
+    value: mappo
+  t_max: 
+    value: 3050000
+  hidden_dim: 
+    values: [64, 128]
+  lr: 
+    values: [0.0001, 0.0003, 0.0005]
+  standardise_rewards: 
+    values: [True, False]
+  use_rnn: 
+    values: [True, False]
+  target_update_interval_or_tau: 
+    values: [200, 0.01]
+  entropy_coef: 
+    values: [0.01, 0.001]
+  q_nstep: 
+    values: [5, 10]
