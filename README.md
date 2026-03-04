@@ -1,7 +1,9 @@
 # Extended Python MARL framework - EPyMARL
+Additions on this repository
 - Wandb sweeps for hyperparameter tuning
 - Additional algorithms (LICA, Dr. Reinforce-R)
-- 
+
+  
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)
 - **New!** Updated EPyMARL to use maintained [Gymnasium](https://gymnasium.farama.org/index.html) library instead of deprecated OpenAI Gym version 0.21.
