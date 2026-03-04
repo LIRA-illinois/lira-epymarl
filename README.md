@@ -109,6 +109,11 @@ Note that the [PAC algorithm](#update-as-of-15th-july-2023) introduces separate 
 ```sh
 pip install -r pac_requirements.txt
 ```
+## Installation issues
+After installing the basic installation steps, you may need to install libspatialite. You will also need to remove and reinstall rtree
+
+conda install -c conda-forge libspatialindex
+pip uninstall rtree -y && pip install rtree==1.0.0  # smaclite 0.0.1 requires Rtree==1.0.0
 
 ## Benchmark Paper Experiments
 
