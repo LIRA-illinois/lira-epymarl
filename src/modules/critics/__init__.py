@@ -6,6 +6,8 @@ from .maddpg import MADDPGCritic
 from .maddpg_ns import MADDPGCriticNS
 from .ac import ACCritic
 from .ac_ns import ACCriticNS
+# Additional critics
+from .lica import LICACritic
 
 
 REGISTRY = {}
@@ -18,7 +20,7 @@ REGISTRY["maddpg_critic"] = MADDPGCritic
 REGISTRY["maddpg_critic_ns"] = MADDPGCriticNS
 REGISTRY["ac_critic"] = ACCritic
 REGISTRY["ac_critic_ns"] = ACCriticNS
-
+REGISTRY["lica_critic"] = LICACritic
 
 def register_pac_critics():
     from .pac_ac import PACCritic

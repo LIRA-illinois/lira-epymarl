@@ -6,8 +6,10 @@ from .actor_critic_pac_learner import PACActorCriticLearner
 from .actor_critic_pac_dcg_learner import PACDCGLearner
 from .maddpg_learner import MADDPGLearner
 from .ppo_learner import PPOLearner
-# Extra learners
+# Additional learners
 from .drreinforcer_learner import DrReinforceRLearner
+from .lica_learner import LICALearner
+
 
 REGISTRY = {}
 REGISTRY["q_learner"] = QLearner
@@ -18,5 +20,6 @@ REGISTRY["maddpg_learner"] = MADDPGLearner
 REGISTRY["ppo_learner"] = PPOLearner
 REGISTRY["pac_learner"] = PACActorCriticLearner
 REGISTRY["pac_dcg_learner"] = PACDCGLearner
-# Extra learners
+# Additional learners
 REGISTRY["drreinforcer_learner"] = DrReinforceRLearner
+REGISTRY["lica_learner"] = LICALearner
