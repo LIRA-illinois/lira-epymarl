@@ -2,7 +2,16 @@
 Additions on this repository
 - Wandb sweeps for hyperparameter tuning
 - Additional algorithms (LICA, Dr. Reinforce-R)
-
+- Support for gym_multigrid environments:
+```sh
+python3 src/main.py --config=mappo --env-config=gym_multigrid with env_args.key="multigrid-collect-respawn-v0" seed=9405
+```
+  - multigrid-collect-v0
+  - multigrid-collect-quadrants-v0
+  - multigrid-collect-rooms-v0
+  - multigrid-collect-rooms-fixed-horizon-v0
+  - multigrid-collect-rooms-respawn-v0
+  - multigrid-collect-respawn-v0
   
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)
