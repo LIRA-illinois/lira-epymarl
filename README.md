@@ -6,6 +6,8 @@ Additions on this repository
 ```sh
 python3 src/main.py --config=mappo --env-config=gym_multigrid with env_args.key="multigrid-collect-respawn-v0" seed=9405
 ```
+Tested environment keys: 
+
   - multigrid-collect-v0
   - multigrid-collect-quadrants-v0
   - multigrid-collect-rooms-v0
