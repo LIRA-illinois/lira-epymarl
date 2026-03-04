@@ -13,3 +13,14 @@ def build_td_lambda_targets(rewards, terminated, mask, target_qs, n_agents, gamm
     # Returns lambda-return from t=0 to t=T-1, i.e. in B*T-1*A
     return ret[:, 0:-1]
 
+# The following function is adapted from https://github.com/opocaj92/Difference-Rewards-Policy-Gradients.git
+def discount_rewards(rewards, terminated, mask, n_agents, gamma):
+    # Assumes  <reward >, <terminated > in (at least) B*T-1*1
+    # Initialise  last  return  for  not  terminated  episodes
+    ret = rewards.new_zeros(*rewards.shape)
+    ret[:, -1] = rewards[:, -1]
+    # Backwards  recursive  update  of the "forward  view"
+    for t in range(ret.shape[1] - 2, -1,  -1):
+        ret[:, t] = mask[:, t] * rewards[:, t] + gamma * ret[:, t + 1] * (1 - terminated[:, t])
+    # Returns discounted rewards from t=0 to t=T-1, i.e. in B*T-1*A
+    return ret

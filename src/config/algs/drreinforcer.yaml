@@ -1,0 +1,32 @@
+# --- Dr.ReinforceR specific parameters ---
+
+action_selector: "multinomial"
+epsilon_start: .5
+epsilon_finish: .01
+epsilon_anneal_time: 100000
+mask_before_softmax: False
+
+runner: "parallel"
+
+buffer_size: 10
+batch_size_run: 10
+batch_size: 10
+
+# env_args:
+#   state_last_action: False # critic adds last action internally
+
+lr: 0.0005
+reward_lr: 0.0005
+
+# use Dr.ReinforceR
+agent_output_type: "pi_logits"
+learner: "drreinforcer_learner"
+use_rnn: True
+reward_training: True
+reward_baseline_fn: "au"
+reward_train_mode: "seq"
+reward_train_reps: 1
+rewards_type: "dr_reinforceR_centralized_reward"
+name: "drreinforcer"
+
+t_max: 10050000
