@@ -1,5 +1,9 @@
 # Extended Python MARL framework - EPyMARL
+Additions on this repository
+- Wandb sweeps for hyperparameter tuning
+- Additional algorithms (LICA, Dr. Reinforce-R)
 
+  
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)
 - **New!** Updated EPyMARL to use maintained [Gymnasium](https://gymnasium.farama.org/index.html) library instead of deprecated OpenAI Gym version 0.21.
@@ -108,6 +112,14 @@ To install these environments individually, please see instructions in the respe
 Note that the [PAC algorithm](#update-as-of-15th-july-2023) introduces separate dependencies. To install these dependencies, use the provided requirements file:
 ```sh
 pip install -r pac_requirements.txt
+```
+## Installation issues
+After the basic installation steps, you may need to install libspatialite. You will also need to remove and reinstall rtree
+```sh
+conda install -c conda-forge libspatialindex
+```
+```sh
+pip uninstall rtree -y && pip install rtree==1.0.0  # smaclite 0.0.1 requires Rtree==1.0.0
 ```
 
 ## Benchmark Paper Experiments
