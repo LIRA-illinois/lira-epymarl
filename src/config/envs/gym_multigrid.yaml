@@ -1,0 +1,18 @@
+env: "gym_multigrid"
+env_args:
+  key: null
+  time_limit: 100
+  num_agents: 3
+  subtask_idx: 0
+  width: 15
+  height: 15
+  save_replay_: True
+  save_replay_path: "results/replays/no_step_penalty_new/replay_"
+
+test_greedy: True
+test_interval: 50000
+log_interval: 50000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 2050000
+

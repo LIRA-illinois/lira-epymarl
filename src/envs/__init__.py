@@ -4,6 +4,8 @@ import sys
 from .multiagentenv import MultiAgentEnv
 from .gymma import GymmaWrapper
 from .smaclite_wrapper import SMACliteWrapper
+# Additional environments
+from .gym_multigrid_wrapper import GymMultiGridWrapper
 
 
 if sys.platform == "linux":
@@ -58,3 +60,9 @@ def register_smacv2():
         return SMACv2Wrapper(**kwargs)
 
     REGISTRY["sc2v2"] = smacv2_fn
+
+# Additional environments
+def gym_multigrid_fn(**kwargs) -> MultiAgentEnv:
+    return GymMultiGridWrapper(**kwargs)
+
+REGISTRY["gym_multigrid"] = gym_multigrid_fn
