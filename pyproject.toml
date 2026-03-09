@@ -1,0 +1,34 @@
+[project]
+name = "lira-epymarl"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+authors = [
+    { name = "Jacob Heglund", email = "jheglun2@illinois.edu" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "gymnasium>=0.28",
+    "ipdb",
+    "matplotlib==3.10.6",
+    "numpy==2.3.2",
+    "protobuf>=3.20.0",
+    "pyyaml==6.0.2",
+    "sacred==0.8.7",
+    "tensorboard==2.20.0",
+    "tensorboard-logger",
+    "torch==2.6.0",
+    "pysc2>=3.0.0",
+    "s2clientprotocol>=4.10.1.75800.0",
+    "absl-py>=0.1.0",
+    "pyglet>=1.5.11",
+    "wandb"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+# only use poetry for dependency management, not to create an importable package from this project
+package-mode = false

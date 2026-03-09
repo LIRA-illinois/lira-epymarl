@@ -1,0 +1,3 @@
+[submodule "src/maic/envs/lb-foraging"]
+	path = src/maic/envs/lb-foraging
+	url = https://github.com/LIRA-illinois/lb-foraging.git

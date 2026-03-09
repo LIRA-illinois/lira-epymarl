@@ -6,7 +6,7 @@ Additions on this repository
 ```sh
 python3 src/main.py --config=mappo --env-config=gym_multigrid with env_args.key="multigrid-collect-respawn-v0" seed=9405
 ```
-Tested environment keys: 
+Tested environment keys:
 
   - multigrid-collect-v0
   - multigrid-collect-quadrants-v0
@@ -14,7 +14,70 @@ Tested environment keys:
   - multigrid-collect-rooms-fixed-horizon-v0
   - multigrid-collect-rooms-respawn-v0
   - multigrid-collect-respawn-v0
-  
+
+
+## Project setup
+This project assumes the use of Ubuntu 22.04 as the operating system. Some commands below may not work on other operating systems or may require significant modification.
+
+1. Install the following software on your computer
+    - VS Code (the IDE for this project)
+        - [Installation instructions](https://code.visualstudio.com/docs/setup/setup-overview)
+    - Any version of Python and pip
+    - Git (for project code version control)
+        - [Installation instructions](https://git-scm.com/downloads)
+
+
+1. Clone this repo and any submodules
+
+    ```bash
+    git clone --recurse-submodules https://github.com/LIRA-illinois/lira-epymarl.git
+    ```
+
+1. `cd` to the project root and install the project's dependencies
+
+    ```bash
+    # Install poetry inside this project's venv so it does not affect the global python installation
+    python3 -m venv .venv
+
+    # Activate the venv
+    source .venv/bin/activate
+
+    # then install poetry inside the venv
+    pip install poetry
+
+    # Make the virtual environment install in this project's root instead of some random location on your computer by creating a setting in poetry.toml
+    poetry config --local virtualenvs.in-project true
+
+    # NOTE: If you do not have the right version of Python on your computer, poetry lock will fail and you will need to install Python using, for example, the deadsnakes repo.
+
+    poetry lock
+
+    # NOTE: since package-mode = false in pyproject.toml, this will install the project without packaging it, which means avoiding modifications to the project's directory structure compared to EPyMARL
+    poetry install
+
+    # Run this to make sure the `protobuf` package works
+    PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+
+    ```
+
+1. You have two options for environment package installation:
+
+  - To enable environment editing and modification, include your env as a git submodule, then install it in editable mode. An example with Level-Based Foraging is included below:
+
+    ```bash
+    # Install the lb-foraging package in editable mode
+    # lb-foraging was cloned using the recurse-submodules option when this repository was originally cloned
+    pip install -e src/envs/lb-foraging
+    ```
+
+  - Otherwise, to install extra environments as uneditable packages, simply run the following while your venv is activated
+
+    ```bash
+    pip install -r env_requirements.txt
+    ```
+
+
+## Original EPyMARL Readme
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)
 - **New!** Updated EPyMARL to use maintained [Gymnasium](https://gymnasium.farama.org/index.html) library instead of deprecated OpenAI Gym version 0.21.
@@ -58,7 +121,7 @@ We have added a simple plotting script under `plot_results.py` to load data from
 
 
 ## Update as of *15th July 2023*!
-We have released our _Pareto Actor-Critic_ algorithm, accepted in TMLR, as part of the E-PyMARL source code. 
+We have released our _Pareto Actor-Critic_ algorithm, accepted in TMLR, as part of the E-PyMARL source code.
 
 Find the paper here: https://arxiv.org/abs/2209.14344
 
@@ -195,7 +258,7 @@ Below, we provide the base environment and key / map name for all the environmen
   - corridor: `corridor`
   - MMM2: `MMM2`
   - 3s_vs_5z: `3s_vs_5z`
-  
+
 ## Experiments in SMACv2 and SMAClite
 
 EPyMARL now supports the new SMACv2 and SMAClite environments. We provide wrappers to integrate these environments into the Gymnasium interface of EPyMARL. To run experiments in these environments, you can use the following exemplary commands:
@@ -228,7 +291,7 @@ python src/main.py --config=qmix --env-config=gymma with env_args.time_limit=150
 
 ## Registering and Running Experiments in Custom Environments
 
-EPyMARL supports environments that have been registered with Gymnasium. If you would like to use any other Gymnasium environment, you can do so by using the `gymma` environment with the `env_args.key` argument being provided with the registration ID of the environment. Environments can either provide a single scalar reward to run common reward experiments (`common_reward=True`), or should provide one environment per agent to run experiments with individual rewards (`common_reward=False`) or with common rewards using some reward scalarisation (see [documentation](#support-for-training-in-environments-with-individual-rewards-for-all-agents) for more details). 
+EPyMARL supports environments that have been registered with Gymnasium. If you would like to use any other Gymnasium environment, you can do so by using the `gymma` environment with the `env_args.key` argument being provided with the registration ID of the environment. Environments can either provide a single scalar reward to run common reward experiments (`common_reward=True`), or should provide one environment per agent to run experiments with individual rewards (`common_reward=False`) or with common rewards using some reward scalarisation (see [documentation](#support-for-training-in-environments-with-individual-rewards-for-all-agents) for more details).
 
 To register a custom environment with Gymnasium, use the template below:
 ```python
