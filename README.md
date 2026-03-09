@@ -84,7 +84,7 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
 
 ### Updating submodues
 
-- To add an environment submodule (in this example, ENV_NAME) to the project, run the following in the project root:
+- To add an environment submodule (in this example, REPO_NAME) to the project, run the following in the project root:
 
 ```bash
 git submodule add https://github.com/LIRA-Illinois/REPO_NAME.git src/envs/REPO_NAME
