@@ -65,8 +65,8 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
   - To enable environment editing and modification, include your env as a git submodule, then install it in editable mode. An example with Level-Based Foraging is included below:
 
     ```bash
-    # Install the lb-foraging package in editable mode
     # lb-foraging was cloned using the recurse-submodules option when this repository was originally cloned
+    # Install the lb-foraging package in editable mode
     pip install -e src/envs/lb-foraging
     ```
 
@@ -75,6 +75,46 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
     ```bash
     pip install -r env_requirements.txt
     ```
+
+
+### Makefile
+
+- There a ton of helper commands in `Makefile`, check them out.
+
+
+### Updating submodues
+
+- To add an environment submodule (in this example, ENV_NAME) to the project, run the following in the project root:
+
+```bash
+git submodule add https://github.com/LIRA-Illinois/REPO_NAME.git src/envs/REPO_NAME
+```
+
+
+Using an environment as a submodule means taking a few extra steps when commiting and pushing changes to code in the submodule. This section uses lb-foraging as an example.
+
+1. Make changes to the submodule code (e.g., add a new feature to lb-foraging)
+
+1. Add, commit, and push to the submodule's remote repository
+
+    ```[bash]
+    cd src/cm_extension/envs/lb-foraging
+    git add .
+    git commit -m "commit message"
+    git push
+    ```
+
+1. Update the "host" repository (lira-epymarl) to track the updated submodule's code
+
+    ```[bash]
+    # from the project root
+    git add src/cm_extension/envs/lb-foraging
+    git commit -m "updated lb-foraging"
+    git push
+    ```
+
+
+
 
 
 ## Original EPyMARL Readme
