@@ -4,3 +4,6 @@
 [submodule "src/envs/gym-multigrid"]
 	path = src/envs/gym-multigrid
 	url = https://github.com/LIRA-illinois/gym-multigrid.git
+[submodule "src/envs/join1"]
+	path = src/envs/join1
+	url = https://github.com/LIRA-illinois/join1.git
