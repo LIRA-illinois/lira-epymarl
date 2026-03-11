@@ -9,6 +9,7 @@ output/
 plotting/
 poetry.lock
 tmp/
+zzz_run_commands.txt
 
 # Environments
 .env
