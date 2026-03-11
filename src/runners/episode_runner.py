@@ -26,6 +26,7 @@ class EpisodeRunner:
             common_reward=self.args.common_reward,
             reward_scalarisation=self.args.reward_scalarisation,
         )
+
         self.episode_limit = self.env.episode_limit
         self.t = 0
 
@@ -86,9 +87,10 @@ class EpisodeRunner:
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
-            actions = self.mac.select_actions(
-                self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
-            )
+            actions = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode)
+
+            # following the format from the parallel episode runner
+            actions = actions.cpu().numpy()
 
             _, reward, terminated, truncated, env_info = self.env.step(actions[0])
             terminated = terminated or truncated
