@@ -110,10 +110,9 @@ if __name__ == "__main__":
     try:
         map_name = config_dict["env_args"]["map_name"]
     except:
-        try:
-            map_name = config_dict["env_args"]["key"]
-        except:
-            map_name = ""
+        if "key" not in config_dict["env_args"]:
+            config_dict["env_args"]["key"] = config_dict["env"]
+        map_name = config_dict["env_args"]["key"]
 
     # now add all the config to sacred
     ex.add_config(config_dict)
