@@ -67,6 +67,7 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
     ```bash
     # these environments were cloned using the recurse-submodules option when this repository was originally cloned
     pip install -e src/envs/lb-foraging
+    pip install -e src/envs/join1
     pip install -e src/envs/gym-multigrid
     ```
 
