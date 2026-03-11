@@ -30,7 +30,7 @@ class Logger:
         self.console_logger.info(f"{directory_name}")
         self.console_logger.info("*******************")
 
-    def setup_wandb(self, config, team_name, project_name, mode):
+    def setup_wandb(self, config, team_name, project_name, mode, run_name: str = ""):
         import wandb
 
         assert (
@@ -60,11 +60,14 @@ class Logger:
         group_name = "_".join([alg_name, env_name, self.config_hash])
 
         self.wandb = wandb.init(
+            name=run_name,
             entity=team_name,
             project=project_name,
             config=config,
             group=group_name,
             mode=mode,
+            dir="results/wandb/",
+            sync_tensorboard=True
         )
 
         self.console_logger.info("*******************")
