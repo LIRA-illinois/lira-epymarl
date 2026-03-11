@@ -1,7 +1,15 @@
+import warnings
 import gymnasium as gym
 from gymnasium.spaces import flatdim
 from gymnasium.wrappers import TimeLimit
-import smaclite  # noqa
+
+try:
+    import smaclite  # noqa
+except ImportError:
+    warnings.warn(
+        "smaclite is not installed, so these environments will not be available! To install, run `pip install 'smaclite'`"
+    )
+
 
 from .multiagentenv import MultiAgentEnv
 
