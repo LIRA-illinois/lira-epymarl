@@ -5,6 +5,7 @@ from .actor_critic_learner import ActorCriticLearner
 from .actor_critic_pac_learner import PACActorCriticLearner
 from .actor_critic_pac_dcg_learner import PACDCGLearner
 from .maddpg_learner import MADDPGLearner
+from .maic_learner import MAICLearner
 from .ppo_learner import PPOLearner
 # Additional learners
 from .drreinforcer_learner import DrReinforceRLearner
@@ -17,6 +18,7 @@ REGISTRY["coma_learner"] = COMALearner
 REGISTRY["qtran_learner"] = QTranLearner
 REGISTRY["actor_critic_learner"] = ActorCriticLearner
 REGISTRY["maddpg_learner"] = MADDPGLearner
+REGISTRY["maic_learner"] = MAICLearner
 REGISTRY["ppo_learner"] = PPOLearner
 REGISTRY["pac_learner"] = PACActorCriticLearner
 REGISTRY["pac_dcg_learner"] = PACDCGLearner
