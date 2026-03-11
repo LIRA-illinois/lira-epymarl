@@ -303,6 +303,19 @@ Learnt models can be loaded using the `checkpoint_path` and `load_step` paramete
 
 To only evaluate loaded models without any training, set the `checkpoint_path` and `load_step` parameters accordingly for the loading, and additionally set `evaluate=True`. Then, the loaded checkpoint will be evaluated for `test_nepisode` episodes before terminating the run.
 
+## Choosing between gpus in your machine
+
+To control which GPU your experiment is running on, run your command with CUDA_VISIBLE_DEVICES="gpu id" in the beginning:
+```shell
+CUDA_VISIBLE_DEVICES=0 python src/main.py --config=dissc_II_v0_041_vmas --env-config=gymma with env_args.key=vmas-balance env_args.time_limit=150 env_args.n_agents=50 seed=101
+```
+Similarly for running wandb sweeps:
+
+```shell
+CUDA_VISIBLE_DEVICES=0 wandb sweep src/search.config.wandb.mappo.yaml
+CUDA_VISIBLE_DEVICES=0 wandb agent ...
+```
+
 # Plotting
 
 The plotting script provided as `plot_results.py` supports plotting of any logged metric, can apply simple window-smoothing, aggregates results across multiple runs of the same algorithm, and can filter which results to plot based on algorithm and environment names.
