@@ -36,15 +36,16 @@ def run(_run, _config, _log):
     experiment_params = pprint.pformat(_config, indent=4, width=1)
     _log.info("\n\n" + experiment_params + "\n")
 
-    # configure tensorboard logger
-    # unique_token = "{}__{}".format(args.name, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-
     try:
         map_name = _config["env_args"]["map_name"]
     except:
         map_name = _config["env_args"]["key"]
+
+    curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
     unique_token = (
-        f"{_config['name']}_seed{_config['seed']}_{map_name}_{datetime.datetime.now()}"
+        f"{args.run_name + '_' if len(args.run_name) > 0 else ''}_{curr_time}_"
+        f"{args.env}_{map_name + '_' if map_name != args.env else ''}"
+        f"{args.name}_seed_{args.seed}"
     )
 
     args.unique_token = unique_token
@@ -57,11 +58,16 @@ def run(_run, _config, _log):
 
     if args.use_wandb:
         logger.setup_wandb(
-            _config, args.wandb_team, args.wandb_project, args.wandb_mode
+            _config,
+            args.wandb_team,
+            args.wandb_project,
+            args.wandb_mode,
+            run_name=unique_token,
         )
 
     # sacred is on by default
-    logger.setup_sacred(_run)
+    if args.use_sacred:
+        logger.setup_sacred(_run)
 
     # Run and train
     run_sequential(args=args, logger=logger)
