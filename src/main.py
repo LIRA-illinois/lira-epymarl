@@ -19,6 +19,9 @@ import torch as th
 from utils.logging import get_logger
 from run import run
 
+# ensure to make sure the `protobuf` package works
+PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="python"
+
 SETTINGS["CAPTURE_MODE"] = (
     "fd"  # set to "no" if you want to see stdout/stderr in console
 )
