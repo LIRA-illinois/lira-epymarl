@@ -103,7 +103,6 @@ class GridSearch(object):
             # assign scenarios to GPUs
             gpu_idx = scenario_idx % len(self.args.gpus)
             gpu_hardware_idx = self.args.gpus[gpu_idx]
-            print(gpu_hardware_idx)
 
             # read env and rl alg from the config file
             # scenario_param=${scenario_params[$scenario_idx]}
