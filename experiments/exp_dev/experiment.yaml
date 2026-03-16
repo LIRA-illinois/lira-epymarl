@@ -1,0 +1,40 @@
+# params that are held constant across all scenarios in this experiment
+const_params:
+    test_interval: 50000
+    test_nepisode: 40
+    sweep_method: random # random or Bayes
+    sweep_params:
+        hidden_dim:
+            values: [64, 128]
+        lr:
+            values: [0.0001, 0.0003, 0.0005]
+
+# each scenario involves a grid search over each seed
+seeds: [0 2289 3608]
+
+# define the experiment's scenarios
+# 1 scenario = 1 combination of params in the dicts below
+varied_params:
+    config:
+        maic:
+            epsilon_anneal_time: [50000, 100000]
+        mappo:
+            entropy_coef: [0.1, 0.2]
+
+    env-config:
+        foraging-v2:
+            t_max: 2000000
+            env_args:
+                max_num_food: [2, 4, 6]
+
+        join1:
+            t_max: 1500000
+            env_args:
+                reward_win: [1.0, 3.0, 5.0]
+
+    scenarios: [
+        batch_size_run=3 batch_size=32
+        batch_size_run=4 batch_size=64
+        batch_size_run=5 batch_size=160
+    ]
+

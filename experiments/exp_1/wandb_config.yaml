@@ -1,0 +1,22 @@
+program: src/experiments/wandb_sweep_wrapper_single_seed.py
+name: exp_1 # sweep name and experiment name
+method: grid # grid, random, or Bayes
+# if you choose random or Bayes, the run will probably not do all seeds
+# the only way to have mixed grid-search params and random-search params is with an external wrapper
+
+# these are grid-searched over too, but handled with a wrapper which assigns each combo of params a unique scenario index
+seed:
+  values: [648, 2285, 123]
+
+# params to search over
+parameters:
+  config:
+    values: [maic]
+  env-config:
+    values: [foraging-v2]
+  env_args.max_num_food:
+    values: [2, 4]
+  hidden_dim:
+    values: [64, 128]
+  lr:
+    values: [0.0001, 0.0003, 0.0005]
