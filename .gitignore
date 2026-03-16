@@ -10,6 +10,7 @@ plotting/
 poetry.lock
 tmp/
 zzz_run_commands.txt
+wandb_api_key.yaml
 
 # Environments
 .env
