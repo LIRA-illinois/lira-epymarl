@@ -1,8 +1,12 @@
 """
-Run a grid search experiment, only uses wandb for logging and does not initialize a wandb sweep or wandb agents.
-Compared to a wandb sweep, assigns a unique index to each scenario and automatically runs all scenarios in parallel across all available GPUs
-"""
+Run a grid search experiment, only uses wandb for logging and does not initialize
+a wandb sweep or wandb agents.
 
+Compared to a wandb sweep, assigns a unique index to each scenario and automatically
+runs all scenarios in parallel across all available GPUs. Runs each command using the "screen" tool
+to allow greater control over running jobs compared to wandb which only allows runs to
+be stopped 1 at a time.
+"""
 
 import os
 import sys
@@ -15,20 +19,86 @@ import yaml
 from torch import cuda
 import psutil
 
+
 class GridSearch(object):
     def __init__(self) -> None:
         self.args = self.parse_args()
         self.script_path = os.path.join("src", "main.py")
 
-        config_dir = os.path.join("experiments", self.args.experiment)
-        config_path = os.path.join(config_dir, "exp_config.yaml")
+        config_path = os.path.join(
+            "experiments", self.args.experiment, "exp_config.yaml"
+        )
+        with open(config_path, "r", encoding="utf8") as f:
+            config: dict = yaml.safe_load(f)
 
-        with open(config_path, "r") as f:
-            self.config: dict = yaml.safe_load(f)
+        seeds = config["parameters"].pop("seed")["values"]
+        scenarios = [c for c in self.gen_dict_combinations(config["parameters"])]
+        scenario_names = [
+            f"sc_{scenario_idx+1}" for scenario_idx, _ in enumerate(scenarios)
+        ]
 
+        cmds = self.get_commands(
+            scenarios=scenarios,
+            seeds=seeds,
+            scenario_names=scenario_names,
+            script_path=self.script_path,
+        )
+
+        self.print_info(scenarios, scenario_names, seeds)
+
+        # check if user wants to run the experiment
+        if input("Run experiment now? (y/n)").lower() == "y":
+            print("Running experiment")
+            self.run_experiment(cmds)
+        else:
+            print("Exiting without running experiment")
+            exit()
+
+    def get_commands(
+        self,
+        scenarios,
+        seeds,
+        scenario_names,
+        script_path: str,
+    ) -> list[list[str]]:
         curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[:-3]
+        cmds: list[list[str]] = []
 
-        self.run_experiment(curr_time)
+        for scenario_idx, params in enumerate(scenarios):
+            scenario_name = scenario_names[scenario_idx]
+            run_name = f"{self.args.experiment}_{curr_time}_{scenario_name}"
+            screen_name = f"{self.args.experiment}_{scenario_name}"
+
+            params_local = params.copy()
+            params_local["run_name"] = run_name
+
+            # options is rl alg and env
+            # update is the "with" params (except seed, you add that in manually)
+            options = []
+            updates = []
+
+            for k, v in params_local.items():
+                if k in ["config", "env-config"]:
+                    options.append(f"--{k}={v}")
+                else:
+                    updates.append(f"{k}={v}")
+
+            # define the command to be run
+            screen_prefix = ["screen", "-dmS", screen_name]
+
+            for seed in seeds:
+                python_cmd = f"source .venv/bin/activate; {sys.executable} \
+                    {script_path} {' '.join(options)} with {' '.join(updates)} seed={seed}"
+
+                cmd = [
+                    *screen_prefix,
+                    "/bin/bash",
+                    "-c",
+                    python_cmd,
+                ]
+                cmds.append(cmd)
+
+        return cmds
 
     def parse_args(self):
         parser = argparse.ArgumentParser()
@@ -49,93 +119,6 @@ class GridSearch(object):
             help="Available GPUs to run this experimet on.",
         )
         return parser.parse_args()
-
-    def run_experiment(self, curr_time):
-        seeds = self.config["parameters"].pop("seed")["values"]
-        scenarios = [c for c in self.gen_dict_combinations(self.config["parameters"])]
-        scenario_names = [
-            f"sc_{scenario_idx+1}" for scenario_idx, _ in enumerate(scenarios)
-        ]
-
-        self.print_info(scenarios, scenario_names, seeds)
-
-        # check if user wants to run the experiment
-        if input("Run experiment now? (y/n)").lower() == "y":
-            print("Running experiment")
-        else:
-            print("Exiting without running experiment")
-            exit()
-
-        # do all runs in parallel
-        processes = []
-        for scenario_idx, params in enumerate(scenarios):
-            scenario_name = scenario_names[scenario_idx]
-            wandb_run_name = f"{self.args.experiment}_{curr_time}_{scenario_name}"
-            screen_name = f"{self.args.experiment}_{scenario_name}"
-
-            # assign scenarios to GPUs
-            gpu_idx = scenario_idx % len(self.args.gpus)
-            gpu_hardware_idx = self.args.gpus[gpu_idx]
-
-            for seed in seeds:
-                p = self.run_seed(
-                    seed,
-                    script_path=self.script_path,
-                    params=params,
-                    gpu_hardware_idx=gpu_hardware_idx,
-                    run_name=wandb_run_name,
-                    screen_name=screen_name,
-                )
-                processes.append(p)
-
-        for p in processes:
-            p.wait()
-
-    def run_seed(
-        self,
-        seed,
-        script_path,
-        params,
-        gpu_hardware_idx,
-        run_name,
-        screen_name,
-    ):
-        """Run a single training seed as a subprocess"""
-        params_local = params.copy()
-        params_local["run_name"] = run_name
-
-        # options is rl alg and env
-        # update is the "with" params (except seed, you add that in manually)
-        options = []
-        updates = []
-
-        for k, v in params_local.items():
-            if k in ["config", "env-config"]:
-                options.append(f"--{k}={v}")
-            else:
-                updates.append(f"{k}={v}")
-
-        env = {k: v for k, v in os.environ.items()}
-        env["CUDA_VISIBLE_DEVICES"] = f"{gpu_hardware_idx}"
-
-        screen_prefix = ["screen", "-dmS", screen_name]
-        python_cmd = f"source .venv/bin/activate; {sys.executable} {script_path} {' '.join(options)} with {' '.join(updates)} seed={seed}"
-
-        cmd = [
-            *screen_prefix,
-            "/bin/bash",
-            "-c",
-            python_cmd,
-        ]
-
-        proc = subprocess.Popen(
-            cmd,
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-        )
-
-        return proc
 
     def print_info(
         self, scenarios: list[dict], scenario_names: list[str], seeds: list[int]
@@ -192,6 +175,30 @@ class GridSearch(object):
             table_line = f"| {scenario_names[scenario_idx]} | {params["config"]} | {params["env-config"]} | {other_params} | "
             print(table_line)
         print("")
+
+    def run_experiment(self, cmds: list[list[str]]):
+        env = dict(os.environ.items())
+        processes = []
+
+        # run all commands in parallel
+        for i, cmd in enumerate(cmds):
+            # assign scenarios to GPUs
+            gpu_idx = i % len(self.args.gpus)
+            gpu_hardware_idx = self.args.gpus[gpu_idx]
+            env["CUDA_VISIBLE_DEVICES"] = f"{gpu_hardware_idx}"
+
+            # start running the process
+            proc = subprocess.Popen(
+                cmd,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+            )
+
+            processes.append(proc)
+
+        for p in processes:
+            p.wait()
 
     def gen_dict_combinations(self, d: dict):
         # https://stackoverflow.com/questions/50606454/cartesian-product-of-nested-dictionaries-of-lists
