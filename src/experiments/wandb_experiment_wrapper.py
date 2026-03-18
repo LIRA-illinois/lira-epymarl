@@ -7,7 +7,12 @@ import argparse
 import subprocess
 import datetime
 import yaml
+
 import wandb
+import torch as th
+import psutil
+
+# from torch import
 
 # Track the currently running child so we can kill it with SIGTERM/SIGINT
 _active_child = None
@@ -68,54 +73,30 @@ class GridSearch(object):
 
     def run_experiment(self, curr_time):
         seeds = self.config["parameters"].pop("seed")["values"]
-        n_seeds = len(seeds)
-
         scenarios = [c for c in self.gen_dict_combinations(self.config["parameters"])]
-        n_scenarios = len(scenarios)
+        scenario_names = [
+            f"sc_{scenario_idx+1}" for scenario_idx, _ in enumerate(scenarios)
+        ]
 
-        # print useful info about the experiment
-        print(
-            f"Running {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_scenarios * n_seeds} total runs"
-        )
-        print(f"Using {len(self.args.gpus)} GPUs with indices {self.args.gpus}")
+        self.print_info(scenarios, scenario_names, seeds)
 
         # check if user wants to run the experiment
-        run_now = input("Run experiment now? (y/n)")
-
-        if run_now.lower() == "y":
+        if input("Run experiment now? (y/n)").lower() == "y":
             print("Running experiment")
         else:
             print("Exiting without running experiment")
             exit()
 
-        # print experiment summary in a markdown-formatted table
-        header = "| Scenario Name | Alg | Env | Params |\n|----| ---- | ---- | ---- |"
-        print(f"\nExperiment summary\n\n{header}")
-
-        # do all of this in parallel
+        # do all runs in parallel
         processes = []
-        scenario_idx = 0
         for scenario_idx, params in enumerate(scenarios):
-            scenario_name = f"sc_{scenario_idx+1}"
+            scenario_name = scenario_names[scenario_idx]
             wandb_run_name = f"{self.args.experiment}_{curr_time}_{scenario_name}"
             screen_name = f"{self.args.experiment}_{scenario_name}"
 
             # assign scenarios to GPUs
             gpu_idx = scenario_idx % len(self.args.gpus)
             gpu_hardware_idx = self.args.gpus[gpu_idx]
-
-            # read env and rl alg from the config file
-            # scenario_param=${scenario_params[$scenario_idx]}
-            # rl_alg=${rl_algs[$scenario_idx]}
-            # env=${envs[$scenario_idx]}
-            # print output to table
-            other_params = ""
-            for k, v in params.items():
-                if k not in ["config", "env-config"]:
-                    other_params += f"{k}={v} "
-
-            table_line = f"| {scenario_name} | {params["config"]} | {params["env-config"]} | {other_params} | "
-            print(table_line)
 
             for seed in seeds:
                 p = self.run_seed(
@@ -177,20 +158,72 @@ class GridSearch(object):
 
         return proc
 
+    def print_info(
+        self, scenarios: list[dict], scenario_names: list[str], seeds: list[int]
+    ):
+        """print useful info about the experiment"""
+        n_scenarios, n_seeds = len(scenarios), len(seeds)
+
+        # available computer resources
+        print(
+            f"Hardware summary\nUsing {len(self.args.gpus)} GPUs with indices {self.args.gpus}\nVRAM usage"
+        )
+        byte_to_gb = 1024**3
+        for device in self.args.gpus:
+            (avail_vram, total_vram) = th.cuda.memory.mem_get_info(device)
+            # convert from bytes to gigabtyes
+            avail_vram, total_vram = round(avail_vram / byte_to_gb, 1), round(
+                total_vram / byte_to_gb, 1
+            )
+            used_vram = round(total_vram - avail_vram, 1)
+
+            props = th.cuda.get_device_properties(device)
+
+            print(
+                f"Device {device} -- {used_vram} GB / {total_vram} GB used ({avail_vram} GB available) -- {props.name}"
+            )
+
+        ram_info = psutil.virtual_memory()
+        used_ram = round(ram_info.used / byte_to_gb, 1)
+        total_ram = round(ram_info.total / byte_to_gb, 1)
+        avail_ram = round(ram_info.available / byte_to_gb, 1)
+
+        print(
+            "\nRAM usage --",
+            f"{used_ram} GB / {total_ram} GB used ({avail_ram} GB available)",
+        )
+
+        # print experiment summary in a markdown-formatted table
+        print(f"\nExperiment summary")
+        print(
+            f"Running {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_scenarios * n_seeds} total runs"
+        )
+        table_header = (
+            "| Scenario Name | Alg | Env | Params |\n|----| ---- | ---- | ---- |"
+        )
+        print(table_header)
+
+        for scenario_idx, params in enumerate(scenarios):
+            # print params to markdown table
+            other_params = ""
+            for k, v in params.items():
+                if k not in ["config", "env-config"]:
+                    other_params += f"{k}={v} "
+
+            table_line = f"| {scenario_names[scenario_idx]} | {params["config"]} | {params["env-config"]} | {other_params} | "
+            print(table_line)
+        print("")
+
     def gen_dict_combinations(self, d: dict):
         # https://stackoverflow.com/questions/50606454/cartesian-product-of-nested-dictionaries-of-lists
-        keys, values = d.keys(), d.values()
 
-        for c in product(*(self.gen_combinations(v) for v in values)):
-            yield dict(zip(keys, c))
+        def gen_combinations(d: dict):
+            combinations = product(*d.values())
+            for c in combinations:
+                yield c[0]
 
-    def gen_combinations(self, d: dict):
-        # https://stackoverflow.com/questions/50606454/cartesian-product-of-nested-dictionaries-of-lists
-        keys, values = d.keys(), d.values()
-        combinations = product(*values)
-
-        for c in combinations:
-            yield c[0]
+        for c in product(*(gen_combinations(v) for v in d.values())):
+            yield dict(zip(d.keys(), c))
 
 
 if __name__ == "__main__":

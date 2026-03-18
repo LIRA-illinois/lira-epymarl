@@ -24,6 +24,7 @@ dependencies = [
     "s2clientprotocol>=4.10.1.75800.0",
     "absl-py>=0.1.0",
     "pyglet>=1.5.11",
+    "psutil",
     "wandb"
 ]
 
