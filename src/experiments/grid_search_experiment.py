@@ -87,8 +87,7 @@ class GridSearch(object):
             screen_prefix = ["screen", "-dmS", screen_name]
 
             for seed in seeds:
-                python_cmd = f"source .venv/bin/activate; {sys.executable} \
-                    {script_path} {' '.join(options)} with {' '.join(updates)} seed={seed}"
+                python_cmd = f"source .venv/bin/activate; {sys.executable} {script_path} {' '.join(options)} with {' '.join(updates)} seed={seed}"
 
                 cmd = [
                     *screen_prefix,
