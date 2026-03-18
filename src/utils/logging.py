@@ -59,6 +59,7 @@ class Logger:
 
         group_name = "_".join([alg_name, env_name, self.config_hash])
 
+        # start a wandb run
         self.wandb = wandb.init(
             name=run_name,
             entity=team_name,
@@ -67,7 +68,6 @@ class Logger:
             group=group_name,
             mode=mode,
             dir="results/wandb/",
-            sync_tensorboard=True
         )
 
         self.console_logger.info("*******************")

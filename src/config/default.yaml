@@ -16,6 +16,7 @@ evaluation_epsilon: 0.0
 log_interval: 2000 # Log summary of stats after every {} timesteps
 runner_log_interval: 2000 # Log runner stats (not test stats) every {} timesteps
 learner_log_interval: 2000 # Log training stats every {} timesteps
+
 t_max: 10000 # Stop running after this many timesteps
 use_cuda: True # Use gpu by default unless it isn't available
 buffer_cpu_only: True # If true we won't keep all of the replay buffer in vram
@@ -24,6 +25,7 @@ buffer_cpu_only: True # If true we won't keep all of the replay buffer in vram
 use_tensorboard: False # Log results to tensorboard
 use_sacred: True # Log experiment using Sacred
 use_wandb: True # Log results to W&B
+sync_tensorboard: False # Log results to W&B while allowing the use of W&B's Tensorboard capabilities
 wandb_team: "" # W&B team name
 wandb_project: "" # W&B project name
 wandb_mode: "online" # W&B mode (online/offline)
