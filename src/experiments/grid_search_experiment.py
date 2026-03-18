@@ -10,117 +10,133 @@ be stopped 1 at a time.
 
 import os
 import sys
+import math
 from itertools import product
 import argparse
 import subprocess
 import datetime
 import yaml
+from random import SystemRandom
 
 from torch import cuda
 import psutil
 
 
-class GridSearch(object):
-    def __init__(self) -> None:
-        self.args = self.parse_args()
-        self.script_path = os.path.join("src", "main.py")
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-e",
+        "--experiment",
+        type=str,
+        required=True,
+        help="Experiment name",
+    )
+    parser.add_argument(
+        "-g",
+        "--gpus",
+        type=int,
+        nargs="+",
+        required=False,
+        default=[0],
+        help="Available GPUs to run this experimet on.",
+    )
+    parser.add_argument(
+        "-r",
+        "--n_runners",
+        type=int,
+        required=False,
+        default=20,
+        help="Number of parallel runners to have going at the same time.",
+    )
 
-        config_path = os.path.join(
-            "experiments", self.args.experiment, "exp_config.yaml"
-        )
+    return parser.parse_args()
+
+
+class GridSearch(object):
+    def __init__(self, args) -> None:
+        self.args = args
+        self.script_path = os.path.join("src", "main.py")
+        self.exp_dir = os.path.join("experiments", self.args.experiment)
+
+        config_path = os.path.join(self.exp_dir, "exp_config.yaml")
         with open(config_path, "r", encoding="utf8") as f:
             config: dict = yaml.safe_load(f)
 
-        seeds = config["parameters"].pop("seed")["values"]
+        if config["parameters"].get("seed", False):
+            seeds = config["parameters"].pop("seed")["values"]
+        else:
+            if config["parameters"].get("n_seeds", False):
+                # generate n_seeds random seeds to use in this experiment
+                n_seeds = config["parameters"].pop("n_seeds")["value"]
+            else:
+                # default value
+                n_seeds = 5
+
+            # true randomness from the OS
+            rng = SystemRandom()
+            seeds = [rng.randint(0, 1000000) for _ in range(n_seeds)]
+
         scenarios = [c for c in self.gen_dict_combinations(config["parameters"])]
         scenario_names = [
             f"sc_{scenario_idx+1}" for scenario_idx, _ in enumerate(scenarios)
         ]
 
-        cmds = self.get_commands(
+        python_cmds = self.get_python_commands(
             scenarios=scenarios,
             seeds=seeds,
             scenario_names=scenario_names,
             script_path=self.script_path,
         )
 
-        self.print_info(scenarios, scenario_names, seeds)
+        self.print_info(scenarios, scenario_names, seeds, python_cmds)
 
         # check if user wants to run the experiment
         if input("Run experiment now? (y/n)").lower() == "y":
             print("Running experiment")
-            self.run_experiment(cmds)
+            self.run_experiment(python_cmds)
         else:
             print("Exiting without running experiment")
             exit()
 
-    def get_commands(
+    def get_python_commands(
         self,
         scenarios,
         seeds,
         scenario_names,
         script_path: str,
-    ) -> list[list[str]]:
+    ) -> list[str]:
         curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[:-3]
-        cmds: list[list[str]] = []
+        cmds: list[str] = []
 
         for scenario_idx, params in enumerate(scenarios):
-            scenario_name = scenario_names[scenario_idx]
-            run_name = f"{self.args.experiment}_{curr_time}_{scenario_name}"
-            screen_name = f"{self.args.experiment}_{scenario_name}"
-
-            params_local = params.copy()
-            params_local["run_name"] = run_name
+            _params = params.copy()
+            _params["run_name"] = (
+                f"{self.args.experiment}_{curr_time}_{scenario_names[scenario_idx]}"
+            )
 
             # options is rl alg and env
             # update is the "with" params (except seed, you add that in manually)
             options = []
             updates = []
-
-            for k, v in params_local.items():
+            for k, v in _params.items():
                 if k in ["config", "env-config"]:
                     options.append(f"--{k}={v}")
                 else:
                     updates.append(f"{k}={v}")
 
             # define the command to be run
-            screen_prefix = ["screen", "-dmS", screen_name]
-
             for seed in seeds:
-                python_cmd = f"source .venv/bin/activate; {sys.executable} {script_path} {' '.join(options)} with {' '.join(updates)} seed={seed}"
-
-                cmd = [
-                    *screen_prefix,
-                    "/bin/bash",
-                    "-c",
-                    python_cmd,
-                ]
-                cmds.append(cmd)
+                python_cmd = f"{sys.executable} {script_path} {' '.join(options)} with {' '.join(updates)} seed={seed}"
+                cmds.append(python_cmd)
 
         return cmds
 
-    def parse_args(self):
-        parser = argparse.ArgumentParser()
-        parser.add_argument(
-            "-e",
-            "--experiment",
-            type=str,
-            required=True,
-            help="Experiment name",
-        )
-        parser.add_argument(
-            "-g",
-            "--gpus",
-            type=int,
-            nargs="+",
-            required=False,
-            default=[0],
-            help="Available GPUs to run this experimet on.",
-        )
-        return parser.parse_args()
-
     def print_info(
-        self, scenarios: list[dict], scenario_names: list[str], seeds: list[int]
+        self,
+        scenarios: list[dict],
+        scenario_names: list[str],
+        seeds: list[int],
+        python_cmds: list[str],
     ):
         """print useful info about the experiment"""
         n_scenarios, n_seeds = len(scenarios), len(seeds)
@@ -155,10 +171,12 @@ class GridSearch(object):
         )
 
         # print experiment summary in a markdown-formatted table
+        n_runs = n_scenarios * n_seeds
         print(f"\nExperiment summary")
         print(
-            f"Running {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_scenarios * n_seeds} total runs"
+            f"{n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs\nUsing {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} runs per runner\nSeeds: {seeds}\n"
         )
+
         table_header = (
             "| Scenario Name | Alg | Env | Params |\n|----| ---- | ---- | ---- |"
         )
@@ -171,24 +189,41 @@ class GridSearch(object):
                 if k not in ["config", "env-config"]:
                     other_params += f"{k}={v} "
 
-            table_line = f"| {scenario_names[scenario_idx]} | {params["config"]} | {params["env-config"]} | {other_params} | "
+            table_line = f"| {scenario_names[scenario_idx]} | {params['config']} | {params['env-config']} | {other_params} | "
             print(table_line)
         print("")
 
-    def run_experiment(self, cmds: list[list[str]]):
-        env = dict(os.environ.items())
+        save_path = os.path.join(self.exp_dir, "python_cmds.txt")
+        with open(save_path, "w") as f:
+            for cmd in python_cmds:
+                f.write(f"{cmd}\n")
+
+    def run_experiment(self, python_cmds: list[str]):
+        n_runners = self.args.n_runners
+
+        # assign each runner its commands
+        runners = {i: "source .venv/bin/activate;" for i in range(n_runners)}
+        for i, cmd in enumerate(python_cmds):
+            runners[i % n_runners] += cmd + "; "
+
+        # assign each runner its GPU
+        runner_gpus = []
+        for runner_idx in runners:
+            runner_gpus.append(self.args.gpus[runner_idx % len(self.args.gpus)])
+
+        # run all runners in parallel
         processes = []
+        env = dict(os.environ.items())
 
-        # run all commands in parallel
-        for i, cmd in enumerate(cmds):
-            # assign scenarios to GPUs
-            gpu_idx = i % len(self.args.gpus)
-            gpu_hardware_idx = self.args.gpus[gpu_idx]
-            env["CUDA_VISIBLE_DEVICES"] = f"{gpu_hardware_idx}"
+        for i, runner_cmds in runners.items():
+            env["CUDA_VISIBLE_DEVICES"] = f"{runner_gpus[i]}"
+            screen_name = f"{self.args.experiment}_runner_{i+1}"
+            screen_prefix = ["screen", "-dmS", screen_name]
+            bash_prefix = ["/bin/bash", "-c"]
+            run_cmd = [*screen_prefix, *bash_prefix, "sleep 5; echo ${CUDA_VISIBLE_DEVICES}; sleep 5;" + runner_cmds]
 
-            # start running the process
             proc = subprocess.Popen(
-                cmd,
+                run_cmd,
                 env=env,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -198,6 +233,27 @@ class GridSearch(object):
 
         for p in processes:
             p.wait()
+
+        # processes = []
+        # # run all commands in parallel
+        # for i, cmd in enumerate(cmds):
+        #     # assign scenarios to GPUs
+        #     gpu_idx = i % len(self.args.gpus)
+        #     gpu_hardware_idx = self.args.gpus[gpu_idx]
+        #     env["CUDA_VISIBLE_DEVICES"] = f"{gpu_hardware_idx}"
+
+        #     # start running the process
+        #     proc = subprocess.Popen(
+        #         cmd,
+        #         env=env,
+        #         stdin=subprocess.PIPE,
+        #         stdout=subprocess.PIPE,
+        #     )
+
+        #     processes.append(proc)
+
+        # for p in processes:
+        #     p.wait()
 
     def gen_dict_combinations(self, d: dict):
         # https://stackoverflow.com/questions/50606454/cartesian-product-of-nested-dictionaries-of-lists
@@ -212,4 +268,5 @@ class GridSearch(object):
 
 
 if __name__ == "__main__":
-    experiment = GridSearch()
+    args = parse_args()
+    GridSearch(args)

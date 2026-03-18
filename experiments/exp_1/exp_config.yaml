@@ -1,18 +1,26 @@
 # config for a grid search experiment based on wandb sweep config
 # meant to be used with grid_search_experiment.py
+program: src/experiments/wandb_sweep_wrapper_single_seed.py
+method: random
+metric:
+  goal: maximize
+  name: test_return_mean
 
 # params to grid search over
 parameters:
   config:
-    values: [maic]
+    values: [maic, qmix]
   env-config:
-    values: [foraging-v2]
-  env_args.max_num_food:
-    values: [2, 4]
-  hidden_dim:
-    values: [64, 128]
+    values: [join1_original, join1-v0]
   lr:
-    values: [0.0001, 0.0003, 0.0005]
-  # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params a unique scenario index
+    values: [0.00005, 0.0001, 0.0005]
+  optim_eps:
+    values: [0.00001, 0.00005]
+  # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
+  # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
+  # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
   seed:
-    values: [648, 2285, 123]
+    values: [258813, 25258, 543562, 276098, 197226]
+  # n_seeds:
+  #   value: 5
+
