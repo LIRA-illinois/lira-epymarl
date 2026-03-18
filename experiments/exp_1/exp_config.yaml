@@ -1,10 +1,7 @@
-# program: src/experiments/wandb_sweep_wrapper_single_seed.py
-method: grid # grid, random, or Bayes
-# if you choose random or Bayes, the run will probably not do all seeds
-# the only way to have mixed grid-search params and random-search params is with an external wrapper
+# config for a grid search experiment based on wandb sweep config
+# meant to be used with grid_search_experiment.py
 
-
-# params to search over
+# params to grid search over
 parameters:
   config:
     values: [maic]

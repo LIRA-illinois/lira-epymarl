@@ -1,40 +1,19 @@
-# Run grid search using a wandb sweep. Assigns wandb agents to GPUs and runs them in parallel
+"""
+Run a grid search experiment, only uses wandb for logging and does not initialize a wandb sweep or wandb agents.
+Compared to a wandb sweep, assigns a unique index to each scenario and automatically runs all scenarios in parallel across all available GPUs
+"""
+
+
 import os
 import sys
 from itertools import product
-import signal
 import argparse
 import subprocess
 import datetime
 import yaml
 
-import wandb
-import torch as th
+from torch import cuda
 import psutil
-
-# from torch import
-
-# Track the currently running child so we can kill it with SIGTERM/SIGINT
-_active_child = None
-
-
-def _handle_signal(signum, frame):
-    """Propagate termination signals to the active child subprocess."""
-    if _active_child and _active_child.poll() is None:
-        print(
-            f"[sweep_wrapper] Received signal {signum}, killing child pid {_active_child.pid}"
-        )
-        try:
-            os.killpg(os.getpgid(_active_child.pid), signal.SIGTERM)
-        except OSError:
-            _active_child.kill()
-    wandb.finish(exit_code=1)
-    sys.exit(1)
-
-
-signal.signal(signal.SIGTERM, _handle_signal)
-signal.signal(signal.SIGINT, _handle_signal)
-
 
 class GridSearch(object):
     def __init__(self) -> None:
@@ -42,7 +21,7 @@ class GridSearch(object):
         self.script_path = os.path.join("src", "main.py")
 
         config_dir = os.path.join("experiments", self.args.experiment)
-        config_path = os.path.join(config_dir, "wandb_config.yaml")
+        config_path = os.path.join(config_dir, "exp_config.yaml")
 
         with open(config_path, "r") as f:
             self.config: dict = yaml.safe_load(f)
@@ -170,14 +149,14 @@ class GridSearch(object):
         )
         byte_to_gb = 1024**3
         for device in self.args.gpus:
-            (avail_vram, total_vram) = th.cuda.memory.mem_get_info(device)
+            (avail_vram, total_vram) = cuda.memory.mem_get_info(device)
             # convert from bytes to gigabtyes
             avail_vram, total_vram = round(avail_vram / byte_to_gb, 1), round(
                 total_vram / byte_to_gb, 1
             )
             used_vram = round(total_vram - avail_vram, 1)
 
-            props = th.cuda.get_device_properties(device)
+            props = cuda.get_device_properties(device)
 
             print(
                 f"Device {device} -- {used_vram} GB / {total_vram} GB used ({avail_vram} GB available) -- {props.name}"
