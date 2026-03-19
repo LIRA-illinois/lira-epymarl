@@ -18,7 +18,8 @@ import datetime
 from random import SystemRandom
 import yaml
 
-from torch import cuda
+from torch.cuda import get_device_properties
+from torch.cuda.memory import mem_get_info
 import psutil
 
 from slurm_args import SlurmArgs
@@ -29,9 +30,6 @@ class GridSearch(object):
         self.args = self.parse_args()
         self.venv_activate_path = join(".venv", "bin", "activate")
         self.exp_dir = join("experiments", self.args.experiment)
-        self.job_dir = join(self.exp_dir, "jobs")
-        makedirs(self.job_dir, exist_ok=True)
-
         self.script_path = join("src", "main.py")
 
         # setup
@@ -47,7 +45,7 @@ class GridSearch(object):
                 self.slurm_config: dict = yaml.safe_load(f)
 
             cluster_log_dir: str = join(
-                "results", self.args.experiment, curr_time, "cluster_logs"
+                "results", "cluster_logs", self.args.experiment, curr_time,
             )
             makedirs(cluster_log_dir, exist_ok=True)
 
@@ -186,7 +184,7 @@ class GridSearch(object):
             cmds.insert(0, "# job commands")
 
             # slurm config
-            self.slurm_config["job_idx"] = job_idx
+            self.slurm_config["job_idx"] = job_idx + 1
             slurm_args = SlurmArgs(**self.slurm_config)
             slurm_config_lines = slurm_args.get_config_lines()
 
@@ -208,9 +206,10 @@ class GridSearch(object):
 
             # save the slurm files to disk
             setups: list[list[str]] = [slurm_config_lines, project_setup_lines, cmds]
-            output_path = join(self.job_dir, f"job_{job_idx}.slurm")
+            output_path = join(self.exp_dir, f"job_{job_idx + 1}.slurm")
             self.write_sbatch(output_path=output_path, setups=setups)
 
+            # submit job to cluster
             subprocess.run(["sbatch", output_path], check=False)
 
     def parse_args(self):
@@ -275,14 +274,14 @@ class GridSearch(object):
             )
             byte_to_gb = 1024**3
             for device in self.args.gpus:
-                (avail_vram, total_vram) = cuda.memory.mem_get_info(device)
+                (avail_vram, total_vram) = mem_get_info(device)
                 # convert from bytes to gigabtyes
                 avail_vram, total_vram = round(avail_vram / byte_to_gb, 1), round(
                     total_vram / byte_to_gb, 1
                 )
                 used_vram = round(total_vram - avail_vram, 1)
 
-                props = cuda.get_device_properties(device)
+                props = get_device_properties(device)
 
                 print(
                     f"Device {device} -- {used_vram} GB / {total_vram} GB used ({avail_vram} GB available) -- {props.name}"
