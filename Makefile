@@ -11,6 +11,9 @@ nvidia:
 tb:
 	screen -dmS tensorboard_${project_name} bash -c 'source .venv/bin/activate; tensorboard --bind_all --port=6009 --logdir "results/tb_logs/"'
 
+run_experiment:
+	bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e=${e} -c ${c} -g ${g} --max_runs_per_job=${m}'
+
 activate_venv:
 	bash -c 'source .venv/bin/activate; /bin/bash'
 
@@ -49,6 +52,12 @@ list_screen_experiments_quit:
 # with GPU
 campus-int-gpu:
 	srun --time=00:30:00 --account=huytran1-ic --partition="IllinoisComputes-GPU,eng-research-gpu,csl" --nodes=1 --mem=64G --ntasks=64 --gpus-per-node=1 --pty /bin/bash
+# 	7645649
+# 	srun --time=00:05:00 --account=huytran1-ic --partition="IllinoisComputes-GPU,eng-research-gpu,csl" --nodes=1 --ntasks=64 --gpus-per-node=1 --mem=128G --pty /bin/bash
+# 	7645652
+# 	srun --time=00:05:00 --account=huytran1-ic --partition="IllinoisComputes-GPU,eng-research-gpu,csl" --nodes=1 --ntasks=64 --gpus-per-node=1 --mem=64G --pty /bin/bash
+# 7645654
+# 	srun --time=00:05:00 --account=huytran1-ic --partition="IllinoisComputes-GPU,eng-research-gpu,csl" --nodes=1 --ntasks=64 --gpus-per-node=1 --mem=1G --pty /bin/bash
 
 # define formatting for outputs
 job_fmt=-O JobID:9,Name:45,Username:15,State:12,TimeUsed:15,TimeLimit:15,NumNodes:7,tres-per-node:20,ReasonList:20,Partition:60
