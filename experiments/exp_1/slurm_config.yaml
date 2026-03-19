@@ -1,0 +1,14 @@
+time: "0-24:00:00"
+
+delta_config: {
+  partition: "gpuA40x4,gpuA100x4,gpuA100x8",
+  gpus_per_node: 1
+  }
+
+campus_config: {
+  # specifying partitions and GPUs like this means I'm indifferent between my job
+  # running on IllinoisComputes-GPU on a A100 or H200 GPU
+  partition: "IllinoisComputes-GPU,eng-research-gpu",
+  gpus_per_node: 1,
+  ntasks: 64,
+}

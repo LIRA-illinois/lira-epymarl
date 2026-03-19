@@ -11,13 +11,15 @@ nvidia:
 tb:
 	screen -dmS tensorboard_${project_name} bash -c 'source .venv/bin/activate; tensorboard --bind_all --port=6009 --logdir "results/tb_logs/"'
 
+activate_venv:
+	bash -c 'source .venv/bin/activate; /bin/bash'
 
 # g is a space-delimited string for GPU indices to use
 # make run_experiment e=exp_1 g=0 2 3
 # default value for gpus
 # run_sweep:
 # 	@bash src/experiments/run_sweep.bash -e ${e} -g "${g}"
-	python src/experiments/run_sweep.py --experiment=${e} --gpus=${gpus}
+# 	python src/experiments/run_sweep.py --experiment=${e} --gpus=${gpus}
 
 # 	sweep_id=$$(wandb sweep experiments/${e}/wandb_config.yaml); \
 # 	echo ${sweep_id};
@@ -43,3 +45,40 @@ list_screen_experiments_quit:
 	code screen_cmds.txt
 	sleep 0.25
 	rm -r screen_cmds.txt
+
+# with GPU
+campus-int-gpu:
+	srun --time=00:30:00 --account=huytran1-ic --partition="IllinoisComputes-GPU,eng-research-gpu,csl" --nodes=1 --mem=64G --ntasks=64 --gpus-per-node=1 --pty /bin/bash
+
+# define formatting for outputs
+job_fmt=-O JobID:9,Name:45,Username:15,State:12,TimeUsed:15,TimeLimit:15,NumNodes:7,tres-per-node:20,ReasonList:20,Partition:60
+partition_fmt=-O Partition:25,Time:15,Nodes:10
+hardware_fmt=-O Partition:25,Nodes:10,CPUs:15,Memory:15,Gres:20,Time:10,NodeList:15
+
+# check the queue to run your code for a given partition
+queue:
+	squeue -p gpuA40x4 ${job_fmt}
+	printf "\n"
+	squeue -p gpuA100x4 ${job_fmt}
+	squeue -p IllinoisComputes-GPU ${job_fmt}
+	printf "\n"
+	squeue -p eng-research-gpu ${job_fmt}
+	printf "\n"
+	squeue -p csl ${job_fmt}
+
+jobs:
+	watch -n 0.5 squeue -u jheglun2 ${job_fmt}
+
+# check which partitions you have access to
+partitions:
+	sinfo ${partition_fmt}
+
+hardware:
+	sinfo -p IllinoisComputes-GPU ${hardware_fmt}
+	printf "\n"
+	sinfo -p eng-research-gpu ${hardware_fmt}
+	printf "\n"
+	sinfo -p csl ${hardware_fmt}
+
+stop-job:
+	scancel $(id)
