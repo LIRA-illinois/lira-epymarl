@@ -60,7 +60,7 @@ campus-int-gpu:
 # 	srun --time=00:05:00 --account=huytran1-ic --partition="IllinoisComputes-GPU,eng-research-gpu,csl" --nodes=1 --ntasks=64 --gpus-per-node=1 --mem=1G --pty /bin/bash
 
 # define formatting for outputs
-job_fmt=-O JobID:9,Name:45,Username:15,State:12,TimeUsed:15,TimeLimit:15,NumNodes:7,tres-per-node:20,ReasonList:20,Partition:60
+job_fmt=-O JobID:9,Name:20,Username:10,State:12,TimeUsed:15,TimeLimit:15,NumNodes:7,tres-per-node:20,ReasonList:20,Partition:60
 partition_fmt=-O Partition:25,Time:15,Nodes:10
 hardware_fmt=-O Partition:25,Nodes:10,CPUs:15,Memory:15,Gres:20,Time:10,NodeList:15
 
