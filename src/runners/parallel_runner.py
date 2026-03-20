@@ -82,6 +82,14 @@ class ParallelRunner:
     def save_replay(self):
         self.parent_conns[0].send(("save_replay", None))
 
+    def start_episode_recording(self):
+        #TODO implement this like in the single ep runner
+        pass
+
+    def stop_episode_recording(self):
+        #TODO implement this like in the single ep runner
+        pass
+
     def close_env(self):
         for parent_conn in self.parent_conns:
             parent_conn.send(("close", None))

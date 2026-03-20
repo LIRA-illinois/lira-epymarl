@@ -16,6 +16,7 @@ class Logger:
         self.use_hdf = False
 
         self.stats = defaultdict(lambda: [])
+        self.dir: str
 
     def setup_tb(self, directory_name):
         # Import here so it doesn't have to be installed if you don't use it
@@ -69,6 +70,8 @@ class Logger:
             mode=mode,
             dir="results/wandb/",
         )
+        # save run files here
+        self.dir = self.wandb.dir
 
         self.console_logger.info("*******************")
         self.console_logger.info("WANDB RUN ID:")

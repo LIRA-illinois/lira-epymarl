@@ -124,7 +124,7 @@ def run_sequential(args, logger):
         },
         "terminated": {"vshape": (1,), "dtype": th.uint8},
     }
-    # For individual rewards in gymmai reward is of shape (1, n_agents)
+    # For individual rewards in gymma reward is of shape (1, n_agents)
     if args.common_reward:
         scheme["reward"] = {"vshape": (1,)}
     else:
@@ -234,8 +234,17 @@ def run_sequential(args, logger):
             last_time = time.time()
 
             last_test_T = runner.t_env
-            for _ in range(n_test_runs):
+
+            # enable replay saving for some of the test episodes
+            if args.save_test_replays:
+                runner.start_episode_recording(args.n_test_replays_save)
+
+            for test_ep_idx in range(n_test_runs):
+                if test_ep_idx >= args.n_test_replays_save:
+                    runner.stop_episode_recording()
+
                 runner.run(test_mode=True)
+
 
         if args.save_model and (
             runner.t_env - model_save_time >= args.save_model_interval

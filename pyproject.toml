@@ -8,7 +8,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "gymnasium>=0.28",
+    # includes packages to record env replays
+    "gymnasium[other]>=0.28",
     "ipdb",
     "matplotlib==3.10.6",
     "numpy==2.3.2",

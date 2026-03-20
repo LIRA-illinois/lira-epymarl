@@ -18,7 +18,8 @@ SUPPORTED_ENVS = (
 NON_GYMNASIUM_ENVS = {"join1_original": join1.Join1EnvOriginal}
 
 
-class BasicGymnasiumWrapper(gym.Env):
+class BasicGymnasiumWrapper(gym.Wrapper):
+# class BasicGymnasiumWrapper(gym.Env):
     """
     Basic wrapper that supports Gymnasium and non-gymnasium envs to ensure they conform to the Gymnasium API standards. Designed for the join1 env from MAIC, but may be extended to support other envs too.
     """
@@ -42,6 +43,10 @@ class BasicGymnasiumWrapper(gym.Env):
         # run basic checks to ensure the env follows the Gymnasium API
         # and does not have obvious issues
         self._check_env()
+
+        # init as a proper env wrapper
+        super().__init__(self.env)
+
 
     def _build_env(self) -> gym.Env:
         if self.env_name in ["foraging-v2"]:

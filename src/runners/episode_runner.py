@@ -1,6 +1,7 @@
+import os
 from functools import partial
-
 import numpy as np
+from gymnasium.wrappers import RecordVideo
 
 from components.episode_buffer import EpisodeBatch
 from envs import REGISTRY as env_REGISTRY
@@ -57,6 +58,25 @@ class EpisodeRunner:
 
     def save_replay(self):
         self.env.save_replay()
+
+    def start_episode_recording(self, n_test_replays_save: int):
+        # get video folder from wandb logger
+        # make the video dir
+        replay_dir = os.path.join(self.logger.dir, f"replays")
+        os.makedirs(replay_dir, exist_ok=True)
+        video_folder = os.path.join(replay_dir, f"t_{self.t_env}")
+        self.logger.console_logger.info(f"Saving {n_test_replays_save} test episode replays to {video_folder}")
+
+        pdb.set_trace()
+
+        self.env = RecordVideo(env=self.env, video_folder=video_folder, episode_trigger = lambda e: True, )
+
+    def stop_episode_recording(self):
+        # remove the RecordVideo wrapper (assumed to be the outer-most wrapper)
+        if isinstance(self.env, RecordVideo):
+            self.env = self.env.env
+        else:
+            pass
 
     def close_env(self):
         self.env.close()
