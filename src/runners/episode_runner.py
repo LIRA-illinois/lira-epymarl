@@ -59,21 +59,19 @@ class EpisodeRunner:
     def save_replay(self):
         self.env.save_replay()
 
-    def start_episode_recording(self, n_test_replays_save: int):
+    def start_recording(self, n_test_replays_save: int):
         # get video folder from wandb logger
         # make the video dir
         replay_dir = os.path.join(self.logger.dir, f"replays")
         os.makedirs(replay_dir, exist_ok=True)
         video_folder = os.path.join(replay_dir, f"t_{self.t_env}")
         self.logger.console_logger.info(f"Saving {n_test_replays_save} test episode replays to {video_folder}")
+        self.env = RecordVideo(env=self.env, video_folder=video_folder, episode_trigger = lambda e: True, name_prefix="replay")
 
-        pdb.set_trace()
-
-        self.env = RecordVideo(env=self.env, video_folder=video_folder, episode_trigger = lambda e: True, )
-
-    def stop_episode_recording(self):
+    def stop_recording(self):
         # remove the RecordVideo wrapper (assumed to be the outer-most wrapper)
         if isinstance(self.env, RecordVideo):
+            self.env.stop_recording()
             self.env = self.env.env
         else:
             pass
@@ -98,9 +96,9 @@ class EpisodeRunner:
 
         while not terminated:
             pre_transition_data = {
-                "state": [self.env.get_state()],
-                "avail_actions": [self.env.get_avail_actions()],
-                "obs": [self.env.get_obs()],
+                "state": [self.env.unwrapped.get_state()],
+                "avail_actions": [self.env.unwrapped.get_avail_actions()],
+                "obs": [self.env.unwrapped.get_obs()],
             }
 
             self.batch.update(pre_transition_data, ts=self.t)
@@ -132,9 +130,9 @@ class EpisodeRunner:
             self.t += 1
 
         last_data = {
-            "state": [self.env.get_state()],
-            "avail_actions": [self.env.get_avail_actions()],
-            "obs": [self.env.get_obs()],
+            "state": [self.env.unwrapped.get_state()],
+            "avail_actions": [self.env.unwrapped.get_avail_actions()],
+            "obs": [self.env.unwrapped.get_obs()],
         }
         if test_mode and self.args.render:
             print(f"Episode return: {episode_return}")

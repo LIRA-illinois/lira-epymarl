@@ -237,11 +237,11 @@ def run_sequential(args, logger):
 
             # enable replay saving for some of the test episodes
             if args.save_test_replays:
-                runner.start_episode_recording(args.n_test_replays_save)
+                runner.start_recording(args.n_test_replays_save)
 
             for test_ep_idx in range(n_test_runs):
                 if test_ep_idx >= args.n_test_replays_save:
-                    runner.stop_episode_recording()
+                    runner.stop_recording()
 
                 runner.run(test_mode=True)
 
