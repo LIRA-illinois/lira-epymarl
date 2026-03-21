@@ -16,6 +16,7 @@ class Logger:
         self.use_hdf = False
 
         self.stats = defaultdict(lambda: [])
+        self.dir: str
 
     def setup_tb(self, directory_name):
         # Import here so it doesn't have to be installed if you don't use it
@@ -30,7 +31,7 @@ class Logger:
         self.console_logger.info(f"{directory_name}")
         self.console_logger.info("*******************")
 
-    def setup_wandb(self, config, team_name, project_name, mode):
+    def setup_wandb(self, config, team_name, project_name, mode, run_name: str = ""):
         import wandb
 
         assert (
@@ -59,13 +60,18 @@ class Logger:
 
         group_name = "_".join([alg_name, env_name, self.config_hash])
 
+        # start a wandb run
         self.wandb = wandb.init(
+            name=run_name,
             entity=team_name,
             project=project_name,
             config=config,
             group=group_name,
             mode=mode,
+            dir="results/wandb/",
         )
+        # save run files here
+        self.dir = self.wandb.dir
 
         self.console_logger.info("*******************")
         self.console_logger.info("WANDB RUN ID:")

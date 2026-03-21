@@ -19,6 +19,9 @@ import torch as th
 from utils.logging import get_logger
 from run import run
 
+# ensure to make sure the `protobuf` package works
+PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="python"
+
 SETTINGS["CAPTURE_MODE"] = (
     "fd"  # set to "no" if you want to see stdout/stderr in console
 )
@@ -110,6 +113,8 @@ if __name__ == "__main__":
     try:
         map_name = config_dict["env_args"]["map_name"]
     except:
+        if "key" not in config_dict["env_args"]:
+            config_dict["env_args"]["key"] = config_dict["env"]
         map_name = config_dict["env_args"]["key"]
 
     # now add all the config to sacred
