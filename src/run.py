@@ -43,6 +43,7 @@ def run(_run, _config, _log):
 
     # run_name has a unique datetime in it, so only inclue curr_time if that is not available
     curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
+    __import__('ipdb').set_trace(context=3)
     unique_token = (
         f"{args.run_name if len(args.run_name) > 0 else curr_time}_"
         f"{args.env}_{map_name + '_' if map_name != args.env else ''}"
@@ -59,11 +60,12 @@ def run(_run, _config, _log):
 
     if args.use_wandb:
         logger.setup_wandb(
-            _config,
-            args.wandb_team,
-            args.wandb_project,
-            args.wandb_mode,
-            run_name=unique_token,
+            config=_config,
+            team_name=args.wandb_team,
+            project_name=args.wandb_project,
+            group_name=args.run_name,
+            run_name=args.run_name if len(args.run_name) > 0 else unique_token,
+            mode=args.wandb_mode,
         )
 
     # sacred is on by default

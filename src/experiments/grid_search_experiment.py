@@ -8,6 +8,7 @@ to allow greater control over running jobs compared to wandb which only allows r
 be stopped 1 at a time.
 """
 
+from typing import Literal
 from os import environ, makedirs, getcwd
 from os.path import join
 import math
@@ -17,10 +18,6 @@ import subprocess
 import datetime
 from random import SystemRandom
 import yaml
-
-from torch.cuda import get_device_properties
-from torch.cuda.memory import mem_get_info
-import psutil
 
 from slurm_args import SlurmArgs
 
@@ -45,7 +42,10 @@ class GridSearch(object):
                 self.slurm_config: dict = yaml.safe_load(f)
 
             cluster_log_dir: str = join(
-                "results", "cluster_logs", self.args.experiment, curr_time,
+                "results",
+                "cluster_logs",
+                self.args.experiment,
+                curr_time,
             )
             makedirs(cluster_log_dir, exist_ok=True)
 
@@ -83,13 +83,17 @@ class GridSearch(object):
 
         self.print_info(scenarios, scenario_names, seeds, python_cmds)
 
+        if self.args.computer in ["campus", "delta"]:
+            job_paths = self.build_sbatch_files(python_cmds, cluster=self.args.computer)
+
         # check if user wants to run the experiment
         if input("Run experiment now? (y/n)").lower() == "y":
             print("Running experiment")
-            if self.args.computer == "lab":
-                self.run_experiment_lab(python_cmds)
-            else:
-                self.run_experiment_cluster(python_cmds)
+            match self.args.computer:
+                case "lab":
+                    self.run_experiment_lab(python_cmds)
+                case "campus" | "delta":
+                    self.run_experiment_cluster(job_paths)
 
         else:
             print("Exiting without running experiment")
@@ -168,7 +172,9 @@ class GridSearch(object):
         for p in processes:
             p.wait()
 
-    def run_experiment_cluster(self, python_cmds: list[str]):
+    def build_sbatch_files(
+        self, python_cmds: list[str], cluster: Literal["campus", "delta"]
+    ) -> list[str]:
         # assign commands to each job and run them all in parallel within that job
         max_runs_per_job = self.args.max_runs_per_job
         n_runs = len(python_cmds)
@@ -178,6 +184,8 @@ class GridSearch(object):
         # assign commands to jobs
         for i, cmd in enumerate(python_cmds):
             jobs[i % n_jobs].append(cmd + " &")
+
+        job_paths: list[str] = []
 
         # loop thru all jobs, get the slurm config args needed to generate the slurm file and generate the slurm file
         for job_idx, cmds in jobs.items():
@@ -194,7 +202,9 @@ class GridSearch(object):
                 case "delta":
                     cluster_project_dir = join("~", "dev", f"{project_name}")
                 case "campus":
-                    cluster_project_dir = join("~", "my_trg_dir", "dev", f"{project_name}")
+                    cluster_project_dir = join(
+                        "~", "my_trg_dir", "dev", f"{project_name}"
+                    )
                 case _:
                     raise NotImplementedError
 
@@ -202,15 +212,24 @@ class GridSearch(object):
                 "# project setup",
                 f"cd {cluster_project_dir}",
                 f"source {self.venv_activate_path}",
+                "module load cuda/12.4",
+                "nvidia-smi",
             ]
 
             # save the slurm files to disk
             setups: list[list[str]] = [slurm_config_lines, project_setup_lines, cmds]
-            output_path = join(self.exp_dir, f"job_{job_idx + 1}.slurm")
-            self.write_sbatch(output_path=output_path, setups=setups)
+            job_path = join(self.exp_dir, f"job_{job_idx + 1}_{cluster}.slurm")
+            job_paths.append(job_path)
+            print(f"Writing job file to {job_path}")
+            self.write_sbatch(output_path=job_path, setups=setups)
 
-            # submit job to cluster
-            subprocess.run(["sbatch", output_path], check=False)
+        return job_paths
+
+    def run_experiment_cluster(self, job_paths: list[str]):
+        # submit jobs to cluster
+        for job_path in job_paths:
+            print(f"Submitting job {job_path}")
+            subprocess.run(["sbatch", job_path], check=False)
 
     def parse_args(self):
         parser = argparse.ArgumentParser()
@@ -228,7 +247,7 @@ class GridSearch(object):
             nargs="+",
             required=False,
             default=[0],
-            help="Available GPUs to run this experimet on.",
+            help="Available GPUs to run this experimet on (lab runs only).",
         )
         parser.add_argument(
             "-r",
@@ -268,6 +287,10 @@ class GridSearch(object):
         n_scenarios, n_seeds = len(scenarios), len(seeds)
 
         if self.args.computer == "lab":
+            from torch.cuda import get_device_properties
+            from torch.cuda.memory import mem_get_info
+            import psutil
+
             # available computer resources
             print(
                 f"Hardware summary\nUsing {len(self.args.gpus)} GPUs with indices {self.args.gpus}\nVRAM usage"
@@ -325,10 +348,10 @@ class GridSearch(object):
             print(table_line)
         print("")
 
-        save_path = join(self.exp_dir, "python_cmds.txt")
-        with open(save_path, "w") as f:
-            for cmd in python_cmds:
-                f.write(f"{cmd}\n")
+        # save_path = join(self.exp_dir, "python_cmds.txt")
+        # with open(save_path, "w") as f:
+        #     for cmd in python_cmds:
+        #         f.write(f"{cmd}\n")
 
     def write_sbatch(self, output_path: str, setups: list[list[str]]) -> None:
         with open(output_path, "w", encoding="utf8") as f:
@@ -337,6 +360,10 @@ class GridSearch(object):
                     f.write(line)
                     f.write("\n")
                 f.write("\n")
+
+            # need a "wait" at the end to run parallel commands with &,
+            # otherwise the batch job immediately terminates
+            f.write("wait")
 
     def gen_dict_combinations(self, d: dict):
         # https://stackoverflow.com/questions/50606454/cartesian-product-of-nested-dictionaries-of-lists

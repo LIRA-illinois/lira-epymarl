@@ -31,34 +31,43 @@ class Logger:
         self.console_logger.info(f"{directory_name}")
         self.console_logger.info("*******************")
 
-    def setup_wandb(self, config, team_name, project_name, mode, run_name: str = ""):
+    def setup_wandb(
+        self,
+        config,
+        team_name,
+        project_name,
+        mode,
+        group_name: str = "",
+        run_name: str = "",
+    ):
         import wandb
 
         assert (
             team_name is not None and project_name is not None
         ), "W&B logging requires specification of both `wandb_team` and `wandb_project`."
-        assert (
-            mode in ["offline", "online"]
-        ), f"Invalid value for `wandb_mode`. Received {mode} but only 'online' and 'offline' are supported."
+        assert mode in [
+            "offline",
+            "online",
+        ], f"Invalid value for `wandb_mode`. Received {mode} but only 'online' and 'offline' are supported."
 
         self.use_wandb = True
 
-        alg_name = config["name"]
-        env_name = config["env"]
-        if "map_name" in config["env_args"]:
-            env_name += "_" + config["env_args"]["map_name"]
-        elif "key" in config["env_args"]:
-            env_name += "_" + config["env_args"]["key"]
+        if group_name == "":
+            alg_name = config["name"]
+            env_name = config["env"]
+            if "map_name" in config["env_args"]:
+                env_name += "_" + config["env_args"]["map_name"]
+            elif "key" in config["env_args"]:
+                env_name += "_" + config["env_args"]["key"]
 
-        non_hash_keys = ["seed"]
-        self.config_hash = sha256(
-            json.dumps(
-                {k: v for k, v in config.items() if k not in non_hash_keys},
-                sort_keys=True,
-            ).encode("utf8")
-        ).hexdigest()[-10:]
-
-        group_name = "_".join([alg_name, env_name, self.config_hash])
+            non_hash_keys = ["seed"]
+            self.config_hash = sha256(
+                json.dumps(
+                    {k: v for k, v in config.items() if k not in non_hash_keys},
+                    sort_keys=True,
+                ).encode("utf8")
+            ).hexdigest()[-10:]
+            group_name = "_".join([alg_name, env_name, self.config_hash])
 
         # start a wandb run
         self.wandb = wandb.init(

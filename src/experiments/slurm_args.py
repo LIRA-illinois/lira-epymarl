@@ -46,58 +46,53 @@ class SlurmArgs:
             chose the GPU and CPU that are physically closest to speed things up, by default "closest"
         """
 
-        self.experiment = experiment
-        self.job_idx = job_idx
-
-        # make the log dir and define paths
-        output_path: str = join(log_dir, "log.out")
-        error_path: str = join(log_dir, "log.err")
-
+        # put vars in a dict b/c some vars in the config have
+        # dashes in their names and you can't do that with python vars
         self.config: dict = {
+            "job-name": f"{experiment}_job_{job_idx}",
             "time": time,
         }
 
-        # put vars in a dict b/c there are many vars in the config file
-        # with dashes in the names and you can't do that with python var names
-        if cluster == "delta":
-            # partition of the cluster, by default "gpuA40x4"
-            # A40 has 48 GB VRAM per GPU, A100 has 80 GB VRAM per GPU, H200 has 141 GB VRAM per GPU
-            # The H200 costs a lot in terms of my credits to use, and is a monster GPU in general. Very unnecessary for my purposes lol
-            # Any combination of these strings is valid too, so "gpuA40x4,gpuA100x4,gpuA100x8" is a valid partition
-            partition_delta: Literal["gpuA40x4", "gpuA100x4", "gpuA100x8", "H200x8"]
-            self.config["partition"] = delta_config["partition"]
-            self.config["account"] = "bfke-delta-gpu"
-            self.config["nodes"] = nodes
-            self.config["gpus-per-node"] = delta_config["gpus_per_node"]
-            self.config["cpus-per-task"] = delta_config["gpus_per_node"]
-            self.config["ntasks-per-node"] = n_tasks_per_node
-            self.config["gpu-bind"] = "closest"
+        match cluster:
+            case "delta":
+                # partition of the cluster, by default "gpuA40x4"
+                # A40 has 48 GB VRAM per GPU, A100 has 80 GB VRAM per GPU, H200 has 141 GB VRAM per GPU
+                # The H200 costs a lot in terms of my credits to use, and is a monster GPU in general. Very unnecessary for my purposes lol
+                # Any combination of these strings is valid too, so "gpuA40x4,gpuA100x4,gpuA100x8" is a valid partition
+                partition_delta: Literal["gpuA40x4", "gpuA100x4", "gpuA100x8", "H200x8"]
+                self.config["partition"] = delta_config["partition"]
+                self.config["account"] = "bfke-delta-gpu"
+                self.config["nodes"] = nodes
+                self.config["gpus-per-node"] = delta_config["gpus_per_node"]
+                self.config["cpus-per-task"] = delta_config["gpus_per_node"]
+                self.config["ntasks-per-node"] = n_tasks_per_node
+                self.config["gpu-bind"] = "closest"
 
-        elif cluster == "campus":
-            # partition of the cluster to use
-            # IllinoisComputes-GPU has 5 nodes
-            ## 4 with 4, 80 GB A100 GPUs, 512 GB RAM, and 128 CPU cores
-            ## 1 with 8, 141GB H200 GPUs, 1.5 TB RAM, and 64 CPU cores
-            # eng-research-gpu has 5 nodes, each with 8, 24 GB A10 GPUs, 512 GB RAM, and 64 CPU cores
-            # csl has 2 nodes, each with 8, 48 GB L40S GPUs, 1 TB RAM, and 128 CPU cores
-            # Any combination of these strings is valid too, so ""IllinoisComputes-GPU,eng-research-gpu"" is a valid partition
-            partition_campus: Literal["IllinoisComputes-GPU", "eng-research-gpu", "csl"]
-            self.config["partition"] = campus_config["partition"]
-            self.config["account"] = "huytran1-ic"
-            self.config["nodes"] = nodes
-            self.config["ntasks"] = cpus_per_task
-            self.config["gpus-per-node"] = campus_config["gpus_per_node"]
-
-            # this cluster can also take a "gres" (GPU resources) argument instead of gpus-per-node. gres takes the format "gpu:{gpu_type}:{n_gpus}"
-            # EX: gpu:A100:2 requests 2 Nvidia A100 GPUs on whatever partition you're submitting your job to
-            # this is different from Delta where choosing the partition also chooses
-            # the types of GPUs that are available for use
+            case "campus":
+                # partition of the cluster to use
+                # IllinoisComputes-GPU has 5 nodes
+                ## 4 with 4, 80 GB A100 GPUs, 512 GB RAM, and 128 CPU cores
+                ## 1 with 8, 141GB H200 GPUs, 1.5 TB RAM, and 64 CPU cores
+                # eng-research-gpu has 5 nodes, each with 8, 24 GB A10 GPUs, 512 GB RAM, and 64 CPU cores
+                # csl has 2 nodes, each with 8, 48 GB L40S GPUs, 1 TB RAM, and 128 CPU cores
+                # Any combination of these strings is valid too, so ""IllinoisComputes-GPU,eng-research-gpu"" is a valid partition
+                partition_campus: Literal["IllinoisComputes-GPU", "eng-research-gpu", "csl"]
+                self.config["partition"] = campus_config["partition"]
+                self.config["account"] = "huytran1-ic"
+                self.config["nodes"] = nodes
+                self.config["ntasks"] = cpus_per_task
+                # this cluster can also take a "gres" (GPU resources) argument instead of gpus-per-node. gres takes the format "gpu:{gpu_type}:{n_gpus}"
+                # EX: gpu:A100:2 requests 2 Nvidia A100 GPUs on whatever partition you're submitting your job to
+                # this is different from Delta where choosing the partition also chooses
+                # the types of GPUs that are available for use
+                self.config["gpus-per-node"] = campus_config["gpus_per_node"]
+            case _:
+                raise NotImplementedError
 
         self.config["mem"] = f"{memory_gb}G"
+        self.config["output"] = join(log_dir, "log.out")
+        self.config["error"] = join(log_dir, "log.err")
 
-        self.config["job-name"] = f"{experiment}_job_{job_idx}"
-        self.config["output"] = output_path
-        self.config["error"] = error_path
 
     def get_config_lines(self) -> list[str]:
         """get list of strings to be put in the sbatch file"""

@@ -28,6 +28,7 @@ use_wandb: True # Log results to W&B
 sync_tensorboard: False # Log results to W&B while allowing the use of W&B's Tensorboard capabilities
 wandb_team: "" # W&B team name
 wandb_project: "" # W&B project name
+wandb_group: "" # W&B group name for a run
 wandb_mode: "online" # W&B mode (online/offline)
 wandb_save_model: False # Save models to W&B (only done if use_wandb is True and save_model is True)
 save_model: False # Save the models to disk
