@@ -22,7 +22,6 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
 1. Install the following software on your computer
     - VS Code (the IDE for this project)
         - [Installation instructions](https://code.visualstudio.com/docs/setup/setup-overview)
-    - Any version of Python and pip
     - Git (for project code version control)
         - [Installation instructions](https://git-scm.com/downloads)
 
@@ -33,30 +32,34 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
     git clone --recurse-submodules https://github.com/LIRA-illinois/lira-epymarl.git
     ```
 
-1. `cd` to the project root and install the project's dependencies
+1. Install the project's dependencies
 
     ```bash
+    # cd to the project root
+    cd lira-epymarl
+
+    # Install pyenv using instructions from github.com/pyenv/pyenv
+    # This project uses pyenv because it allows each user to easily control which versions of Python are used for each of their projects
+
+    # Install Python using pyenv
+    pyenv install 3.11 # (higher versions may have compatibility issues with Sacred)
+    pyenv local 3.11 # set the version of Python to be used for this project
+
     # Install poetry inside this project's venv so it does not affect the global python installation
-    python3 -m venv .venv
+    # NOTE: Use `python`, not `python3` here so pyenv uses the right version of python
+    python -m venv .venv
 
     # Activate the venv
     source .venv/bin/activate
 
-    # then install poetry inside the venv
+    #Install poetry inside the venv
+    # NOTE: this ensures that the pyenv version of python is used to set up the project
     pip install poetry
 
-    # Make the virtual environment install in this project's root instead of some random location on your computer by creating a setting in poetry.toml
-    poetry config --local virtualenvs.in-project true
-
-    # NOTE: If you do not have the right version of Python on your computer, poetry lock will fail and you will need to install Python using, for example, the deadsnakes repo.
-
-    poetry lock
-
+    # Create lock file and install Python packages
     # NOTE: since package-mode = false in pyproject.toml, this will install the project without packaging it, which means avoiding modifications to the project's directory structure compared to EPyMARL
+    poetry lock
     poetry install
-
-    # Run this to make sure the `protobuf` package works
-    PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
     ```
 
@@ -65,7 +68,7 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
   - To enable environment editing and modification, include your env as a git submodule, then install it in editable mode. An example with Level-Based Foraging is included below:
 
     ```bash
-    # these environments were cloned using the recurse-submodules option when this repository was originally cloned
+    # the --recurse-submodules option should have cloned these environments when this repository was originally cloned
     pip install -e src/envs/lb-foraging
     pip install -e src/envs/join1
     pip install -e src/envs/gym-multigrid
@@ -99,7 +102,7 @@ Using an environment as a submodule means taking a few extra steps when commitin
 1. Add, commit, and push to the submodule's remote repository
 
     ```[bash]
-    cd src/cm_extension/envs/lb-foraging
+    cd src/lira-epymarl/src/envs/lb-foraging
     git add .
     git commit -m "commit message"
     git push
@@ -109,7 +112,7 @@ Using an environment as a submodule means taking a few extra steps when commitin
 
     ```[bash]
     # from the project root
-    git add src/cm_extension/envs/lb-foraging
+    git add src/lira-epymarl/src/envs/lb-foraging
     git commit -m "updated lb-foraging"
     git push
     ```

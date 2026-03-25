@@ -1,2 +1,3 @@
 [virtualenvs]
+# Make the virtual environment install in this project's root instead of some random location on your computer
 in-project = true

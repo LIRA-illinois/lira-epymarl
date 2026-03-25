@@ -8,24 +8,22 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    # includes packages to record env replays
-    "gymnasium[other]>=0.28",
-    "ipdb",
-    "matplotlib==3.10.6",
-    "numpy==2.3.2",
-    "protobuf>=3.20.0",
-    "pyyaml==6.0.2",
-    "sacred==0.8.7",
-    "tensorboard==2.20.0",
-    "tensorboard-logger",
-    "pysc2>=3.0.0",
-    # this version of setuptools required for sacred to work
-    "setuptools==81.0.0",
-    "s2clientprotocol>=4.10.1.75800.0",
     "absl-py>=0.1.0",
-    "pyglet==1.5.11",
+    "gymnasium[other]>=0.28", # [other] includes extra packages to record env replays
+    "ipdb",
+    "matplotlib>=3.10.6",
+    "numpy>=2.3.2",
+    "protobuf>=3.20.0",
     "psutil",
-    "wandb"
+    "pysc2>=3.0.0",
+    "pyyaml>=6.0.2",
+    "sacred==0.8.7",
+    "setuptools==81.0.0", # setuptools 81.0.0 is required for sacred to work
+    "s2clientprotocol>=4.10.1.75800.0",
+    "tensorboard>=2.20.0",
+    "tensorboard-logger",
+    "torch==2.6.0",
+    "wandb>=0.25.1"
 ]
 
 [build-system]
@@ -33,5 +31,5 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-# only use poetry for dependency management, not to create an importable package from this project
+# only use poetry for dependency management, not to create an importable package from this project, do this to avoid changing the directory structure to that required for an importable package
 package-mode = false
