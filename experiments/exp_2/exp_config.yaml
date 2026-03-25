@@ -22,7 +22,6 @@ parameters:
   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
   seed:
     values: [258813, 25258, 543562, 276098, 197226]
-    # values: [258813]
   # n_seeds:
   #   value: 5
 

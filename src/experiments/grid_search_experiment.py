@@ -362,7 +362,7 @@ class GridSearch(object):
             print(
                 f"Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} sequential runs per runner"
             )
-        print(f"Seeds: {seeds}")
+        print(f"Seeds: {seeds}\n")
 
         table_header = (
             "| Scenario Name | Alg | Env | Params |\n|----| ---- | ---- | ---- |"
