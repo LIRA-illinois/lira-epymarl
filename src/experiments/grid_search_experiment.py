@@ -78,7 +78,7 @@ class GridSearch(object):
             curr_time=curr_time,
         )
 
-        self.print_info(scenarios, scenario_names, seeds, python_cmds)
+        self.print_info(scenarios, scenario_names, seeds)
 
         if self.args.computer in ["campus", "delta"]:
             job_paths = self.build_sbatch_files(python_cmds, cluster=self.args.computer)
@@ -314,7 +314,6 @@ class GridSearch(object):
         scenarios: list[dict],
         scenario_names: list[str],
         seeds: list[int],
-        python_cmds: list[str],
     ):
         """print useful info about the experiment"""
         n_scenarios, n_seeds = len(scenarios), len(seeds)
