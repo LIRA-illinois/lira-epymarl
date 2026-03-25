@@ -68,10 +68,7 @@ class GridSearch(object):
             rng = SystemRandom()
             seeds = [rng.randint(0, 1000000) for _ in range(n_seeds)]
 
-        scenarios = [c for c in self.gen_dict_combinations(exp_config["parameters"])]
-        scenario_names = [
-            f"sc_{scenario_idx+1}" for scenario_idx, _ in enumerate(scenarios)
-        ]
+        scenarios, scenario_names = self.get_scenarios(exp_config)
 
         python_cmds = self.get_python_commands(
             scenarios=scenarios,
@@ -98,6 +95,42 @@ class GridSearch(object):
         else:
             print("Exiting without running experiment")
             exit()
+
+    def get_scenarios(self, exp_config: dict) -> tuple[list[dict], list[str]]:
+        scenarios: list[dict] = [*self.gen_dict_combinations(exp_config["parameters"])]
+
+        # get scenario configs based on conditional params
+        if "conditional_parameters" in exp_config:
+            # loop over outer vars (EX: config, env-config)
+            for outer_var, conditional_vars in exp_config[
+                "conditional_parameters"
+            ].items():
+
+                # loop over config (EX: maic, qmix) and env-config (EX: join1-v0 and join1_original)
+                for inner_var, varied_params in conditional_vars.items():
+                    conditional_combos = [*self.gen_dict_combinations(varied_params)]
+
+                    updated_scenarios = []
+                    indices_remove = []
+                    for i, scenario in enumerate(scenarios):
+                        if scenario[outer_var] == inner_var:
+                            for combo in conditional_combos:
+                                updated_scenarios.append(scenario | combo)
+                                indices_remove.append(i)
+
+                    # remove scenarios that were updated and bring in their updated versions
+                    scenarios = [
+                        scenario
+                        for i, scenario in enumerate(scenarios)
+                        if i not in indices_remove
+                    ]
+                    scenarios += updated_scenarios
+
+        scenario_names: list[str] = [
+            f"sc_{scenario_idx+1}" for scenario_idx, _ in enumerate(scenarios)
+        ]
+
+        return scenarios, scenario_names
 
     def get_python_commands(
         self,
@@ -254,7 +287,7 @@ class GridSearch(object):
             "--n_runners",
             type=int,
             required=False,
-            default=20,
+            default=2,
             help="Number of parallel runners to have going at the same time (lab runs only).",
         )
         parser.add_argument(
@@ -293,7 +326,7 @@ class GridSearch(object):
 
             # available computer resources
             print(
-                f"Hardware summary\nUsing {len(self.args.gpus)} GPUs with indices {self.args.gpus}\nVRAM usage"
+                f"Lab computer hardware summary\nUsing {len(self.args.gpus)} GPUs with indices {self.args.gpus}\nVRAM usage"
             )
             byte_to_gb = 1024**3
             for device in self.args.gpus:
@@ -328,7 +361,7 @@ class GridSearch(object):
         )
         if self.args.computer == "lab":
             print(
-                f"Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} runs per runner"
+                f"Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} sequential runs per runner"
             )
         print(f"Seeds: {seeds}")
 

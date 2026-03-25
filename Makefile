@@ -11,11 +11,12 @@ nvidia:
 tb:
 	screen -dmS tensorboard_${project_name} bash -c 'source .venv/bin/activate; tensorboard --bind_all --port=6009 --logdir "results/tb_logs/"'
 
-# default values for gpus and max runs per job
+# default values for gpus, max runs per job, and runners
 g ?= 0
 m ?= 50
+r ?= 2
 run_experiment:
-	bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e ${e} -c ${c} -g ${g} --max_runs_per_job=${m}'
+	bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e ${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r}'
 
 activate_venv:
 	bash -c 'source .venv/bin/activate; /bin/bash'
