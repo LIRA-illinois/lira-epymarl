@@ -61,6 +61,7 @@ class SlurmArgs:
                 # Any combination of these strings is valid too, so "gpuA40x4,gpuA100x4,gpuA100x8" is a valid partition
                 partition_delta: Literal["gpuA40x4", "gpuA100x4", "gpuA100x8", "H200x8"]
                 self.config["partition"] = delta_config["partition"]
+                self.config["exclude"] = delta_config["exclude"]
                 self.config["account"] = "bfke-delta-gpu"
                 self.config["nodes"] = nodes
                 self.config["gpus-per-node"] = delta_config["gpus_per_node"]
@@ -78,6 +79,7 @@ class SlurmArgs:
                 # Any combination of these strings is valid too, so ""IllinoisComputes-GPU,eng-research-gpu"" is a valid partition
                 partition_campus: Literal["IllinoisComputes-GPU", "eng-research-gpu", "csl"]
                 self.config["partition"] = campus_config["partition"]
+                self.config["exclude"] = campus_config["exclude"]
                 self.config["account"] = "huytran1-ic"
                 self.config["nodes"] = nodes
                 self.config["ntasks"] = cpus_per_task

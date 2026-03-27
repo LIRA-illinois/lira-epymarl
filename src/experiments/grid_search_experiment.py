@@ -271,11 +271,19 @@ class GridSearch(object):
                 module_load_lines.append(
                     "module load cuda/12.4",
                 )
-            module_load_lines.append("nvidia-smi")
+            module_load_lines += [
+                "echo 'Running on node with hostname:'",
+                "hostname -s",
+                "nvidia-smi",
+                "python3 src/experiments/node_test.py"
+            ]
+
 
             # save the slurm files to disk
             setups: list[list[str]] = [slurm_config_lines, project_setup_lines, module_load_lines, cmds]
-            job_path = join(self.exp_dir, f"job_{cluster}_{job_idx + 1}.slurm")
+            job_dir = join(self.exp_dir, "jobs")
+            makedirs(job_dir, exist_ok=True)
+            job_path = join(job_dir, f"job_{cluster}_{job_idx + 1}.slurm")
             job_paths.append(job_path)
             print(f"{len(cmds) - 1} runs to {job_path}")
             self.write_sbatch(output_path=job_path, setups=setups)

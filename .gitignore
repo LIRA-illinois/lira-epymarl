@@ -8,6 +8,7 @@ sacred/
 output/
 plotting/
 poetry.lock
+jobs/
 job*.slurm
 tmp/
 zzz_run_commands.txt
