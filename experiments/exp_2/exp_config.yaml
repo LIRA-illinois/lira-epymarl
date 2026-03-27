@@ -30,8 +30,6 @@ parameters:
     values: [True]
   wandb_save_model:
     values: [True]
-  use_sacred:
-    values: [False]
 
 
 # don't make these too complex or nest these deeper, it'll probably break something

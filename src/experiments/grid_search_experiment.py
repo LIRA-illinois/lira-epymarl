@@ -38,7 +38,7 @@ class GridSearch(object):
         self.save_params: list[str] = ["wandb_project", "save_model", "wandb_save_model", "use_sacred"]
 
         # unique value for this experiment
-        curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[2:]
+        time_id = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[2:]
 
         if self.args.computer in ["campus", "delta"]:
             slurm_config_path = join(self.exp_dir, "slurm_config.yaml")
@@ -49,7 +49,7 @@ class GridSearch(object):
                 "results",
                 "cluster_logs",
                 self.args.experiment,
-                curr_time,
+                time_id,
             )
             makedirs(cluster_log_dir, exist_ok=True)
 
@@ -79,10 +79,10 @@ class GridSearch(object):
             seeds=seeds,
             scenario_names=scenario_names,
             script_path=self.script_path,
-            curr_time=curr_time,
+            time_id=time_id,
         )
 
-        self.print_info(scenarios, scenario_names, seeds, curr_time)
+        self.print_info(scenarios, scenario_names, seeds, time_id)
 
         if self.args.computer in ["campus", "delta"]:
             job_paths = self.build_sbatch_files(python_cmds, cluster=self.args.computer)
@@ -142,7 +142,7 @@ class GridSearch(object):
         seeds,
         scenario_names,
         script_path: str,
-        curr_time: str,
+        time_id: str,
     ) -> list[str]:
 
         cmds: list[str] = []
@@ -153,10 +153,11 @@ class GridSearch(object):
             setup_params = {
                 "experiment": self.args.experiment,
                 "scenario": scenario_names[scenario_idx],
-                "time_id": curr_time,
+                "time_id": time_id,
             }
             for param in self.save_params:
-                setup_params[param] = _params[param]
+                if _params.get(param):
+                    setup_params[param] = _params.get(param)
 
             # options is rl alg and env
             # update is the "with" params (except seed, you add that in manually)
@@ -332,7 +333,7 @@ class GridSearch(object):
         scenarios: list[dict],
         scenario_names: list[str],
         seeds: list[int],
-        curr_time: str,
+        time_id: str,
     ):
         """print useful info about the experiment"""
         n_scenarios, n_seeds = len(scenarios), len(seeds)
@@ -383,7 +384,7 @@ class GridSearch(object):
                 f"  - Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} sequential runs per runner"
             )
 
-        print(f"  - Seeds: {seeds}\n  - curr_time: {curr_time}\n")
+        print(f"  - Seeds: {seeds}\n  - time_id: {time_id}\n")
 
         table_header = (
             "| Scenario Name | Alg | Env | Params|" +
