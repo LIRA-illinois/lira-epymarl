@@ -264,13 +264,18 @@ class GridSearch(object):
                 "# project setup",
                 f"cd {cluster_project_dir}",
                 f"source {self.venv_activate_path}",
-                "module load cuda/12.4",
-                "nvidia-smi",
             ]
 
+            module_load_lines: list[str] = []
+            if self.args.computer == "campus":
+                module_load_lines.append(
+                    "module load cuda/12.4",
+                )
+            module_load_lines.append("nvidia-smi")
+
             # save the slurm files to disk
-            setups: list[list[str]] = [slurm_config_lines, project_setup_lines, cmds]
-            job_path = join(self.exp_dir, f"job_{job_idx + 1}_{cluster}.slurm")
+            setups: list[list[str]] = [slurm_config_lines, project_setup_lines, module_load_lines, cmds]
+            job_path = join(self.exp_dir, f"job_{cluster}_{job_idx + 1}.slurm")
             job_paths.append(job_path)
             print(f"{len(cmds) - 1} runs to {job_path}")
             self.write_sbatch(output_path=job_path, setups=setups)
@@ -374,7 +379,7 @@ class GridSearch(object):
 
         # print experiment summary in a markdown-formatted table
         n_runs = n_scenarios * n_seeds
-        print(f"\n- Experiment summary")
+        print(f"\n- Experiment summary ({self.args.computer} computer)")
         print(
             f"  - {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
         )

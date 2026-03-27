@@ -13,7 +13,7 @@ tb:
 
 # default values for these params
 g ?= 0
-c ?= campus
+c ?= delta
 m ?= 40
 r ?= 2
 run_experiment:
@@ -28,7 +28,7 @@ screen_experiments:
 # find screen sesions with "exp" in them, use cut to grab the session names, adds a prefix and suffix to quit the session, puts commands in a txt file, and opens the txt file. Does NOT stop the experiments, user must choose which sessions to quit and copy + paste the commands into the terminal.
 screen_experiments_cancel:
 	@screen -ls | grep "exp" | awk "{print $1}" | cut -d"	" -f 2 | sed 's/^/screen -X -S /; s/$$/ quit/' > tmp.txt
-	@code tmp.txt
+	@nano tmp.txt
 	@sleep 0.25
 	@rm -r tmp.txt
 
@@ -50,6 +50,7 @@ queue:
 	squeue -p gpuA40x4 ${job_fmt}
 	printf "\n"
 	squeue -p gpuA100x4 ${job_fmt}
+	printf "\n"
 	squeue -p IllinoisComputes-GPU ${job_fmt}
 	printf "\n"
 	squeue -p eng-research-gpu ${job_fmt}
@@ -60,8 +61,8 @@ jobs:
 	watch -n 0.5 squeue -u jheglun2 ${job_fmt}
 
 jobs_cancel:
-	@squeue -u jheglun2 -O JobID | sed 's/^/scancel /; s/$$/ /' > tmp.txt
-	@code tmp.txt
+	@squeue -u jheglun2 -O JobID | sed 's/^/scancel /; s/$$/ \n /'> tmp.txt
+	@nano tmp.txt
 	@sleep 0.25
 	@rm -r tmp.txt
 
@@ -71,6 +72,10 @@ partitions:
 	sinfo ${partition_fmt}
 
 hardware:
+	sinfo -p gpuA40x4 ${hardware_fmt}
+	printf "\n"
+	sinfo -p gpuA100x4 ${hardware_fmt}
+	printf "\n"
 	sinfo -p IllinoisComputes-GPU ${hardware_fmt}
 	printf "\n"
 	sinfo -p eng-research-gpu ${hardware_fmt}

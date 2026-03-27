@@ -90,8 +90,8 @@ class SlurmArgs:
                 raise NotImplementedError
 
         self.config["mem"] = f"{memory_gb}G"
-        self.config["output"] = join(log_dir, "log.out")
-        self.config["error"] = join(log_dir, "log.err")
+        self.config["output"] = join(log_dir, f"job_{job_idx}_log.out")
+        self.config["error"] = join(log_dir, f"job_{job_idx}_log.err")
 
 
     def get_config_lines(self) -> list[str]:
