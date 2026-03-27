@@ -42,9 +42,9 @@ def run(_run, _config, _log):
         map_name = _config["env_args"]["key"]
 
     # run_name has a unique datetime in it, so only inclue curr_time if that is not available
-    curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
+    curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[2:][:-3]
     unique_token = (
-        f"{args.run_name if args.run_name != "" else curr_time}_"
+        f"{args.run_name if args.run_name != '' else curr_time}_"
         f"{args.env}_{map_name + '_' if map_name != args.env else ''}"
         f"{args.name}_seed_{args.seed}"
     )
@@ -63,6 +63,8 @@ def run(_run, _config, _log):
         else:
             if args.wandb_group != "":
                 run_name = args.wandb_group + f"_seed_{args.seed}"
+            elif args.experiment != "" and args.time_id != "" and args.scenario != "":
+                run_name = f"{args.experiment}_{args.time_id}_{args.scenario}"
             else:
                 run_name = unique_token
 

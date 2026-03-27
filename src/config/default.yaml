@@ -1,6 +1,9 @@
 # --- Defaults ---
 
 # --- pymarl options ---
+experiment: "" # experiment name, empty by default
+scenario: "" # scenario name, empty by default
+time_id: "" # start time for experiment, empty by default
 run_name: "" # run name, empty by default
 runner: "episode" # Runs 1 env for an episode
 mac: "basic_mac" # Basic controller

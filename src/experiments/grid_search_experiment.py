@@ -35,7 +35,7 @@ class GridSearch(object):
             exp_config: dict = yaml.safe_load(f)
 
         self.basic_config_params: list[str] = ["config", "env-config"]
-        self.save_params: list[str] = ["wandb_project", "save_model", "wandb_save_model"]
+        self.save_params: list[str] = ["wandb_project", "save_model", "wandb_save_model", "use_sacred"]
 
         # unique value for this experiment
         curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[2:]
