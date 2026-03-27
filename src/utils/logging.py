@@ -56,7 +56,6 @@ class Logger:
         if group_name == "":
             alg_name = config["name"]
             env_name = config["env"]
-            __import__('ipdb').set_trace(context=3)
             if "map_name" in config["env_args"]:
                 env_name += "_" + config["env_args"]["map_name"]
             elif "key" in config["env_args"] and config["env_args"]["key"] != env_name:
