@@ -9,8 +9,6 @@ metric:
 # params to grid search over
 # all values assumed to be in lists
 parameters:
-  wandb_project:
-    values: [comm_experiments]
   config:
     values: [maic, qmix]
   env-config:
@@ -25,6 +23,14 @@ parameters:
   # n_seeds:
   #   value: 5
 
+  # project setup stuff
+  wandb_project:
+    values: [comm_experiments]
+  save_model:
+    values: [True]
+  wandb_save_model:
+    values: [True]
+
 
 # don't make these too complex or nest these deeper, it'll probably break something
 conditional_parameters:
@@ -32,11 +38,11 @@ conditional_parameters:
     maic:
       mixer:
         values: [vdn, qmix]
-    qmix:
-      mixer:
-        values: [qmix]
+    # qmix:
+    #   mixer:
+    #     values: [qmix]
 
-  # example of a second set of conditional params, trying different rewards across the different envs
+  # example of a second set of conditional params that sweeps different rewards across the different envs
   # env-config:
   #   join1-v0:
   #     reward_win:

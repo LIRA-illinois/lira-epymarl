@@ -44,7 +44,7 @@ def run(_run, _config, _log):
     # run_name has a unique datetime in it, so only inclue curr_time if that is not available
     curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
     unique_token = (
-        f"{args.run_name if len(args.run_name) > 0 else curr_time}_"
+        f"{args.run_name if args.run_name != "" else curr_time}_"
         f"{args.env}_{map_name + '_' if map_name != args.env else ''}"
         f"{args.name}_seed_{args.seed}"
     )
@@ -58,12 +58,20 @@ def run(_run, _config, _log):
         logger.setup_tb(tb_exp_direc)
 
     if args.use_wandb:
+        if args.run_name != "":
+            run_name = args.run_name
+        else:
+            if args.wandb_group != "":
+                run_name = args.wandb_group + f"_seed_{args.seed}"
+            else:
+                run_name = unique_token
+
         logger.setup_wandb(
             config=_config,
             team_name=args.wandb_team,
             project_name=args.wandb_project,
             group_name=args.run_name,
-            run_name=args.run_name if len(args.run_name) > 0 else unique_token,
+            run_name=run_name,
             mode=args.wandb_mode,
         )
 

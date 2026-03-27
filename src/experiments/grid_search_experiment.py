@@ -34,7 +34,11 @@ class GridSearch(object):
         with open(exp_config_path, "r", encoding="utf8") as f:
             exp_config: dict = yaml.safe_load(f)
 
-        curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[:-3]
+        self.basic_config_params: list[str] = ["config", "env-config"]
+        self.save_params: list[str] = ["wandb_project", "save_model", "wandb_save_model"]
+
+        # unique value for this experiment
+        curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[2:]
 
         if self.args.computer in ["campus", "delta"]:
             slurm_config_path = join(self.exp_dir, "slurm_config.yaml")
@@ -78,13 +82,13 @@ class GridSearch(object):
             curr_time=curr_time,
         )
 
-        self.print_info(scenarios, scenario_names, seeds)
+        self.print_info(scenarios, scenario_names, seeds, curr_time)
 
         if self.args.computer in ["campus", "delta"]:
             job_paths = self.build_sbatch_files(python_cmds, cluster=self.args.computer)
 
         # check if user wants to run the experiment
-        if input("Run experiment now? (y/n)").lower() == "y":
+        if input("Run experiment now? (y/n) ").lower() == "y":
             print("Running experiment")
             match self.args.computer:
                 case "lab":
@@ -145,23 +149,35 @@ class GridSearch(object):
 
         for scenario_idx, params in enumerate(scenarios):
             _params = params.copy()
-            _params["run_name"] = (
-                f"{self.args.experiment}_{curr_time}_{scenario_names[scenario_idx]}"
-            )
+            # unique wandb group name for each experimental scenario + runtime, used to group runs on the wandb website for post-processing
+            setup_params = {
+                "experiment": self.args.experiment,
+                "scenario": scenario_names[scenario_idx],
+                "time_id": curr_time,
+            }
+            for param in self.save_params:
+                setup_params[param] = _params[param]
 
             # options is rl alg and env
             # update is the "with" params (except seed, you add that in manually)
             options = []
             updates = []
             for k, v in _params.items():
-                if k in ["config", "env-config"]:
+                if k in self.basic_config_params:
                     options.append(f"--{k}={v}")
                 else:
-                    updates.append(f"{k}={v}")
+                    if k not in setup_params:
+                        updates.append(f"{k}={v}")
 
             # define the command to be run
             for seed in seeds:
-                python_cmd = f"python3 {script_path} {' '.join(options)} with {' '.join(updates)} seed={seed}"
+                # unique name for each wandb run using seed
+                run_params = {
+                    "seed": seed,
+                }
+                run_updates = [f"{k}={v}" for d in [run_params, setup_params] for k, v in d.items()]
+
+                python_cmd = f"python3 {script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)}"
                 cmds.append(python_cmd)
 
         return cmds
@@ -220,6 +236,8 @@ class GridSearch(object):
 
         job_paths: list[str] = []
 
+        print(f"Writing job files")
+
         # loop thru all jobs, get the slurm config args needed to generate the slurm file and generate the slurm file
         for job_idx, cmds in jobs.items():
             cmds.insert(0, "# job commands")
@@ -253,7 +271,7 @@ class GridSearch(object):
             setups: list[list[str]] = [slurm_config_lines, project_setup_lines, cmds]
             job_path = join(self.exp_dir, f"job_{job_idx + 1}_{cluster}.slurm")
             job_paths.append(job_path)
-            print(f"Writing job file to {job_path}")
+            print(f"{len(cmds) - 1} runs to {job_path}")
             self.write_sbatch(output_path=job_path, setups=setups)
 
         return job_paths
@@ -314,6 +332,7 @@ class GridSearch(object):
         scenarios: list[dict],
         scenario_names: list[str],
         seeds: list[int],
+        curr_time: str,
     ):
         """print useful info about the experiment"""
         n_scenarios, n_seeds = len(scenarios), len(seeds)
@@ -354,18 +373,21 @@ class GridSearch(object):
 
         # print experiment summary in a markdown-formatted table
         n_runs = n_scenarios * n_seeds
-        print(f"\nExperiment summary")
+        print(f"\n- Experiment summary")
         print(
-            f"{n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
+            f"  - {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
         )
+
         if self.args.computer == "lab":
             print(
-                f"Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} sequential runs per runner"
+                f"  - Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} sequential runs per runner"
             )
-        print(f"Seeds: {seeds}\n")
+
+        print(f"  - Seeds: {seeds}\n  - curr_time: {curr_time}\n")
 
         table_header = (
-            "| Scenario Name | Alg | Env | Params |\n|----| ---- | ---- | ---- |"
+            "| Scenario Name | Alg | Env | Params|" +
+            "\n|----| ---- | ---- | ---- |"
         )
         print(table_header)
 
@@ -373,10 +395,10 @@ class GridSearch(object):
             # print params to markdown table
             other_params = ""
             for k, v in params.items():
-                if k not in ["config", "env-config"]:
+                if k not in self.basic_config_params + self.save_params:
                     other_params += f"{k}={v} "
 
-            table_line = f"| {scenario_names[scenario_idx]} | {params['config']} | {params['env-config']} | {other_params} | "
+            table_line = f"| {scenario_names[scenario_idx]} | {params['config']} | {params['env-config']} | {other_params}|"
             print(table_line)
         print("")
 

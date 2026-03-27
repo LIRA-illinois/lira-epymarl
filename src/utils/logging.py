@@ -39,6 +39,7 @@ class Logger:
         mode,
         group_name: str = "",
         run_name: str = "",
+        run_id: str | None = None
     ):
         import wandb
 
@@ -71,6 +72,7 @@ class Logger:
 
         # start a wandb run
         self.wandb = wandb.init(
+            id=run_id,
             name=run_name,
             entity=team_name,
             project=project_name,
@@ -79,6 +81,7 @@ class Logger:
             mode=mode,
             dir="results/wandb/",
         )
+
         # save run files here
         self.dir = self.wandb.dir
 

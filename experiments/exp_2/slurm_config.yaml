@@ -1,4 +1,4 @@
-time: "0-24:00:00"
+time: "0-30:00:00"
 memory_gb: 64
 
 delta_config: {
