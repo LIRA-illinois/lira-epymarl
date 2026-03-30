@@ -14,7 +14,7 @@ tb:
 # default values for these params
 g ?= 0
 c ?= delta
-m ?= 40
+m ?= 30
 r ?= 2
 run_experiment:
 	bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e ${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r}'

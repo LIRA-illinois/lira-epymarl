@@ -131,7 +131,7 @@ class GridSearch(object):
                     scenarios += updated_scenarios
 
         scenario_names: list[str] = [
-            f"sc_{scenario_idx+1}" for scenario_idx, _ in enumerate(scenarios)
+            f"{scenario_idx+1}".zfill(2) for scenario_idx, _ in enumerate(scenarios)
         ]
 
         return scenarios, scenario_names
@@ -153,7 +153,7 @@ class GridSearch(object):
             setup_params = {
                 "experiment": self.args.experiment,
                 "scenario": scenario_names[scenario_idx],
-                "time_id": time_id,
+                "time_id": f"{self.args.experiment}_{time_id}",
             }
             for param in self.save_params:
                 if _params.get(param):
