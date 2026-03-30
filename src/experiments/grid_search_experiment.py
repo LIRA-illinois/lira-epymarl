@@ -51,7 +51,6 @@ class GridSearch(object):
                 self.args.experiment,
                 time_id,
             )
-            makedirs(cluster_log_dir, exist_ok=True)
 
             self.slurm_config["experiment"] = self.args.experiment
             self.slurm_config["cluster"] = self.args.computer
@@ -94,6 +93,7 @@ class GridSearch(object):
                 case "lab":
                     self.run_experiment_lab(python_cmds)
                 case "campus" | "delta":
+                    makedirs(cluster_log_dir, exist_ok=True)
                     self.run_experiment_cluster(job_paths)
 
         else:
