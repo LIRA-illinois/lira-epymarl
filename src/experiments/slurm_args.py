@@ -83,9 +83,10 @@ class SlurmArgs:
                 self.config["account"] = "huytran1-ic"
                 self.config["nodes"] = nodes
 
-                # ‑‑ntasks=p  Total number of cores for the batch job. p is how many cores (ntasks) per job or per node (ntasks-per-node) to use (1 through 40) [default: 1 core].                
+                # ‑‑ntasks=p  Total number of cores for the batch job. p is how many cores (ntasks) per job or per node (ntasks-per-node) to use (1 through 40) [default: 1 core].
                 # https://docs.ncsa.illinois.edu/systems/icc/en/latest/user_guide/running_jobs.html
                 self.config["ntasks"] = cpus_per_task
+
                 # this cluster can also take a "gres" (GPU resources) argument instead of gpus-per-node. gres takes the format "gpu:{gpu_type}:{n_gpus}"
                 # EX: gpu:A100:2 requests 2 Nvidia A100 GPUs on whatever partition you're submitting your job to
                 # this is different from Delta where choosing the partition also chooses
