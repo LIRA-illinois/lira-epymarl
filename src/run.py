@@ -63,8 +63,8 @@ def run(_run, _config, _log):
         else:
             if args.wandb_group != "":
                 run_name = args.wandb_group + f"_seed_{args.seed}"
-            elif args.experiment != "" and args.time_id != "" and args.scenario != "":
-                run_name = f"{args.experiment}_{args.time_id}_{args.scenario}"
+            elif args.time_id != "" and args.scenario != "":
+                run_name = f"{args.time_id}_sc_{args.scenario}"
             else:
                 run_name = unique_token
 
@@ -75,6 +75,7 @@ def run(_run, _config, _log):
             group_name=args.run_name,
             run_name=run_name,
             mode=args.wandb_mode,
+            save_replays=args.wandb_save_test_replays,
         )
 
     # sacred is on by default
@@ -256,7 +257,6 @@ def run_sequential(args, logger):
 
                 runner.run(test_mode=True)
 
-
         if args.save_model and (
             runner.t_env - model_save_time >= args.save_model_interval
             or model_save_time == 0
@@ -274,13 +274,13 @@ def run_sequential(args, logger):
             learner.save_models(save_path)
 
             if args.use_wandb and args.wandb_save_model:
-                wandb_save_dir = os.path.join(
-                    logger.wandb.dir, "models", args.unique_token, str(runner.t_env)
-                )
-                os.makedirs(wandb_save_dir, exist_ok=True)
-                for f in os.listdir(save_path):
-                    shutil.copyfile(
-                        os.path.join(save_path, f), os.path.join(wandb_save_dir, f)
+                for model_name in os.listdir(save_path):
+                    logger.log_model(
+                        save_path=os.path.join(
+                            save_path, model_name
+                        ),
+                        t_env=runner.t_env,
+                        model_name=model_name,
                     )
 
         episode += args.batch_size_run

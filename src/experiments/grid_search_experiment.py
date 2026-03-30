@@ -28,6 +28,8 @@ class GridSearch(object):
         self.venv_activate_path = join(".venv", "bin", "activate")
         self.exp_dir = join("experiments", self.args.experiment)
         self.script_path = join("src", "main.py")
+        self.job_dir = join(self.exp_dir, "jobs")
+        makedirs(self.job_dir, exist_ok=True)
 
         # setup
         exp_config_path = join(self.exp_dir, "exp_config.yaml")
@@ -35,7 +37,15 @@ class GridSearch(object):
             exp_config: dict = yaml.safe_load(f)
 
         self.basic_config_params: list[str] = ["config", "env-config"]
-        self.save_params: list[str] = ["wandb_project", "save_model", "wandb_save_model", "use_sacred"]
+        self.save_params: list[str] = [
+            "wandb_project",
+            "save_model",
+            "save_model_interval",
+            "save_test_replays",
+            "wandb_save_model",
+            "use_sacred",
+            "wandb_save_test_replays",
+        ]
 
         # unique value for this experiment
         time_id = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[2:]
@@ -81,7 +91,7 @@ class GridSearch(object):
             time_id=time_id,
         )
 
-        self.print_info(scenarios, scenario_names, seeds, time_id)
+        self.print_info(scenarios, scenario_names, seeds, time_id, python_cmds)
 
         if self.args.computer in ["campus", "delta"]:
             job_paths = self.build_sbatch_files(python_cmds, cluster=self.args.computer)
@@ -176,7 +186,9 @@ class GridSearch(object):
                 run_params = {
                     "seed": seed,
                 }
-                run_updates = [f"{k}={v}" for d in [run_params, setup_params] for k, v in d.items()]
+                run_updates = [
+                    f"{k}={v}" for d in [run_params, setup_params] for k, v in d.items()
+                ]
 
                 python_cmd = f"python3 {script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)}"
                 cmds.append(python_cmd)
@@ -275,15 +287,17 @@ class GridSearch(object):
                 "echo 'Running on node with hostname:'",
                 "hostname -s",
                 "nvidia-smi",
-                "python3 src/experiments/node_test.py"
+                "python3 src/experiments/node_test.py",
             ]
 
-
             # save the slurm files to disk
-            setups: list[list[str]] = [slurm_config_lines, project_setup_lines, module_load_lines, cmds]
-            job_dir = join(self.exp_dir, "jobs")
-            makedirs(job_dir, exist_ok=True)
-            job_path = join(job_dir, f"job_{cluster}_{job_idx + 1}.slurm")
+            setups: list[list[str]] = [
+                slurm_config_lines,
+                project_setup_lines,
+                module_load_lines,
+                cmds,
+            ]
+            job_path = join(self.job_dir, f"job_{cluster}_{job_idx + 1}.slurm")
             job_paths.append(job_path)
             print(f"{len(cmds) - 1} runs to {job_path}")
             self.write_sbatch(output_path=job_path, setups=setups)
@@ -347,6 +361,7 @@ class GridSearch(object):
         scenario_names: list[str],
         seeds: list[int],
         time_id: str,
+        python_cmds: list[str],
     ):
         """print useful info about the experiment"""
         n_scenarios, n_seeds = len(scenarios), len(seeds)
@@ -392,16 +407,10 @@ class GridSearch(object):
             f"  - {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
         )
 
-        if self.args.computer == "lab":
-            print(
-                f"  - Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} sequential runs per runner"
-            )
-
         print(f"  - Seeds: {seeds}\n  - time_id: {time_id}\n")
 
         table_header = (
-            "| Scenario Name | Alg | Env | Params|" +
-            "\n|----| ---- | ---- | ---- |"
+            "| Scenario Name | Alg | Env | Params|" + "\n|----| ---- | ---- | ---- |"
         )
         print(table_header)
 
@@ -414,12 +423,19 @@ class GridSearch(object):
 
             table_line = f"| {scenario_names[scenario_idx]} | {params['config']} | {params['env-config']} | {other_params}|"
             print(table_line)
+
         print("")
 
-        # save_path = join(self.exp_dir, "python_cmds.txt")
-        # with open(save_path, "w") as f:
-        #     for cmd in python_cmds:
-        #         f.write(f"{cmd}\n")
+        if self.args.computer == "lab":
+            print(
+                f"Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} sequential runs per runner"
+            )
+
+            save_path = join(self.job_dir, "job_lab.txt")
+            print(f"Saving python commands to {save_path}")
+            with open(save_path, "w", encoding="utf8") as f:
+                for cmd in python_cmds:
+                    f.write(f"{cmd}\n")
 
     def write_sbatch(self, output_path: str, setups: list[list[str]]) -> None:
         with open(output_path, "w", encoding="utf8") as f:

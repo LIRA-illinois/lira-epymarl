@@ -72,6 +72,8 @@ class EpisodeRunner:
         # remove the RecordVideo wrapper (assumed to be the outer-most wrapper)
         if isinstance(self.env, RecordVideo):
             self.env.stop_recording()
+            if self.logger.save_replays:
+                self.logger.log_replays(video_dir=self.env.video_folder, t_env=self.t_env)
             self.env = self.env.env
         else:
             pass

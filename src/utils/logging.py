@@ -1,8 +1,10 @@
+import os
 from collections import defaultdict
 from hashlib import sha256
 import json
 import logging
 
+import wandb
 import numpy as np
 
 
@@ -14,6 +16,7 @@ class Logger:
         self.use_wandb = False
         self.use_sacred = False
         self.use_hdf = False
+        self.save_replays: bool = False
 
         self.stats = defaultdict(lambda: [])
         self.dir: str
@@ -39,9 +42,9 @@ class Logger:
         mode,
         group_name: str = "",
         run_name: str = "",
-        run_id: str | None = None
+        run_id: str | None = None,
+        save_replays: bool = False,
     ):
-        import wandb
 
         assert (
             team_name is not None and project_name is not None
@@ -52,6 +55,7 @@ class Logger:
         ], f"Invalid value for `wandb_mode`. Received {mode} but only 'online' and 'offline' are supported."
 
         self.use_wandb = True
+        self.save_replays = save_replays
 
         if group_name == "":
             alg_name = config["name"]
@@ -125,6 +129,25 @@ class Logger:
                 self.sacred_info[key] = [value]
 
             self._run_obj.log_scalar(key, value, t)
+
+    def log_replays(self, video_dir: str, t_env: int):
+        # log all replays in a directory to a wandb run
+        if self.use_wandb:
+            for _, _, videos in os.walk(video_dir):
+                for video in videos:
+                    video_path = os.path.join(video_dir, video)
+                    video_name, extension = video.split(".")[0], video.split(".")[1]
+                    self.wandb.log(
+                        {
+                            f"t_{t_env}_{video_name}": wandb.Video(
+                                video_path, format=extension
+                            )
+                        }
+                    )
+
+    def log_model(self, save_path, t_env, model_name):
+        if self.use_wandb:
+            self.wandb.log_model(path=save_path, name=f"t_env_{t_env}_{model_name}")
 
     def print_recent_stats(self):
         log_str = "Recent Stats | t_env: {:>10} | Episode: {:>8}\n".format(
