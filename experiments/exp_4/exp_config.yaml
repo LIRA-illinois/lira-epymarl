@@ -7,7 +7,7 @@ metric:
   name: test_return_mean
 
 # params to grid search over
-# all values assumed to be in lists
+# all values except n_seeds assumed to be in lists
 parameters:
   config:
     values: [maic, qmix]
@@ -30,11 +30,39 @@ parameters:
     values: [True]
 
 # don't make these too complex or nest these deeper, it'll probably break something
+conditional_parameters:
+  config:
+    maic:
+      mixer:
+        values: [vdn, qmix]
+
+
+
+# # only run MAIC w/ VDN mixer
+# parameters:
+#   config:
+#     values: [maic]
+#   env-config:
+#     values: [join1_original, join1-v0]
+#   lr:
+#     values: [0.00005, 0.0001]
+#   seed:
+#     values: [766323, 55721, 105057, 940163, 211542]
+
+#   # project setup stuff
+#   wandb_project:
+#     values: [comm_experiments]
+#   save_model:
+#     values: [True]
+#   wandb_save_model:
+#     values: [True]
+
+# # don't make these too complex or nest these deeper, it'll probably break something
 # conditional_parameters:
 #   config:
 #     maic:
 #       mixer:
-#         values: [vdn, qmix]
-    # qmix:
-    #   mixer:
-    #     values: [qmix]
+#         values: [vdn]
+
+
+

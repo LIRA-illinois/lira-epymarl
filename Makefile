@@ -15,6 +15,7 @@ tb:
 	screen -dmS tensorboard_${project_name} bash -c 'source .venv/bin/activate; tensorboard --bind_all --port=6009 --logdir "results/tb_logs/"'
 
 # default values for these params
+# pass in gpus as a space-delimited string like g="0 1 2"
 g ?= 0
 c ?= delta
 m ?= 30

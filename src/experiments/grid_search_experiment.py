@@ -365,6 +365,7 @@ class GridSearch(object):
     ):
         """print useful info about the experiment"""
         n_scenarios, n_seeds = len(scenarios), len(seeds)
+        spaces = " " * 4
 
         if self.args.computer == "lab":
             from torch.cuda import get_device_properties
@@ -404,10 +405,10 @@ class GridSearch(object):
         n_runs = n_scenarios * n_seeds
         print(f"\n- Experiment summary ({self.args.computer} computer)")
         print(
-            f"  - {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
+            f"{spaces}- {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
         )
 
-        print(f"  - Seeds: {seeds}\n  - time_id: {time_id}\n")
+        print(f"{spaces}- Seeds: {seeds}\n{spaces}- time_id: {time_id}\n")
 
         table_header = (
             "| Scenario Name | Alg | Env | Params|" + "\n|----| ---- | ---- | ---- |"
