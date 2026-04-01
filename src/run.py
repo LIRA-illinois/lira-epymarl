@@ -32,10 +32,6 @@ def run(_run, _config, _log):
     # setup loggers
     logger = Logger(_log)
 
-    _log.info("Experiment Parameters:")
-    experiment_params = pprint.pformat(_config, indent=4, width=1)
-    _log.info("\n\n" + experiment_params + "\n")
-
     try:
         map_name = _config["env_args"]["map_name"]
     except:
@@ -80,6 +76,9 @@ def run(_run, _config, _log):
 
     # sacred is on by default
     if args.use_sacred:
+        _log.info("Experiment Parameters:")
+        experiment_params = pprint.pformat(_config, indent=4, width=1)
+        _log.info("\n\n" + experiment_params + "\n")
         logger.setup_sacred(_run)
 
     # Run and train
