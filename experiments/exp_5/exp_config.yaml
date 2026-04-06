@@ -6,47 +6,74 @@ metric:
   goal: maximize
   name: test_return_mean
 
+# testing + dev
 # params to grid search over
 # all values assumed to be in lists
 parameters:
   config:
     values: [maic]
-    # values: [maic, qmix]
   env-config:
-    values: [foraging-v2]
-  # lr:
-  #   values: [0.00005, 0.0001]
+    values: [multigrid-lbf-v0]
+  lr:
+    values: [0.00005]
+    # values: [0.00005, 0.0001]
   # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
   n_seeds:
-    value: 2
-    # value: 5
+    value: 1
 
   # project setup stuff
-  wandb_project:
-    values: [comm_experiments]
-  save_model:
-    values: [True]
-  wandb_save_model:
-    values: [True]
-  save_test_replays:
-    values: [True]
-  wandb_save_test_replays:
-    values: [True]
-  test_interval:
-    values: [50]
-  save_model_interval:
-    values: [50]
-  t_max:
-    values: [200]
+  use_wandb:
+    values: [False]
+  use_sacred:
+    values: [False]
+  # wandb_project:
+  #   values: [comm_experiments]
+  # save_model:
+  #   values: [True]
+  # wandb_save_model:
+  #   values: [True]
+  # save_test_replays:
+  #   values: [True]
+  # wandb_save_test_replays:
+  #   values: [True]
 
-# don't make these too complex or nest these deeper, it'll probably break something
+
+# real experiment
+# params to grid search over
+# all values assumed to be in lists
+# parameters:
+#   config:
+#     values: [maic, qmix]
+#   env-config:
+#     values: [foraging-v2]
+#   lr:
+#     values: [0.00005, 0.0001]
+#   # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
+#   # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
+#   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
+#   n_seeds:
+#     value: 5
+
+#   # project setup stuff
+#   wandb_project:
+#     values: [comm_experiments]
+#   save_model:
+#     values: [True]
+#   wandb_save_model:
+#     values: [True]
+#   save_test_replays:
+#     values: [True]
+#   wandb_save_test_replays:
+#     values: [True]
+
+# # don't make these too complex or nest these deeper, it'll probably break something
 # conditional_parameters:
 #   config:
 #     maic:
 #       mixer:
-#         values: [vdn, qmix]
-    # qmix:
-    #   mixer:
-    #     values: [qmix]
+#         values: [vdn]
+#     qmix:
+#       mixer:
+#         values: [qmix]

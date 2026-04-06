@@ -71,7 +71,6 @@ REGISTRY["gymma"] = gymma_fn
 def gym_multigrid_fn(**kwargs) -> gym.Env:
     return GymMultiGridWrapper(**kwargs)
 
-
 REGISTRY["gym_multigrid"] = gym_multigrid_fn
 
 

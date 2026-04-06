@@ -13,6 +13,7 @@ SUPPORTED_ENVS = (
     "foraging-v2",
     "join1-v0",
     "join1_original",
+    "multigrid-lbf-v0"
 )
 
 NON_GYMNASIUM_ENVS = {"join1_original": join1.Join1EnvOriginal}

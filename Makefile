@@ -21,7 +21,7 @@ c ?= delta
 m ?= 30
 r ?= 2
 run_experiment:
-	bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e ${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r}'
+	bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r}'
 
 activate_venv:
 	bash -c 'source .venv/bin/activate; /bin/bash'
