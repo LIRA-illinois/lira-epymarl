@@ -21,7 +21,7 @@ parameters:
   seed:
     values: [258813, 25258, 543562, 276098, 197226]
   # n_seeds:
-  #   value: 5
+  #   values: [5]
 
   # project setup stuff
   wandb_project:

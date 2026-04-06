@@ -1,6 +1,9 @@
+from os import makedirs
+from os.path import join
 import torch as th
 import numpy as np
 from types import SimpleNamespace as SN
+import json
 
 
 class EpisodeBatch:
@@ -249,3 +252,68 @@ class ReplayBuffer(EpisodeBatch):
                                                                         self.scheme.keys(),
                                                                         self.groups.keys())
 
+    def get_buffer_dir(self, run_id):
+        buffer_dir = join("results", "replay_buffers")
+        save_dir = join(buffer_dir, run_id)
+        for dir in [buffer_dir, save_dir]:
+            makedirs(dir, exist_ok=True)
+        return save_dir
+
+    # saving and loading from https://github.com/mansicer/MAIC/tree/main
+    def save(self, run_id):
+        print('start saving buffer')
+        print('episodes_in_buffer:', self.episodes_in_buffer)
+        save_dir = self.get_buffer_dir(run_id)
+        self._save_numpy_data(save_dir)
+        file_path = join(save_dir, 'meta.json')
+        meta = {'buffer_index': self.buffer_index,
+                'episodes_in_buffer': self.episodes_in_buffer,
+                'buffer_size': self.buffer_size}
+
+        with open(file_path, 'w') as fp:
+            json.dump(meta, fp)
+
+        print('finish saving buffer!')
+
+    def _save_numpy_data(self, save_dir):
+        for data in [self.data.transition_data, self.data.episode_data]:
+            for key, item in data.items():
+                save_path = join(save_dir, key + '.npy')
+                data = item.cpu().clone().detach().numpy()
+                np.save(save_path, data)
+
+    def load(self, run_id):
+        print('start loading buffer!')
+        save_dir = self.get_buffer_dir(run_id)
+        self._load_numpy_data(save_dir)
+
+        file_name = save_dir + 'meta.json'
+
+        with open(file_name) as fd:
+            meta = json.load(fd)
+        self.buffer_index = meta['buffer_index']
+        self.episodes_in_buffer = meta['episodes_in_buffer']
+        self.buffer_size = meta['buffer_size']
+        print('episodes_in_buffer: ', self.episodes_in_buffer)
+        print('finish loading buffer!')
+
+
+    def _load_numpy_data(self, save_dir):
+        for data in [self.data.transition_data, self.data.episode_data]:
+            for key, item in data.items():
+                save_path = join(save_dir, key + '.npy')
+                data = item.cpu().clone().detach().numpy()
+                np.save(save_path, data)
+
+        # for key, item in self.data.transition_data.items():
+        #     file_name = path_name + key + '.npy'
+        #     data = th.from_numpy(np.load(file_name))
+        #     # if self.device == 'gpu':
+        #     #     data = data.gpu()
+        #     self.data.transition_data[key] = data
+        # for key, item in self.data.episode_data.items():
+        #     file_name = path_name + key + '.npy'
+        #     data = th.from_numpy(np.load(file_name))
+        #     # if self.device == 'gpu':
+        #     #     data = data.gpu()
+        #     self.data.episode_data[key] = data

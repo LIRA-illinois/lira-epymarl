@@ -1,6 +1,7 @@
 import os
 from functools import partial
 import numpy as np
+from numpy.typing import NDArray
 from gymnasium.wrappers import RecordVideo
 
 from components.episode_buffer import EpisodeBatch
@@ -65,15 +66,24 @@ class EpisodeRunner:
         replay_dir = os.path.join(self.logger.dir, f"replays")
         os.makedirs(replay_dir, exist_ok=True)
         video_folder = os.path.join(replay_dir, f"t_{self.t_env}")
-        self.logger.console_logger.info(f"Saving {n_test_replays_save} test episode replays to {video_folder}")
-        self.env = RecordVideo(env=self.env, video_folder=video_folder, episode_trigger = lambda e: True, name_prefix="replay")
+        self.logger.console_logger.info(
+            f"Saving {n_test_replays_save} test episode replays to {video_folder}"
+        )
+        self.env = RecordVideo(
+            env=self.env,
+            video_folder=video_folder,
+            episode_trigger=lambda e: True,
+            name_prefix="replay",
+        )
 
     def stop_recording(self):
         # remove the RecordVideo wrapper (assumed to be the outer-most wrapper)
         if isinstance(self.env, RecordVideo):
             self.env.stop_recording()
             if self.logger.save_replays:
-                self.logger.log_replays(video_dir=self.env.video_folder, t_env=self.t_env)
+                self.logger.log_replays(
+                    video_dir=self.env.video_folder, t_env=self.t_env
+                )
             self.env = self.env.env
         else:
             pass
@@ -85,6 +95,26 @@ class EpisodeRunner:
         self.batch = self.new_batch()
         self.env.reset()
         self.t = 0
+
+    def select_actions(self, test_mode: bool) -> NDArray:
+        """
+        choose actions with option to use action space sampler
+
+        Returns
+        -------
+        NDArray
+            array of actions, shape (1, n_agents)
+        """
+
+        if self.args.action_selector == "action_space":
+            actions = np.expand_dims(np.array(self.env.action_space.sample()), 0)
+        else:
+            actions = self.mac.select_actions(
+                self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
+            )
+            # following the format from the parallel episode runner
+            actions = actions.cpu().numpy()
+        return actions
 
     def run(self, test_mode=False):
         self.reset()
@@ -98,19 +128,16 @@ class EpisodeRunner:
 
         while not terminated:
             pre_transition_data = {
-                "state": [self.env.unwrapped.get_state()],
-                "avail_actions": [self.env.unwrapped.get_avail_actions()],
-                "obs": [self.env.unwrapped.get_obs()],
+                "state": [self.env.get_state()],
+                "avail_actions": [self.env.get_avail_actions()],
+                "obs": [self.env.get_obs()],
             }
 
             self.batch.update(pre_transition_data, ts=self.t)
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
-            actions = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode)
-
-            # following the format from the parallel episode runner
-            actions = actions.cpu().numpy()
+            actions = self.select_actions(test_mode=test_mode)
 
             _, reward, terminated, truncated, env_info = self.env.step(actions[0])
             terminated = terminated or truncated
@@ -132,18 +159,16 @@ class EpisodeRunner:
             self.t += 1
 
         last_data = {
-            "state": [self.env.unwrapped.get_state()],
-            "avail_actions": [self.env.unwrapped.get_avail_actions()],
-            "obs": [self.env.unwrapped.get_obs()],
+            "state": [self.env.get_state()],
+            "avail_actions": [self.env.get_avail_actions()],
+            "obs": [self.env.get_obs()],
         }
         if test_mode and self.args.render:
             print(f"Episode return: {episode_return}")
         self.batch.update(last_data, ts=self.t)
 
         # Select actions in the last stored state
-        actions = self.mac.select_actions(
-            self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
-        )
+        actions = self.select_actions(test_mode=test_mode)
         self.batch.update({"actions": actions}, ts=self.t)
 
         cur_stats = self.test_stats if test_mode else self.train_stats

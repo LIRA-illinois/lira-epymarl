@@ -9,7 +9,7 @@ be stopped 1 at a time.
 """
 
 from typing import Literal
-from os import environ, makedirs, getcwd
+from os import environ, makedirs, getcwd, walk
 from os.path import join
 import math
 from itertools import product
@@ -18,6 +18,8 @@ import subprocess
 import datetime
 from random import SystemRandom
 import yaml
+import pandas as pd
+import numpy as np
 
 from slurm_args import SlurmArgs
 
@@ -38,6 +40,7 @@ class GridSearch(object):
 
         self.basic_config_params: list[str] = ["config", "env-config"]
         self.save_params: list[str] = [
+            "cmd",
             "wandb_project",
             "save_model",
             "save_model_interval",
@@ -45,6 +48,8 @@ class GridSearch(object):
             "wandb_save_model",
             "use_sacred",
             "wandb_save_test_replays",
+            "use_wandb",
+            "save_replay_buffer",
         ]
 
         # unique value for this experiment
@@ -72,7 +77,7 @@ class GridSearch(object):
         else:
             if exp_config["parameters"].get("n_seeds", False):
                 # generate n_seeds random seeds to use in this experiment
-                n_seeds = exp_config["parameters"].pop("n_seeds")["value"]
+                n_seeds = exp_config["parameters"].pop("n_seeds")["values"][0]
             else:
                 # default value
                 n_seeds = 5
@@ -81,9 +86,20 @@ class GridSearch(object):
             rng = SystemRandom()
             seeds = [rng.randint(0, 1000000) for _ in range(n_seeds)]
 
+        # check if running bisimulation test
+        if exp_config["parameters"].get("env_bisimulation_test", False):
+            env_bisimulation_test = exp_config["parameters"].pop(
+                "env_bisimulation_test"
+            )["values"][0]
+            # add save_replay_buffer to the config so you can run the post-processing
+            exp_config["parameters"]["save_replay_buffer"] = {"values": ["True"]}
+
+        else:
+            env_bisimulation_test = False
+
         scenarios, scenario_names = self.get_scenarios(exp_config)
 
-        python_cmds = self.get_python_commands(
+        run_setups = self.get_run_setups(
             scenarios=scenarios,
             seeds=seeds,
             scenario_names=scenario_names,
@@ -91,20 +107,25 @@ class GridSearch(object):
             time_id=time_id,
         )
 
-        self.print_info(scenarios, scenario_names, seeds, time_id, python_cmds)
+        self.print_info(scenarios, run_setups)
 
         if self.args.computer in ["campus", "delta"]:
-            job_paths = self.build_sbatch_files(python_cmds, cluster=self.args.computer)
+            job_paths = self.build_sbatch_files(run_setups, cluster=self.args.computer)
 
         # check if user wants to run the experiment
-        if input("Run experiment now? (y/n) ").lower() == "y":
+        user_input = input("Run experiment now? (y/n) ").lower()
+        if user_input == "y":
             print("Running experiment")
-            match self.args.computer:
-                case "lab":
-                    self.run_experiment_lab(python_cmds)
-                case "campus" | "delta":
-                    makedirs(cluster_log_dir, exist_ok=True)
-                    self.run_experiment_cluster(job_paths)
+            if env_bisimulation_test:
+                self.run_bisimulation_test(run_setups)
+
+            else:
+                match self.args.computer:
+                    case "lab":
+                        self.run_experiment_lab(run_setups.cmd)
+                    case "campus" | "delta":
+                        makedirs(cluster_log_dir, exist_ok=True)
+                        self.run_experiment_cluster(job_paths)
 
         else:
             print("Exiting without running experiment")
@@ -146,28 +167,27 @@ class GridSearch(object):
 
         return scenarios, scenario_names
 
-    def get_python_commands(
+    def get_run_setups(
         self,
-        scenarios,
-        seeds,
-        scenario_names,
+        scenarios: list[str],
+        seeds: list[int],
+        scenario_names: list[str],
         script_path: str,
         time_id: str,
-    ) -> list[str]:
+    ) -> pd.DataFrame:
 
-        cmds: list[str] = []
-
+        run_setups: list[dict] = []
         for scenario_idx, params in enumerate(scenarios):
             _params = params.copy()
             # unique wandb group name for each experimental scenario + runtime, used to group runs on the wandb website for post-processing
-            setup_params = {
+            scenario_params = {
                 "experiment": self.args.experiment,
                 "scenario": scenario_names[scenario_idx],
                 "time_id": f"{self.args.experiment}_{time_id}",
             }
             for param in self.save_params:
                 if _params.get(param):
-                    setup_params[param] = _params.get(param)
+                    scenario_params[param] = _params.get(param)
 
             # options is rl alg and env
             # update is the "with" params (except seed, you add that in manually)
@@ -177,25 +197,27 @@ class GridSearch(object):
                 if k in self.basic_config_params:
                     options.append(f"--{k}={v}")
                 else:
-                    if k not in setup_params:
+                    if k not in scenario_params:
                         updates.append(f"{k}={v}")
 
             # define the command to be run
             for seed in seeds:
                 # unique name for each wandb run using seed
-                run_params = {
-                    "seed": seed,
-                }
-                run_updates = [
-                    f"{k}={v}" for d in [run_params, setup_params] for k, v in d.items()
-                ]
+                run_params = scenario_params.copy()
+                run_params["seed"] = seed
+
+                run_updates = [f"{k}={v}" for k, v in run_params.items()]
 
                 python_cmd = f"python3 {script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)}"
-                cmds.append(python_cmd)
+                print(python_cmd)
 
-        return cmds
+                run_params["cmd"] = python_cmd
+                run_setups.append(run_params)
 
-    def run_experiment_lab(self, python_cmds: list[str]):
+        run_setups_out = pd.DataFrame.from_records(run_setups)
+        return run_setups_out
+
+    def run_experiment_lab(self, python_cmds: pd.Series):
         # assign each runner its commands
         n_runners = self.args.n_runners
         runners = {i: "source .venv/bin/activate;" for i in range(n_runners)}
@@ -235,10 +257,11 @@ class GridSearch(object):
             p.wait()
 
     def build_sbatch_files(
-        self, python_cmds: list[str], cluster: Literal["campus", "delta"]
+        self, run_setups: pd.DataFrame, cluster: Literal["campus", "delta"]
     ) -> list[str]:
         # assign commands to each job and run them all in parallel within that job
         max_runs_per_job = self.args.max_runs_per_job
+        python_cmds = run_setups.cmd
         n_runs = len(python_cmds)
         n_jobs = math.ceil(n_runs / max_runs_per_job)
         jobs = {i: [] for i in range(n_jobs)}
@@ -358,13 +381,15 @@ class GridSearch(object):
     def print_info(
         self,
         scenarios: list[dict],
-        scenario_names: list[str],
-        seeds: list[int],
-        time_id: str,
-        python_cmds: list[str],
+        run_setups: pd.DataFrame,
     ):
         """print useful info about the experiment"""
-        n_scenarios, n_seeds = len(scenarios), len(seeds)
+
+        n_scenarios = run_setups.scenario.nunique()
+        seeds = run_setups.seed.unique()
+        n_seeds = len(seeds)
+        time_id = run_setups.time_id[0]
+
         spaces = " " * 4
 
         if self.args.computer == "lab":
@@ -422,7 +447,7 @@ class GridSearch(object):
                 if k not in self.basic_config_params + self.save_params:
                     other_params += f"{k}={v} "
 
-            table_line = f"| {scenario_names[scenario_idx]} | {params['config']} | {params['env-config']} | {other_params}|"
+            table_line = f"| {run_setups.scenario[scenario_idx]} | {params['config']} | {params['env-config']} | {other_params}|"
             print(table_line)
 
         print("")
@@ -435,7 +460,7 @@ class GridSearch(object):
             save_path = join(self.job_dir, "job_lab.txt")
             print(f"Saving python commands to {save_path}")
             with open(save_path, "w", encoding="utf8") as f:
-                for cmd in python_cmds:
+                for cmd in run_setups.cmd:
                     f.write(f"{cmd}\n")
 
     def write_sbatch(self, output_path: str, setups: list[list[str]]) -> None:
@@ -460,6 +485,89 @@ class GridSearch(object):
 
         for c in product(*(gen_combinations(v) for v in d.values())):
             yield dict(zip(d.keys(), c))
+
+    def run_bisimulation_test(self, run_setups: pd.DataFrame):
+        # get the commands for the two envs you want to compare
+        # for the case of 1  seed, this is very easy, just the commands in the list of python_cmds
+        processes = []
+        for seed in run_setups.seed:
+            df_tmp = run_setups.copy()
+            df_tmp = df_tmp.loc[df_tmp.seed == seed]
+            bash_prefix = ["/bin/bash", "-c"]
+
+            for i, cmd in enumerate(df_tmp.cmd):
+                run_cmd = [*bash_prefix, cmd]
+                proc = subprocess.Popen(run_cmd)
+                processes.append(proc)
+
+        for p in processes:
+            p.wait()
+
+        summary = []
+        for seed in run_setups.seed.unique():
+            envs_match = self._check_envs(run_setups, seed)
+            summary.append(envs_match)
+
+        if np.sum(summary) == run_setups.seed.nunique():
+            print("Envs match over all seeds, bisimulation test passed")
+        else:
+            print("Not all seeds match, bisimulation test failed")
+
+    def _check_envs(self, run_setups: pd.DataFrame, seed: int) -> bool:
+        buffer_dir = join("results", "replay_buffers")
+        df_tmp = run_setups.loc[run_setups.seed == seed]
+
+        run_dirs = [
+            f"{row.time_id}_{row.seed}_{row.scenario}"
+            for _, row in df_tmp.iterrows()
+        ]
+
+        print(f"Comparing env outputs for {run_dirs}")
+        run_data = {}
+        for run_dir in run_dirs:
+            load_dir = join(buffer_dir, run_dir)
+            for _, _, files in walk(load_dir):
+                for fn in files:
+                    if fn.endswith(".npy"):
+                        key = fn.split(".")[0]
+                        if key not in run_data:
+                            run_data[key] = []
+                        run_data[key].append(np.load(join(load_dir, fn)))
+
+        summary = {}
+        keys_pass = []
+        for k, data in run_data.items():
+            for arr in data[1:]:
+                # check if shapes are the same
+                if arr.shape == data[0].shape:
+                    if np.allclose(arr, data[0]):
+                        summary[k] = f"Pass - {k} match"
+                        keys_pass.append(k)
+
+                    else:
+                        n_match = np.sum(np.isclose(arr, data[0]))
+                        n_total = np.prod(arr.shape)
+                        percentage_mismatch = (1 - (n_match / n_total)) * 100
+                        summary[k] = (
+                            f"Fail - {k} do not match, {n_total - n_match} / {n_total} ({round(percentage_mismatch, 5)} % of entries do not match)"
+                        )
+                else:
+                    summary[k] = (
+                        f"Fail - {k} have different sizes, {arr.shape}, {data[0].shape}"
+                    )
+
+        # Summary
+        if len(keys_pass) != len(run_data):
+            print(
+                f"Envs do not match, issues with {len(run_data) - len(keys_pass)} / {len(run_data)} outputs"
+            )
+            print(f"{list(set(run_data.keys()) - set(keys_pass))}")
+            for k, v in summary.items():
+                print(k, v)
+            return False
+        else:
+            print(f"Envs match for seed {seed}")
+            return True
 
 
 if __name__ == "__main__":

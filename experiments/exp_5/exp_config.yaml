@@ -21,7 +21,7 @@ parameters:
   # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
   n_seeds:
-    value: 1
+    values: [1]
 
   # project setup stuff
   use_wandb:
@@ -54,7 +54,7 @@ parameters:
 #   # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
 #   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
 #   n_seeds:
-#     value: 5
+#     values: [5]
 
 #   # project setup stuff
 #   wandb_project:

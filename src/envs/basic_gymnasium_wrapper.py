@@ -154,11 +154,11 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         Returns
         -------
         NDArray
-            system state with shape (n_samples=1, n_agents, n_state_features)
+            system state with shape (n_samples=1, n_state_features)
         """
         state = self.env.unwrapped.get_state()
 
-        # expand 0th dimension to be size (n_samples=1, n_agents, n_state_features)
+        # expand 0th dimension to be size (n_samples=1, n_state_features)
         return np.expand_dims(state, 0)
 
     def get_avail_actions(self) -> list:

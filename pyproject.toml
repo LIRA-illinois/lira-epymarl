@@ -13,6 +13,7 @@ dependencies = [
     "ipdb",
     "matplotlib>=3.10.6",
     "numpy>=2.3.2",
+    "pandas>=3.0.0",
     "protobuf>=3.20.0",
     "psutil",
     "pysc2>=3.0.0",

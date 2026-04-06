@@ -1,8 +1,7 @@
 import datetime
 import os
-from os.path import dirname, abspath
+from os.path import dirname, abspath, join
 import pprint
-import shutil
 import time
 import threading
 from types import SimpleNamespace as SN
@@ -251,6 +250,7 @@ def run_sequential(args, logger):
                 runner.start_recording(args.n_test_replays_save)
 
             for test_ep_idx in range(n_test_runs):
+                print("running eval")
                 if test_ep_idx >= args.n_test_replays_save:
                     runner.stop_recording()
 
@@ -288,6 +288,11 @@ def run_sequential(args, logger):
             logger.log_stat("episode", episode, runner.t_env)
             logger.print_recent_stats()
             last_log_T = runner.t_env
+
+    if args.save_replay_buffer:
+        run_id = f"{args.time_id}_{args.seed}_{args.scenario}"
+        buffer.save(run_id)
+
 
     runner.close_env()
     logger.console_logger.info("Finished Training")
