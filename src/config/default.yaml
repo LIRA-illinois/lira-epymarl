@@ -45,6 +45,7 @@ save_test_replays: False # Saving replays when running test episodes
 wandb_save_test_replays: False # Saving replays when running test episodes
 n_test_replays_save: 5 # Number of replays to save when running test episodes
 save_replay_buffer: False # Save current replay buffer to disk after finishing a run
+live_render: False # Save current replay buffer to disk after finishing a run
 
 local_results_path: "results" # Path for local results
 

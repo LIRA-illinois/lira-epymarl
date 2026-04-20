@@ -1,8 +1,10 @@
-import os
+from os import makedirs
+from os.path import join
 from functools import partial
 import numpy as np
 from numpy.typing import NDArray
 from gymnasium.wrappers import RecordVideo
+import matplotlib.image as mpl_img
 
 from components.episode_buffer import EpisodeBatch
 from envs import REGISTRY as env_REGISTRY
@@ -63,9 +65,9 @@ class EpisodeRunner:
     def start_recording(self, n_test_replays_save: int):
         # get video folder from wandb logger
         # make the video dir
-        replay_dir = os.path.join(self.logger.dir, f"replays")
-        os.makedirs(replay_dir, exist_ok=True)
-        video_folder = os.path.join(replay_dir, f"t_{self.t_env}")
+        replay_dir = join(self.logger.dir, f"replays")
+        makedirs(replay_dir, exist_ok=True)
+        video_folder = join(replay_dir, f"t_{self.t_env}")
         self.logger.console_logger.info(
             f"Saving {n_test_replays_save} test episode replays to {video_folder}"
         )
@@ -96,6 +98,21 @@ class EpisodeRunner:
         self.env.reset()
         self.t = 0
 
+    def print_data(self, data: dict):
+        for k, v in data.items():
+            val = v[0]
+            if isinstance(val, np.ndarray):
+                shape = val.shape
+            elif isinstance(val, list):
+                shape = (len(val), len(val[0]))
+            else:
+                shape = len(val)
+
+            print(f"{k}, shape: {shape}, {type(val)}")
+            print(val)
+            print()
+
+
     def select_actions(self, test_mode: bool) -> NDArray:
         """
         choose actions with option to use action space sampler
@@ -108,6 +125,7 @@ class EpisodeRunner:
 
         if self.args.action_selector == "action_space":
             actions = np.expand_dims(np.array(self.env.action_space.sample()), 0)
+
         else:
             actions = self.mac.select_actions(
                 self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
@@ -134,13 +152,38 @@ class EpisodeRunner:
             }
 
             self.batch.update(pre_transition_data, ts=self.t)
+            # print(f"t: {self.t}")
+            # self.print_data(pre_transition_data)
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
             actions = self.select_actions(test_mode=test_mode)
 
+            # if self.t < 10:
+            #     act = 1
+            # else:
+            #     act = 5
+            # actions = act * np.ones(self.env.unwrapped.num_agents).reshape(1, -1)
+
+            if self.args.live_render:
+                save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
+                makedirs(save_dir, exist_ok=True)
+                mpl_img.imsave(join(save_dir, f"{self.t}_pre_step.png"), self.env.render())
+                # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
+                # print("pre transition state")
+                # print(state)
+                print('\n breakpoint ')
+                __import__('ipdb').set_trace(context=3)
+
             _, reward, terminated, truncated, env_info = self.env.step(actions[0])
             terminated = terminated or truncated
+
+            # if self.args.live_render:
+            #     mpl_img.imsave(join(save_dir, f"{self.t}_post_transition.png"), self.env.render())
+            #     # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
+            #     # print("post transition state")
+            #     # print(state)
+
             if test_mode and self.args.render:
                 self.env.render()
             episode_return += reward
@@ -149,14 +192,18 @@ class EpisodeRunner:
                 "actions": actions,
                 "terminated": [(terminated != env_info.get("episode_limit", False),)],
             }
+
             if self.args.common_reward:
                 post_transition_data["reward"] = [(reward,)]
             else:
                 post_transition_data["reward"] = [tuple(reward)]
 
+            # self.print_data(post_transition_data)
+
             self.batch.update(post_transition_data, ts=self.t)
 
             self.t += 1
+
 
         last_data = {
             "state": [self.env.get_state()],

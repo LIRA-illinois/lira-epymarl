@@ -108,6 +108,7 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         # register envs supported by this wrapper
         lbf.register_envs(max_episode_steps=self.episode_limit)
         join1.register_envs()
+        import gym_multigrid
 
     def _get_env_id(self, env_name: str, env_args: dict) -> str:
         match env_name:
@@ -135,7 +136,7 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         return env_id
 
     def _set_env_seed(self):
-        print(f"setting env seed to {self.seed}")
+        print(f"Setting env seed to {self.seed}")
         self.env.reset(seed=self.seed)
 
     def _check_env(self):
@@ -143,6 +144,7 @@ class BasicGymnasiumWrapper(gym.Wrapper):
             check_env(self.env.unwrapped, skip_render_check=True)
         except Exception as e:
             print(f"Env has issues: {e}")
+
 
     def get_env_info(self) -> dict[str, Any]:
         info: dict = self.env.unwrapped.get_env_info()

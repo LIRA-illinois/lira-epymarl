@@ -1,19 +1,31 @@
 env: multigrid-lbf-v0
 
-# you can have a separate config here for like a 1 room version and just comment out the 4 room version for development purposes
-
-# 4 room version of the env
 env_args:
-    max_episode_steps: 50
-    # max_episode_steps: 400
-    field_size: 19
+    # size of the area accessible by the agents
+    width: 10
+    height: 10
     n_agents: 4
+    max_num_fruit: 2
+    force_coop: False
     sight: 2
+    max_episode_steps: 50
+
+    state_type: original
+    obs_type: original
+
+
+
+    # multi-room support
+    # layout_config:
+    #     num_rooms: 1
+
+    # reward_config:
+        # step_penalty: 0.01 # lbf doesn't use this, so idk why it's here
+        # sum_reward: True
 
     # this is all that needs to be in this config file, the rest should be handled in the env itself
     # execpt maybe the room layout and number of rooms, that stuff is new
     # "env": "multigrid-lbf-v0",
-    # "field_size": 10,
     # "n_agents": 4,
     # "max_num_food": 2,
     # "force_coop": False,
@@ -22,66 +34,39 @@ env_args:
     # "max_episode_steps": 50,
     # "penalty": False,
 
+    # agent_config:
+    #     level: [1, 1, 2]
+    #     init_pos: [[1, 1], [1, 2], [1, 3]]
+    #     index: [4, 5, 6] # agent colors
 
+    # fruit_config:
+    #     num_fruit: [8, 8, 8]
+    #     fruits_index: [0, 1, 2]
+    #     fruits_reward: [1, 2, 3]
 
-    agent_config:
-        level: [1, 1, 2]
-        init_pos: [[1, 1], [1, 2], [1, 3]]
-        index: [4, 5, 6]
-
-    fruit_config:
-        num_fruit: [8, 8, 8]
-        fruits_index: [0, 1, 2]
-        fruits_reward: [1, 2, 3]
-
-    layout_config:
-        num_rooms: 4
-        field_map: [
-            "###################",
-            "#     1  # 2      #",
-            "#  1     #  1     #",
-            "#       G#     1  #",
-            "#  2    G#   1    #",
-            "#       G#        #",
-            "#    1   #  2   2 #",
-            "# 1      #        #",
-            "#     1  #  GGG   #",
-            "###################",
-            "#  GGG   #   2    #",
-            "#      3 #        #",
-            "# 3      #G    2  #",
-            "#    3   #G  3    #",
-            "#        #G       #",
-            "# 3      #   3    #",
-            "#   3    #  2  3  #",
-            "#     2  #        #",
-            "###################",
-        ]
-        room_configs: [
-            {
-                flag_positions: [[8, 3], [8, 4], [8, 5]],
-                fruit_count: [5, 1, 0],
-                wall_positions: [[9, 3], [9, 4], [9, 5]],
-            },
-            {
-                flag_positions: [[12, 8], [13, 8], [14, 8]],
-                fruit_count: [3, 3, 0],
-                wall_positions: [[12, 9], [13, 9], [14, 9]],
-            },
-            {
-                flag_positions: [[10, 12], [10, 13], [10, 14]],
-                fruit_count: [0, 3, 3],
-                wall_positions: [[9, 12], [9, 13], [9, 14]],
-            },
-            {
-                flag_positions: [[3, 10], [4, 10], [5, 10]],
-                fruit_count: [0, 1, 5],
-                wall_positions: [[3, 9], [4, 9], [5, 9]],
-            }
-        ]
-    reward_config:
-        # step_penalty: 0.01 # lbf doesn't use this, so idk why it's here
-        sum_reward: True
+    # layout_config:
+        # room_configs: [
+        #     {
+        #         flag_positions: [[8, 3], [8, 4], [8, 5]],
+        #         fruit_count: [5, 1, 0],
+        #         wall_positions: [[9, 3], [9, 4], [9, 5]],
+        #     },
+        #     {
+        #         flag_positions: [[12, 8], [13, 8], [14, 8]],
+        #         fruit_count: [3, 3, 0],
+        #         wall_positions: [[12, 9], [13, 9], [14, 9]],
+        #     },
+        #     {
+        #         flag_positions: [[10, 12], [10, 13], [10, 14]],
+        #         fruit_count: [0, 3, 3],
+        #         wall_positions: [[9, 12], [9, 13], [9, 14]],
+        #     },
+        #     {
+        #         flag_positions: [[3, 10], [4, 10], [5, 10]],
+        #         fruit_count: [0, 1, 5],
+        #         wall_positions: [[3, 9], [4, 9], [5, 9]],
+        #     }
+        # ]
 
 
 learner_log_interval: 10000

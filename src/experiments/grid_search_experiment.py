@@ -530,9 +530,10 @@ class GridSearch(object):
                 for fn in files:
                     if fn.endswith(".npy"):
                         key = fn.split(".")[0]
-                        if key not in run_data:
-                            run_data[key] = []
-                        run_data[key].append(np.load(join(load_dir, fn)))
+                        if key not in ["actions_onehot", "filled"]:
+                            if key not in run_data:
+                                run_data[key] = []
+                            run_data[key].append(np.load(join(load_dir, fn)))
 
         summary = {}
         keys_pass = []

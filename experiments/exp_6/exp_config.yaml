@@ -13,24 +13,22 @@ parameters:
   config:
     values: [maic]
   env-config:
-    values: [foraging-v2, foraging-v2]
-    # values: [multigrid-lbf-v0, foraging-v2]
+    values: [multigrid-lbf-v0, foraging-v2]
+    # values: [multigrid-lbf-v0]
   action_selector:
     values: [action_space]
   # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
   seed:
-    values: [766323, 211542]
-    # values: [766323, 55721, 105057, 940163, 211542]
-  # n_seeds:
-  #   values: [1]
+    values: [766323]
   env_args.max_episode_steps:
     values: [25]
   t_max:
-    values: [50]
+    values: [25]
   test_nepisode:
     values: [0]
+
 
 
   # project setup stuff
@@ -40,4 +38,5 @@ parameters:
     values: [False]
   env_bisimulation_test:
     values: [True]
-
+  live_render:
+    values: [True]
