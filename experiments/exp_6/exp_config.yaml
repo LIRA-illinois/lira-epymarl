@@ -14,7 +14,6 @@ parameters:
     values: [maic]
   env-config:
     values: [multigrid-lbf-v0, foraging-v2]
-    # values: [multigrid-lbf-v0]
   action_selector:
     values: [action_space]
   # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index

@@ -152,7 +152,6 @@ class EpisodeRunner:
             }
 
             self.batch.update(pre_transition_data, ts=self.t)
-            # print(f"t: {self.t}")
             # self.print_data(pre_transition_data)
 
             # Pass the entire batch of experiences up till now to the agents
@@ -172,8 +171,6 @@ class EpisodeRunner:
                 # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
                 # print("pre transition state")
                 # print(state)
-                print('\n breakpoint ')
-                __import__('ipdb').set_trace(context=3)
 
             _, reward, terminated, truncated, env_info = self.env.step(actions[0])
             terminated = terminated or truncated
@@ -199,11 +196,8 @@ class EpisodeRunner:
                 post_transition_data["reward"] = [tuple(reward)]
 
             # self.print_data(post_transition_data)
-
             self.batch.update(post_transition_data, ts=self.t)
-
             self.t += 1
-
 
         last_data = {
             "state": [self.env.get_state()],
