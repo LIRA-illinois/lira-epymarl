@@ -158,12 +158,6 @@ class EpisodeRunner:
             # Receive the actions for each agent at this timestep in a batch of size 1
             actions = self.select_actions(test_mode=test_mode)
 
-            # if self.t < 10:
-            #     act = 1
-            # else:
-            #     act = 5
-            # actions = act * np.ones(self.env.unwrapped.num_agents).reshape(1, -1)
-
             if self.args.live_render:
                 save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
                 makedirs(save_dir, exist_ok=True)
