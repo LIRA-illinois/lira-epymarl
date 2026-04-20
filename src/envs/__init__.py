@@ -77,5 +77,6 @@ REGISTRY["gym_multigrid"] = gym_multigrid_fn
 def gym_env_fn(common_reward=None, reward_scalarisation=None, **env_args) -> gym.Env:
     return BasicGymnasiumWrapper(env_args=env_args)
 
+
 for env in basic_supported_envs:
     REGISTRY[env] = gym_env_fn

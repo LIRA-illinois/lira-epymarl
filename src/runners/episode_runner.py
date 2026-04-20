@@ -112,7 +112,6 @@ class EpisodeRunner:
             print(val)
             print()
 
-
     def select_actions(self, test_mode: bool) -> NDArray:
         """
         choose actions with option to use action space sampler
@@ -145,11 +144,16 @@ class EpisodeRunner:
         self.mac.init_hidden(batch_size=self.batch_size)
 
         while not terminated:
-            pre_transition_data = {
-                "state": [self.env.get_state()],
-                "avail_actions": [self.env.get_avail_actions()],
-                "obs": [self.env.get_obs()],
-            }
+            try:
+
+                pre_transition_data = {
+                    "state": [self.get_state()],
+                    "avail_actions": [self.get_avail_actions()],
+                    "obs": [self.get_obs()],
+                }
+            except:
+                print("\n breakpoint ")
+                __import__("ipdb").set_trace(context=3)
 
             self.batch.update(pre_transition_data, ts=self.t)
             # self.print_data(pre_transition_data)
@@ -161,7 +165,9 @@ class EpisodeRunner:
             if self.args.live_render:
                 save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
                 makedirs(save_dir, exist_ok=True)
-                mpl_img.imsave(join(save_dir, f"{self.t}_pre_step.png"), self.env.render())
+                mpl_img.imsave(
+                    join(save_dir, f"{self.t}_pre_step.png"), self.env.render()
+                )
                 # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
                 # print("pre transition state")
                 # print(state)
@@ -194,10 +200,11 @@ class EpisodeRunner:
             self.t += 1
 
         last_data = {
-            "state": [self.env.get_state()],
-            "avail_actions": [self.env.get_avail_actions()],
-            "obs": [self.env.get_obs()],
+            "state": [self.get_state()],
+            "avail_actions": [self.get_avail_actions()],
+            "obs": [self.get_obs()],
         }
+
         if test_mode and self.args.render:
             print(f"Episode return: {episode_return}")
         self.batch.update(last_data, ts=self.t)
@@ -234,6 +241,24 @@ class EpisodeRunner:
             self.log_train_stats_t = self.t_env
 
         return self.batch
+
+    def get_state(self):
+        if isinstance(self.env, RecordVideo):
+            return self.env.env.get_state()
+        else:
+            return self.env.get_state()
+
+    def get_obs(self):
+        if isinstance(self.env, RecordVideo):
+            return self.env.env.get_obs()
+        else:
+            return self.env.get_obs()
+
+    def get_avail_actions(self):
+        if isinstance(self.env, RecordVideo):
+            return self.env.env.get_avail_actions()
+        else:
+            return self.env.get_avail_actions()
 
     def _log(self, returns, stats, prefix):
         if self.args.common_reward:

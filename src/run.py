@@ -250,7 +250,6 @@ def run_sequential(args, logger):
                 runner.start_recording(args.n_test_replays_save)
 
             for test_ep_idx in range(n_test_runs):
-                print("running eval")
                 if test_ep_idx >= args.n_test_replays_save:
                     runner.stop_recording()
 
