@@ -137,12 +137,14 @@ class Logger:
                 for video in videos:
                     video_path = os.path.join(video_dir, video)
                     video_name, extension = video.split(".")[0], video.split(".")[1]
+
                     self.wandb.log(
                         {
-                            f"t_{t_env}_{video_name}": wandb.Video(
+                            f"{video_name}_{extension}": wandb.Video(
                                 video_path, format=extension
                             )
-                        }
+                        },
+                        step=t_env,
                     )
 
     def log_model(self, save_path, t_env, model_name):

@@ -3,12 +3,13 @@ from os.path import join
 from functools import partial
 import numpy as np
 from numpy.typing import NDArray
-from gymnasium.wrappers import RecordVideo
 import matplotlib.image as mpl_img
 
 from components.episode_buffer import EpisodeBatch
 from envs import REGISTRY as env_REGISTRY
 from envs import register_smac, register_smacv2
+
+from utils.record_video import RecordVideoExtended
 
 
 class EpisodeRunner:
@@ -71,16 +72,17 @@ class EpisodeRunner:
         self.logger.console_logger.info(
             f"Saving {n_test_replays_save} test episode replays to {video_folder}"
         )
-        self.env = RecordVideo(
+        # outputs multiple formats for different uses, webm for browser compatibility and mp4 for Powerpoint
+        self.env = RecordVideoExtended(
             env=self.env,
             video_folder=video_folder,
             episode_trigger=lambda e: True,
             name_prefix="replay",
+            output_formats=["webm", "mp4"],
         )
 
     def stop_recording(self):
-        # remove the RecordVideo wrapper (assumed to be the outer-most wrapper)
-        if isinstance(self.env, RecordVideo):
+        if isinstance(self.env, RecordVideoExtended):
             self.env.stop_recording()
             if self.logger.save_replays:
                 self.logger.log_replays(
@@ -200,6 +202,13 @@ class EpisodeRunner:
             "obs": [self.get_obs()],
         }
 
+        if self.args.live_render:
+            save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
+            makedirs(save_dir, exist_ok=True)
+            mpl_img.imsave(
+                join(save_dir, f"{self.t}_final_state.png"), self.env.render()
+            )
+
         if test_mode and self.args.render:
             print(f"Episode return: {episode_return}")
         self.batch.update(last_data, ts=self.t)
@@ -238,19 +247,19 @@ class EpisodeRunner:
         return self.batch
 
     def get_state(self):
-        if isinstance(self.env, RecordVideo):
+        if isinstance(self.env, RecordVideoExtended):
             return self.env.env.get_state()
         else:
             return self.env.get_state()
 
     def get_obs(self):
-        if isinstance(self.env, RecordVideo):
+        if isinstance(self.env, RecordVideoExtended):
             return self.env.env.get_obs()
         else:
             return self.env.get_obs()
 
     def get_avail_actions(self):
-        if isinstance(self.env, RecordVideo):
+        if isinstance(self.env, RecordVideoExtended):
             return self.env.env.get_avail_actions()
         else:
             return self.env.get_avail_actions()
