@@ -209,7 +209,6 @@ class GridSearch(object):
                 run_updates = [f"{k}={v}" for k, v in run_params.items()]
 
                 python_cmd = f"python3 {script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)}"
-                print(python_cmd)
 
                 run_params["cmd"] = python_cmd
                 run_setups.append(run_params)
@@ -447,7 +446,7 @@ class GridSearch(object):
                 if k not in self.basic_config_params + self.save_params:
                     other_params += f"{k}={v} "
 
-            table_line = f"| {run_setups.scenario[scenario_idx]} | {params['config']} | {params['env-config']} | {other_params}|"
+            table_line = f"| {run_setups.scenario[scenario_idx * n_seeds]} | {params['config']} | {params['env-config']} | {other_params}|"
             print(table_line)
 
         print("")
