@@ -144,16 +144,11 @@ class EpisodeRunner:
         self.mac.init_hidden(batch_size=self.batch_size)
 
         while not terminated:
-            try:
-
-                pre_transition_data = {
-                    "state": [self.get_state()],
-                    "avail_actions": [self.get_avail_actions()],
-                    "obs": [self.get_obs()],
-                }
-            except:
-                print("\n breakpoint ")
-                __import__("ipdb").set_trace(context=3)
+            pre_transition_data = {
+                "state": [self.get_state()],
+                "avail_actions": [self.get_avail_actions()],
+                "obs": [self.get_obs()],
+            }
 
             self.batch.update(pre_transition_data, ts=self.t)
             # self.print_data(pre_transition_data)

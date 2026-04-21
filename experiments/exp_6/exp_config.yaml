@@ -10,7 +10,7 @@ metric:
 # all values assumed to be in lists
 parameters:
   config:
-    values: [maic]
+    values: [maic, qmix]
   env-config:
     values: [multigrid-lbf-v0, foraging-v2]
   lr:
