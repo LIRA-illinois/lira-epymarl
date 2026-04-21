@@ -110,7 +110,7 @@ class GridSearch(object):
         self.print_info(scenarios, run_setups)
 
         if self.args.computer in ["campus", "delta"]:
-            job_paths = self.build_sbatch_files(run_setups, cluster=self.args.computer)
+            job_paths = self.build_sbatch_files(run_setups, cluster=self.args.computer, time_id=time_id)
 
         # check if user wants to run the experiment
         user_input = input("Run experiment now? (y/n) ").lower()
@@ -256,7 +256,7 @@ class GridSearch(object):
             p.wait()
 
     def build_sbatch_files(
-        self, run_setups: pd.DataFrame, cluster: Literal["campus", "delta"]
+        self, run_setups: pd.DataFrame, cluster: Literal["campus", "delta"], time_id: str
     ) -> list[str]:
         # assign commands to each job and run them all in parallel within that job
         max_runs_per_job = self.args.max_runs_per_job
@@ -319,7 +319,9 @@ class GridSearch(object):
                 module_load_lines,
                 cmds,
             ]
-            job_path = join(self.job_dir, f"job_{cluster}_{job_idx + 1}.slurm")
+            job_dir = join(self.job_dir, time_id)
+            makedirs(job_dir, exist_ok=True)
+            job_path = join(job_dir, f"job_{cluster}_{job_idx + 1}.slurm")
             job_paths.append(job_path)
             print(f"{len(cmds) - 1} runs to {job_path}")
             self.write_sbatch(output_path=job_path, setups=setups)
@@ -456,7 +458,7 @@ class GridSearch(object):
                 f"Using {self.args.n_runners} parallel runners with a max of {math.ceil(n_runs / self.args.n_runners)} sequential runs per runner"
             )
 
-            save_path = join(self.job_dir, "job_lab.txt")
+            save_path = join(self.job_dir, f"job_lab_{time_id}.txt")
             print(f"Saving python commands to {save_path}")
             with open(save_path, "w", encoding="utf8") as f:
                 for cmd in run_setups.cmd:

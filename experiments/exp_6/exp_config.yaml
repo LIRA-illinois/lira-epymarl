@@ -12,15 +12,19 @@ parameters:
   config:
     values: [maic, qmix]
   env-config:
-    values: [multigrid-lbf-v0, foraging-v2]
+    values: [multigrid-lbf-v0]
+    # values: [multigrid-lbf-v0, foraging-v2]
+  
   lr:
     values: [0.00005, 0.0001]
 
   # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
-  n_seeds:
-    values: [5]
+  seed:
+    values: [180335, 259851, 409900, 105160, 371020]
+  # n_seeds:
+    # values: [5]
 
   # project setup stuff
   wandb_project:
