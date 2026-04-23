@@ -157,13 +157,38 @@ class EpisodeRunner:
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
-            actions = self.select_actions(test_mode=test_mode)
+            # actions = self.select_actions(test_mode=test_mode)
+
+            # class LBFActions(enum.IntEnum):
+            #     # matches the order from original LBF action set
+            #     STAY = 0
+            #     UP = 1
+            #     DOWN = 2
+            #     LEFT = 3
+            #     RIGHT = 4
+            #     LOAD = 5
+            if self.t == 0:
+                # load fruit
+                actions = np.array([[5, 5, 5]])
+
+            elif self.t in [1, 2, 3]:
+                # move right
+                actions = np.array([[4, 4, 4]])
+
+            elif self.t in [4]:
+                # load fruit
+                actions = np.array([[5, 5, 5]])
+
+            elif self.t in [5, 6, 7, 8, 9]:
+                # move right
+                actions = np.array([[4, 4, 4]])
+
 
             if self.args.live_render:
-                save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
-                makedirs(save_dir, exist_ok=True)
+                render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
+                makedirs(render_save_dir, exist_ok=True)
                 mpl_img.imsave(
-                    join(save_dir, f"{self.t}_pre_step.png"), self.env.render()
+                    join(render_save_dir, f"{self.t}_pre_step.png"), self.env.render()
                 )
                 # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
                 # print("pre transition state")
@@ -171,6 +196,7 @@ class EpisodeRunner:
 
             _, reward, terminated, truncated, env_info = self.env.step(actions[0])
             terminated = terminated or truncated
+            print(self.t, reward)
 
             # if self.args.live_render:
             #     mpl_img.imsave(join(save_dir, f"{self.t}_post_transition.png"), self.env.render())
@@ -203,10 +229,9 @@ class EpisodeRunner:
         }
 
         if self.args.live_render:
-            save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
-            makedirs(save_dir, exist_ok=True)
+            makedirs(render_save_dir, exist_ok=True)
             mpl_img.imsave(
-                join(save_dir, f"{self.t}_final_state.png"), self.env.render()
+                join(render_save_dir, f"{self.t}_final_state.png"), self.env.render()
             )
 
         if test_mode and self.args.render:

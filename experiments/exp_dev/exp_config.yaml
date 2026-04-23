@@ -1,0 +1,72 @@
+# config for a grid search experiment based on wandb sweep config
+# meant to be used with grid_search_experiment.py
+# program: src/experiments/wandb_sweep_wrapper_single_seed.py
+method: random
+metric:
+  goal: maximize
+  name: test_return_mean
+
+# params to grid search over
+# all values assumed to be in lists
+parameters:
+  config:
+    values: [maic]
+  env-config:
+    values: [multigrid-lbf-v0]
+
+  t_max:
+    values: [10]
+
+  # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
+  # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
+  # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
+  seed:
+    values: [101]
+
+  # project setup stuff
+  # wandb_project:
+  #   values: [comm_experiments]
+  use_wandb:
+    values: [False]
+  use_sacred:
+    values: [False]
+  save_model:
+    values: [False]
+  wandb_save_model:
+    values: [False]
+  save_test_replays:
+    values: [False]
+  wandb_save_test_replays:
+    values: [False]
+
+  live_render:
+    values: [True]
+
+  test_nepisode:
+    values: [1]
+
+  # env args
+  env_args.map_name:
+    values: [3ga_f_2r_agents_placed, 3ga_f_2r]
+
+  env_args.n_agents:
+    values: [3]
+
+  env_args.max_episode_steps:
+    values: [10]
+  env_args.state_type:
+    values: [multigrid_flattened]
+  env_args.obs_type:
+    values: [multigrid_flattened]
+  env_args.sight:
+    values: [3]
+
+
+
+  # hierarchical comms allocation stuff
+  # env_args.use_project_mdp:
+  #   values: [False]
+  # env_args.task_type:
+  #   values: [composed]
+  # env_args.num_comms_values:
+  #   values: [3]
