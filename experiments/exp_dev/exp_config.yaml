@@ -47,7 +47,10 @@ parameters:
 
   # env args
   env_args.map_name:
-    values: [3ga_f_2r_agents_placed, 3ga_f_2r]
+    values: [3ga_f_2r_agents_placed]
+
+  env_args.max_num_fruit:
+    values: [0]
 
   env_args.n_agents:
     values: [3]

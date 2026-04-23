@@ -159,31 +159,6 @@ class EpisodeRunner:
             # Receive the actions for each agent at this timestep in a batch of size 1
             # actions = self.select_actions(test_mode=test_mode)
 
-            # class LBFActions(enum.IntEnum):
-            #     # matches the order from original LBF action set
-            #     STAY = 0
-            #     UP = 1
-            #     DOWN = 2
-            #     LEFT = 3
-            #     RIGHT = 4
-            #     LOAD = 5
-            if self.t == 0:
-                # load fruit
-                actions = np.array([[5, 5, 5]])
-
-            elif self.t in [1, 2, 3]:
-                # move right
-                actions = np.array([[4, 4, 4]])
-
-            elif self.t in [4]:
-                # load fruit
-                actions = np.array([[5, 5, 5]])
-
-            elif self.t in [5, 6, 7, 8, 9]:
-                # move right
-                actions = np.array([[4, 4, 4]])
-
-
             if self.args.live_render:
                 render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
                 makedirs(render_save_dir, exist_ok=True)
