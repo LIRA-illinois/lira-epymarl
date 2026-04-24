@@ -13,60 +13,57 @@ parameters:
     values: [maic]
   env-config:
     values: [multigrid-lbf-v0]
-
-  t_max:
-    values: [100]
+  lr:
+    values: [0.00005, 0.0001]
 
   # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
-  seed:
-    values: [101]
+  # seed:
+  #   values: [180335, 259851, 409900, 105160, 371020]
+  n_seeds:
+    values: [3]
+
+  t_max:
+    values: [100]
 
   # project setup stuff
   wandb_project:
     values: [comm_experiments]
-  use_wandb:
-    values: [True]
-  use_sacred:
-    values: [True]
   save_model:
-    values: [False]
+    values: [True]
   wandb_save_model:
-    values: [False]
+    values: [True]
   save_test_replays:
     values: [True]
   wandb_save_test_replays:
     values: [True]
-  live_render:
-    values: [True]
-
-  test_nepisode:
-    values: [1]
 
   # env args
   env_args.map_name:
-    values: [3g_2r_small]
-
+    values: [3ga_2r_small, 3g_2r_small, 3ga_2r_medium, 4ga_2r_small, 4ga_2r_medium]
   env_args.max_num_fruit:
-    values: [0]
-  env_args.n_agents:
-    values: [3]
+    values: [2, 4]
   env_args.max_episode_steps:
-    values: [10]
-  env_args.state_type:
-    values: [multigrid_flattened]
-  env_args.obs_type:
-    values: [multigrid_flattened]
-  env_args.sight:
-    values: [3]
+    values: [75]
 
+# don't make these too complex or nest these deeper, it'll probably break something
+conditional_parameters:
+  config:
+    maic:
+      mixer:
+        values: [vdn, qmix]
 
-
-  # hierarchical comms allocation stuff
-  # env_args.use_project_mdp:
-  #   values: [False]
-  # env_args.task_type:
-  #   values: [composed]
-  # env_args.num_comms_values:
-  #   values: [3]
+  env_args.map_name:
+    3ga_2r_small:
+      env_args.n_agents:
+        values: [3]
+    3ga_2r_medium:
+      env_args.n_agents:
+        values: [3]
+    4ga_2r_small:
+      env_args.n_agents:
+        values: [4]
+    4ga_2r_medium:
+      env_args.n_agents:
+        values: [4]

@@ -2,6 +2,7 @@ env: multigrid-lbf-v0
 
 env_args:
     # size of the area accessible by the agents
+    map_name: ""
     width: 10
     height: 10
     n_agents: 4
@@ -12,6 +13,9 @@ env_args:
 
     state_type: original
     obs_type: original
+
+    # only works for multigrid obs
+    highlight_visible_cells: False
 
 
 learner_log_interval: 10000
