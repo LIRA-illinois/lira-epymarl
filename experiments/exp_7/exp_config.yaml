@@ -24,9 +24,6 @@ parameters:
   n_seeds:
     values: [3]
 
-  t_max:
-    values: [100]
-
   # project setup stuff
   wandb_project:
     values: [comm_experiments]
@@ -52,9 +49,12 @@ conditional_parameters:
   config:
     maic:
       mixer:
-        values: [vdn, qmix]
+        values: [vdn]
 
   env_args.map_name:
+    3g_2r_small:
+      env_args.n_agents:
+        values: [3]
     3ga_2r_small:
       env_args.n_agents:
         values: [3]
