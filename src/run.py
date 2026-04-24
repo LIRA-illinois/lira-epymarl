@@ -59,7 +59,7 @@ def run(_run, _config, _log):
             if args.wandb_group != "":
                 run_name = args.wandb_group + f"_seed_{args.seed}"
             elif args.time_id != "" and args.scenario != "":
-                run_name = f"{args.time_id}_sc_{args.scenario}"
+                run_name = f"{args.time_id}_sc_{args.scenario}_seed_{args.seed}"
             else:
                 run_name = unique_token
 

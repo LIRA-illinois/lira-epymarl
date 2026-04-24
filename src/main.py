@@ -104,12 +104,8 @@ if __name__ == "__main__":
     th.set_num_threads(1)
     config_dict = get_run_config(params)
 
-    try:
-        map_name = config_dict["env_args"]["map_name"]
-    except:
-        if "key" not in config_dict["env_args"]:
-            config_dict["env_args"]["key"] = config_dict["env"]
-        map_name = config_dict["env_args"]["key"]
+    if "key" not in config_dict["env_args"]:
+        config_dict["env_args"]["key"] = config_dict["env"]
 
     # now add all the config to sacred
     if config_dict["use_sacred"]:
@@ -127,17 +123,16 @@ if __name__ == "__main__":
     SETTINGS["CAPTURE_MODE"] = sacred_capture_mode
     ex.add_config(config_dict)
 
-    # for param in params:
-    #     if param.startswith("env_args.map_name"):
-    #         map_name = param.split("=")[1]
-    #     elif param.startswith("env_args.key"):
-    #         map_name = param.split("=")[1]
+    map_name = ""
+    for param in params:
+        if param.startswith("env_args.map_name"):
+            map_name = param.split("=")[1]
 
     # Save to disk by default for sacred
     if config_dict["use_sacred"]:
         logger.info("Saving to FileStorageObserver in results/sacred.")
         results_path = join(dirname(dirname(abspath(__file__))), "results")
-        file_obs_path = join(results_path, f"sacred/{config_dict['name']}/{map_name}")
+        file_obs_path = join(results_path, "sacred", config_dict["name"], config_dict["env"], map_name)
         ex.observers.append(FileStorageObserver.create(file_obs_path))
 
     ex.run_commandline(params)

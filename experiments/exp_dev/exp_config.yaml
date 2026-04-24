@@ -15,35 +15,34 @@ parameters:
     values: [multigrid-lbf-v0]
 
   t_max:
-    values: [10]
+    values: [100]
 
   # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
   # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
   seed:
-    values: [101]
+    values: [101, 102]
 
   # project setup stuff
-  # wandb_project:
-  #   values: [comm_experiments]
+  wandb_project:
+    values: [comm_experiments]
   use_wandb:
-    values: [False]
+    values: [True]
   use_sacred:
-    values: [False]
+    values: [True]
   save_model:
     values: [False]
   wandb_save_model:
     values: [False]
   save_test_replays:
-    values: [False]
-  wandb_save_test_replays:
-    values: [False]
-
-  live_render:
     values: [True]
+  wandb_save_test_replays:
+    values: [True]
+  live_render:
+    values: [False]
 
   test_nepisode:
-    values: [1]
+    values: [10]
 
   # env args
   env_args.map_name:
@@ -51,12 +50,10 @@ parameters:
 
   env_args.max_num_fruit:
     values: [0]
-
   env_args.n_agents:
     values: [3]
-
   env_args.max_episode_steps:
-    values: [10]
+    values: [50]
   env_args.state_type:
     values: [multigrid_flattened]
   env_args.obs_type:

@@ -157,7 +157,7 @@ class EpisodeRunner:
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
-            # actions = self.select_actions(test_mode=test_mode)
+            actions = self.select_actions(test_mode=test_mode)
 
             if self.args.live_render:
                 render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
@@ -171,7 +171,6 @@ class EpisodeRunner:
 
             _, reward, terminated, truncated, env_info = self.env.step(actions[0])
             terminated = terminated or truncated
-            print(self.t, reward)
 
             # if self.args.live_render:
             #     mpl_img.imsave(join(save_dir, f"{self.t}_post_transition.png"), self.env.render())
