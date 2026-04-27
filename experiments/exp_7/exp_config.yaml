@@ -9,22 +9,20 @@ metric:
 # params to grid search over
 # all values assumed to be in lists
 parameters:
-  config:
-    values: [maic]
-  env-config:
-    values: [multigrid-lbf-v0]
-  lr:
-    values: [0.00005, 0.0001]
-
-  # seeds are grid-searched over too, but handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
-  # seeds can be fixed here to enable reproducability or the number of random seeds can be chosen
-  # in paper-quality experiments seeds should be randomized to help avoid cherry picking seeds that make your results look good
+  ##################
+  # Seeds
+  ##################
+  # seeds are grid-searched over and are handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
+  # use fixed seeds like this to enable reproducible results
   # seed:
   #   values: [180335, 259851, 409900, 105160, 371020]
+  # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
   n_seeds:
     values: [3]
 
-  # project setup stuff
+  ##################
+  # Project setup + logging
+  ##################
   wandb_project:
     values: [comm_experiments]
   save_model:
@@ -36,15 +34,39 @@ parameters:
   wandb_save_test_replays:
     values: [True]
 
-  # env args
+  ##################
+  # MARL alg config
+  ##################
+  config:
+    values: [maic]
+  lr:
+    values: [0.00005]
+
+  ##################
+  # Environment config
+  ##################
+  env_args.sight:
+    values: [1, 2]
+  env_args.force_coop:
+    values: [True, False]
+  env-config:
+    values: [multigrid-lbf-v0]
   env_args.map_name:
     values: [3ga_2r_small, 3g_2r_small, 3ga_2r_medium, 4ga_2r_small, 4ga_2r_medium]
   env_args.max_num_fruit:
     values: [2, 4]
   env_args.max_episode_steps:
     values: [75]
+  env_args.state_type:
+    values: [multigrid_flattened]
+  env_args.obs_type:
+    values: [multigrid_flattened]
 
+##################
+# Conditional parameters
+# use conditional params to specify single values to use for a given setup specified in "parameters" above
 # don't make these too complex or nest these deeper, it'll probably break something
+##################
 conditional_parameters:
   config:
     maic:
