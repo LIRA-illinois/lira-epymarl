@@ -14,6 +14,7 @@ from sacred.observers import FileStorageObserver
 from sacred.utils import apply_backspaces_and_linefeeds
 import torch as th
 import logging
+
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 
 from utils.logging import get_logger
@@ -132,7 +133,9 @@ if __name__ == "__main__":
     if config_dict["use_sacred"]:
         logger.info("Saving to FileStorageObserver in results/sacred.")
         results_path = join(dirname(dirname(abspath(__file__))), "results")
-        file_obs_path = join(results_path, "sacred", config_dict["name"], config_dict["env"], map_name)
+        file_obs_path = join(
+            results_path, "sacred", config_dict["name"], config_dict["env"], map_name
+        )
         ex.observers.append(FileStorageObserver.create(file_obs_path))
 
     ex.run_commandline(params)

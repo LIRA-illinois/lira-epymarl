@@ -7,6 +7,26 @@ import gymnasium as gym
 REGISTRY = {}
 
 
+class CommsActionSelector:
+    def __init__(self, args):
+        self.args = args
+
+    def select_action(self, agent_inputs, avail_actions, t_env, test_mode=False):
+        return 1
+        # masked_policies = agent_inputs.clone()
+        # masked_policies[avail_actions == 0.0] = 0.0
+
+        # if test_mode and self.test_greedy:
+        #     picked_actions = masked_policies.max(dim=2)[1]
+        # else:
+        #     picked_actions = Categorical(masked_policies).sample().long()
+
+        # return picked_actions
+
+
+REGISTRY["comms_selector"] = CommsActionSelector
+
+
 class MultinomialActionSelector:
 
     def __init__(self, args):

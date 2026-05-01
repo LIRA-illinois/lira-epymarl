@@ -39,6 +39,9 @@ class GridSearch(object):
             exp_config: dict = yaml.safe_load(f)
 
         self.basic_config_params: list[str] = ["config", "env-config"]
+
+        self.bash_prefix = ["/bin/bash", "-c"]
+
         self.save_params: list[str] = [
             "cmd",
             "wandb_project",
@@ -107,29 +110,47 @@ class GridSearch(object):
             time_id=time_id,
         )
 
-        self.print_info(scenarios, run_setups)
-
-        if self.args.computer in ["campus", "delta"]:
-            job_paths = self.build_sbatch_files(run_setups, cluster=self.args.computer, time_id=time_id)
-
-        # check if user wants to run the experiment
-        user_input = input("Run experiment now? (y/n) ").lower()
-        if user_input == "y":
-            print("Running experiment")
-            if env_bisimulation_test:
-                self.run_bisimulation_test(run_setups)
-
-            else:
-                match self.args.computer:
-                    case "lab":
-                        self.run_experiment_lab(run_setups.cmd)
-                    case "campus" | "delta":
-                        makedirs(cluster_log_dir, exist_ok=True)
-                        self.run_experiment_cluster(job_paths)
+        if self.args.debug:
+            self.run_debug(run_setups)
 
         else:
-            print("Exiting without running experiment")
+            self.print_info(scenarios, run_setups)
+
+            if self.args.computer in ["campus", "delta"]:
+                job_paths = self.build_sbatch_files(run_setups, cluster=self.args.computer, time_id=time_id)
+
+            # check if user wants to run the experiment
+            user_input = input("Run experiment now? (y/n) ").lower()
+            if user_input == "y":
+                print("Running experiment")
+                if env_bisimulation_test:
+                    self.run_bisimulation_test(run_setups)
+
+                else:
+                    match self.args.computer:
+                        case "lab":
+                            self.run_experiment_lab(run_setups.cmd)
+                        case "campus" | "delta":
+                            makedirs(cluster_log_dir, exist_ok=True)
+                            self.run_experiment_cluster(job_paths)
+
+            else:
+                print("Exiting without running experiment")
+                exit()
+
+    def run_debug(self, run_setups):
+        for cmd in run_setups.cmd:
+            run_cmd = [
+                *self.bash_prefix,
+                cmd,
+            ]
+            proc = subprocess.Popen(
+                run_cmd,
+            )
+            proc.wait()
+            print("done")
             exit()
+
 
     def get_scenarios(self, exp_config: dict) -> tuple[list[dict], list[str]]:
         scenarios: list[dict] = [*self.gen_dict_combinations(exp_config["parameters"])]
@@ -208,7 +229,16 @@ class GridSearch(object):
 
                 run_updates = [f"{k}={v}" for k, v in run_params.items()]
 
-                python_cmd = f"python3 {script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)}"
+                if self.args.debug:
+                    base_cmd = "ipdb3 -c continue"
+                    # needed for debugging while using Sacred
+                    sacred_debug_suffix = "-d"
+
+                else:
+                    base_cmd = "python3"
+                    sacred_debug_suffix = ""
+
+                python_cmd = f"{base_cmd} {script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)} {sacred_debug_suffix}"
 
                 run_params["cmd"] = python_cmd
                 run_setups.append(run_params)
@@ -236,10 +266,9 @@ class GridSearch(object):
             env["CUDA_VISIBLE_DEVICES"] = f"{runner_gpus[i]}"
             screen_name = f"{self.args.experiment}_runner_{i+1}"
             screen_prefix = ["screen", "-dmS", screen_name]
-            bash_prefix = ["/bin/bash", "-c"]
             run_cmd = [
                 *screen_prefix,
-                *bash_prefix,
+                *self.bash_prefix,
                 runner_cmds,
             ]
 
@@ -252,8 +281,8 @@ class GridSearch(object):
 
             processes.append(proc)
 
-        for p in processes:
-            p.wait()
+            for p in processes:
+                p.wait()
 
     def build_sbatch_files(
         self, run_setups: pd.DataFrame, cluster: Literal["campus", "delta"], time_id: str
@@ -376,6 +405,12 @@ class GridSearch(object):
             default="lab",
             help="Computer to run the experiment on.",
         )
+        parser.add_argument(
+            "-d",
+            "--debug",
+            type=bool,
+            default=False,
+        )
 
         return parser.parse_args()
 
@@ -494,10 +529,9 @@ class GridSearch(object):
         for seed in run_setups.seed:
             df_tmp = run_setups.copy()
             df_tmp = df_tmp.loc[df_tmp.seed == seed]
-            bash_prefix = ["/bin/bash", "-c"]
 
             for i, cmd in enumerate(df_tmp.cmd):
-                run_cmd = [*bash_prefix, cmd]
+                run_cmd = [*self.bash_prefix, cmd]
                 proc = subprocess.Popen(run_cmd)
                 processes.append(proc)
 

@@ -131,3 +131,10 @@ class MAICMAC:
             input_shape += self.n_agents
 
         return input_shape
+
+    def update_comms_value(self, new_comms_value: float):
+        self.agent.update_comms_value(new_comms_value)
+
+    @property
+    def comms_value(self):
+        return self.agent.comms_value

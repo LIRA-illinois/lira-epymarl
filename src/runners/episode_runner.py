@@ -1,7 +1,9 @@
+from collections import defaultdict
 from os import makedirs
 from os.path import join
 from functools import partial
 import numpy as np
+from torch import Tensor
 from numpy.typing import NDArray
 import matplotlib.image as mpl_img
 
@@ -101,20 +103,21 @@ class EpisodeRunner:
         self.t = 0
 
     def print_data(self, data: dict):
-        for k, v in data.items():
-            val = v[0]
-            if isinstance(val, np.ndarray):
-                shape = val.shape
-            elif isinstance(val, list):
-                shape = (len(val), len(val[0]))
-            else:
-                shape = len(val)
+        print(f"t_ep: {self.t}, hl_state: {data.get('hl_state', None)}")
+        # for k, v in data.items():
+        #     val = v[0]
+        #     if isinstance(val, np.ndarray):
+        #         shape = val.shape
+        #     elif isinstance(val, list):
+        #         shape = (len(val), len(val[0]))
+        #     else:
+        #         shape = len(val)
 
-            print(f"{k}, shape: {shape}, {type(val)}")
-            print(val)
-            print()
+        #     print(f"{k}, shape: {shape}, {type(val)}")
+        #     print(val)
+        #     print()
 
-    def select_actions(self, test_mode: bool) -> NDArray:
+    def select_actions(self, test_mode: bool) -> NDArray | tuple:
         """
         choose actions with option to use action space sampler
 
@@ -126,13 +129,27 @@ class EpisodeRunner:
 
         if self.args.action_selector == "action_space":
             actions = np.expand_dims(np.array(self.env.action_space.sample()), 0)
-
         else:
             actions = self.mac.select_actions(
                 self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
             )
+
+            # class LBFActions(enum.IntEnum):
+            #     # matches the order from original LBF action set
+            #     STAY = 0
+            #     UP = 1
+            #     DOWN = 2
+            #     LEFT = 3
+            #     RIGHT = 4
+            #     LOAD = 5
+
+            # go right
+            actions["env_actions"] = np.array([[4, 4, 4]])
+
             # following the format from the parallel episode runner
-            actions = actions.cpu().numpy()
+            if isinstance(actions, Tensor):
+                actions = actions.cpu().numpy()
+
         return actions
 
     def run(self, test_mode=False):
@@ -146,21 +163,18 @@ class EpisodeRunner:
         self.mac.init_hidden(batch_size=self.batch_size)
 
         while not terminated:
-            pre_transition_data = {
-                "state": [self.get_state()],
-                "avail_actions": [self.get_avail_actions()],
-                "obs": [self.get_obs()],
-            }
-
+            pre_transition_data = self._get_pre_transition_data()
             self.batch.update(pre_transition_data, ts=self.t)
-            # self.print_data(pre_transition_data)
+            self.print_data(pre_transition_data)
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
             actions = self.select_actions(test_mode=test_mode)
 
             if self.args.live_render:
-                render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
+                render_save_dir = join(
+                    "results", "live_renders", f"zzz_{self.args.env}"
+                )
                 makedirs(render_save_dir, exist_ok=True)
                 mpl_img.imsave(
                     join(render_save_dir, f"{self.t}_pre_step.png"), self.env.render()
@@ -169,7 +183,7 @@ class EpisodeRunner:
                 # print("pre transition state")
                 # print(state)
 
-            _, reward, terminated, truncated, env_info = self.env.step(actions[0])
+            _, reward, terminated, truncated, env_info = self._step(actions)
             terminated = terminated or truncated
 
             # if self.args.live_render:
@@ -183,9 +197,12 @@ class EpisodeRunner:
             episode_return += reward
 
             post_transition_data = {
-                "actions": actions,
                 "terminated": [(terminated != env_info.get("episode_limit", False),)],
             }
+            if isinstance(actions, dict):
+                post_transition_data["actions"] = actions["env_actions"]
+            else:
+                post_transition_data["actions"] = actions
 
             if self.args.common_reward:
                 post_transition_data["reward"] = [(reward,)]
@@ -196,17 +213,18 @@ class EpisodeRunner:
             self.batch.update(post_transition_data, ts=self.t)
             self.t += 1
 
-        last_data = {
-            "state": [self.get_state()],
-            "avail_actions": [self.get_avail_actions()],
-            "obs": [self.get_obs()],
-        }
+        last_data = self._get_pre_transition_data()
+        self.print_data(last_data)
 
         if self.args.live_render:
             makedirs(render_save_dir, exist_ok=True)
             mpl_img.imsave(
                 join(render_save_dir, f"{self.t}_final_state.png"), self.env.render()
             )
+        print("done with ep")
+        print('\n breakpoint ')
+        __import__('ipdb').set_trace(context=3)
+
 
         if test_mode and self.args.render:
             print(f"Episode return: {episode_return}")
@@ -214,7 +232,14 @@ class EpisodeRunner:
 
         # Select actions in the last stored state
         actions = self.select_actions(test_mode=test_mode)
-        self.batch.update({"actions": actions}, ts=self.t)
+
+        last_actions: dict = {}
+        if isinstance(actions, dict):
+            last_actions["actions"] = actions["env_actions"]
+        else:
+            last_actions["actions"] = actions
+
+        self.batch.update(last_actions, ts=self.t)
 
         cur_stats = self.test_stats if test_mode else self.train_stats
         cur_returns = self.test_returns if test_mode else self.train_returns
@@ -237,6 +262,8 @@ class EpisodeRunner:
             self._log(cur_returns, cur_stats, log_prefix)
         elif self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
             self._log(cur_returns, cur_stats, log_prefix)
+
+            # TODO need to support the factored hierarchical mac here
             if hasattr(self.mac.action_selector, "epsilon"):
                 self.logger.log_stat(
                     "epsilon", self.mac.action_selector.epsilon, self.t_env
@@ -245,19 +272,46 @@ class EpisodeRunner:
 
         return self.batch
 
-    def get_state(self):
+    def _step(self, actions):
+        if isinstance(actions, dict):
+            obs, reward, terminated, truncated, env_info = self.env.step(actions)
+        else:
+            obs, reward, terminated, truncated, env_info = self.env.step(actions[0])
+
+        return obs, reward, terminated, truncated, env_info
+
+    def _get_pre_transition_data(self) -> dict:
+        pre_transition_data = defaultdict(list)
+
+        state = self._get_state()
+        avail_actions = self._get_avail_actions()
+        obs = self._get_obs()
+
+        if isinstance(state, dict):
+            pre_transition_data["hl_state"].append(state["hl_state"])
+            pre_transition_data["state"].append(state["ll_state"])
+        else:
+            pre_transition_data["state"].append(state)
+
+        # simliar for these too if applicable
+        pre_transition_data["avail_actions"].append(avail_actions)
+        pre_transition_data["obs"].append(obs)
+
+        return pre_transition_data
+
+    def _get_state(self):
         if isinstance(self.env, RecordVideoExtended):
             return self.env.env.get_state()
         else:
             return self.env.get_state()
 
-    def get_obs(self):
+    def _get_obs(self):
         if isinstance(self.env, RecordVideoExtended):
             return self.env.env.get_obs()
         else:
             return self.env.get_obs()
 
-    def get_avail_actions(self):
+    def _get_avail_actions(self):
         if isinstance(self.env, RecordVideoExtended):
             return self.env.env.get_avail_actions()
         else:

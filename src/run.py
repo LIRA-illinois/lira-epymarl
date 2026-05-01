@@ -8,10 +8,13 @@ from types import SimpleNamespace as SN
 
 import torch as th
 
+
 from controllers import REGISTRY as mac_REGISTRY
+from controllers.factored import REGISTRY as factored_mac_REGISTRY
+from learners import REGISTRY as le_REGISTRY
+from learners.factored import REGISTRY as factored_le_REGISTRY
 from components.episode_buffer import ReplayBuffer
 from components.transforms import OneHot
-from learners import REGISTRY as le_REGISTRY
 from runners import REGISTRY as r_REGISTRY
 from utils.general_reward_support import test_alg_config_supports_reward
 from utils.logging import Logger
@@ -46,10 +49,8 @@ def run(_run, _config, _log):
 
     args.unique_token = unique_token
     if args.use_tensorboard:
-        tb_logs_direc = os.path.join(
-            dirname(dirname(abspath(__file__))), "results", "tb_logs"
-        )
-        tb_exp_direc = os.path.join(tb_logs_direc, "{}").format(unique_token)
+        tb_logs_direc = join(dirname(dirname(abspath(__file__))), "results", "tb_logs")
+        tb_exp_direc = join(tb_logs_direc, "{}").format(unique_token)
         logger.setup_tb(tb_exp_direc)
 
     if args.use_wandb:
@@ -134,11 +135,17 @@ def run_sequential(args, logger):
         },
         "terminated": {"vshape": (1,), "dtype": th.uint8},
     }
+
     # For individual rewards in gymma reward is of shape (1, n_agents)
     if args.common_reward:
         scheme["reward"] = {"vshape": (1,)}
     else:
         scheme["reward"] = {"vshape": (args.n_agents,)}
+
+    # support separate high-level env that interfaces with low-level env
+    if hasattr(args, "factored_hierarchical_policy"):
+        scheme["hl_state"] = {"vshape": env_info["hl_state_shape"]}
+
     groups = {"agents": args.n_agents}
     preprocess = {"actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])}
 
@@ -151,17 +158,18 @@ def run_sequential(args, logger):
         device="cpu" if args.buffer_cpu_only else args.device,
     )
 
-    # Setup multiagent controller here
-    mac = mac_REGISTRY[args.mac](buffer.scheme, groups, args)
-
-    # Give runner the scheme
-    runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
-
-    # Learner
-    learner = le_REGISTRY[args.learner](mac, buffer.scheme, logger, args)
+    if hasattr(args, "factored_hierarchical_policy"):
+        mac = factored_mac_REGISTRY[args.factored_mac](buffer.scheme, groups, args)
+        learner = factored_le_REGISTRY[args.factored_learner](mac, buffer.scheme, logger, args)
+    else:
+        mac = mac_REGISTRY[args.mac](buffer.scheme, groups, args)
+        learner = le_REGISTRY[args.learner](mac, buffer.scheme, logger, args)
 
     if args.use_cuda:
         learner.cuda()
+
+    # Give runner the scheme
+    runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
 
     if args.checkpoint_path != "":
         timesteps = []
@@ -175,7 +183,7 @@ def run_sequential(args, logger):
 
         # Go through all files in args.checkpoint_path
         for name in os.listdir(args.checkpoint_path):
-            full_name = os.path.join(args.checkpoint_path, name)
+            full_name = join(args.checkpoint_path, name)
             # Check if they are dirs the names of which are numbers
             if os.path.isdir(full_name) and name.isdigit():
                 timesteps.append(int(name))
@@ -187,7 +195,7 @@ def run_sequential(args, logger):
             # choose the timestep closest to load_step
             timestep_to_load = min(timesteps, key=lambda x: abs(x - args.load_step))
 
-        model_path = os.path.join(args.checkpoint_path, str(timestep_to_load))
+        model_path = join(args.checkpoint_path, str(timestep_to_load))
 
         logger.console_logger.info("Loading model from {}".format(model_path))
         learner.load_models(model_path)
@@ -260,7 +268,7 @@ def run_sequential(args, logger):
             or model_save_time == 0
         ):
             model_save_time = runner.t_env
-            save_path = os.path.join(
+            save_path = join(
                 args.local_results_path, "models", args.unique_token, str(runner.t_env)
             )
             # "results/models/{}".format(unique_token)
@@ -274,9 +282,7 @@ def run_sequential(args, logger):
             if args.use_wandb and args.wandb_save_model:
                 for model_name in os.listdir(save_path):
                     logger.log_model(
-                        save_path=os.path.join(
-                            save_path, model_name
-                        ),
+                        save_path=join(save_path, model_name),
                         t_env=runner.t_env,
                         model_name=model_name,
                     )
@@ -291,7 +297,6 @@ def run_sequential(args, logger):
     if args.save_replay_buffer:
         run_id = f"{args.time_id}_{args.seed}_{args.scenario}"
         buffer.save(run_id)
-
 
     runner.close_env()
     logger.console_logger.info("Finished Training")

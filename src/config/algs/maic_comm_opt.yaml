@@ -1,6 +1,16 @@
 # --- Algorithm-specific parameters ---
-name: "maic"
+name: "maic_comm_opt"
 
+
+# Comms optimization alg params
+factored_hierarchical_policy: True
+factored_mac: "comms_mac"
+factored_learner: "comms_learner"
+factored_action_selector: "comms_selector"
+comms_agent: "ilp_model"
+
+
+# MAIC params
 save_model: False # Save the models to disk
 save_model_interval: 1000000 # Save models after this many timesteps
 

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -7,14 +7,9 @@ from gymnasium.utils.env_checker import check_env
 
 import lbforaging as lbf
 import join1
+from gym_multigrid.envs.mdp import ProjectMDP
 
-
-SUPPORTED_ENVS = (
-    "foraging-v2",
-    "join1-v0",
-    "join1_original",
-    "multigrid-lbf-v0"
-)
+SUPPORTED_ENVS = ("foraging-v2", "join1-v0", "join1_original", "multigrid-lbf-v0")
 
 NON_GYMNASIUM_ENVS = {"join1_original": join1.Join1EnvOriginal}
 
@@ -87,7 +82,6 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         # init as a proper env wrapper
         super().__init__(self.env)
 
-
     def _build_env(self) -> gym.Env:
         if self.env_name in ["foraging-v2"]:
             # special way for envs that pre-register their envs with kwargs under specific names
@@ -145,7 +139,6 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         except Exception as e:
             print(f"Env has issues: {e}")
 
-
     def get_env_info(self) -> dict[str, Any]:
         info: dict = self.env.unwrapped.get_env_info()
         info["episode_limit"] = self.episode_limit
@@ -191,3 +184,143 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         terminated = bool(terminated)
 
         return obs, reward, terminated, truncated, env_info
+
+
+class HLMDPEnvWrapper(gym.Wrapper):
+    def __init__(self, env_args: dict):
+        self.task_type: Literal["atomic", "composed"] = env_args.pop("task_type")
+        self.num_rooms: int = env_args.pop("num_rooms", 2)
+        self.num_comms_values: int = env_args.pop("num_comms_values", 1)
+
+        self.env_args: dict = env_args
+
+        # low-level environment
+        self.env = BasicGymnasiumWrapper(env_args=env_args)
+        super().__init__(self.env)
+
+        # high-level MDP tracks valid goal transitions
+        self.hlmdp = ProjectMDP(
+            num_rooms=self.num_rooms,
+            task_type=self.task_type,
+            num_comms_values=self.num_comms_values,
+        )
+
+        # this thing's action space should be a Cartesian product of the low-level env's and the MDP action space
+        # you can use a dict to represent that since they're factored and different structure
+        # similar for the obs space
+
+    def step(self, actions: dict) -> tuple[NDArray, float, bool, bool, dict]:
+        """
+        Execute one step of the environment.
+
+        Parameters
+        ----------
+        actions :
+            High-level actions from agents, shape (n_agents,)
+            Action indices into the MDP's action space
+        """
+
+        # AI generated version, not quite right, but a good enough starting point
+
+        # All agents share the same high-level action
+        hl_actions = actions["hl_actions"]
+        ll_actions = actions["env_actions"]
+
+        # Advance the team MDP to the next goal state
+        # hl_reward: float
+        # I think this would just be =1 if you reach the goal state, but we're not modeling reward so not necessary
+
+        # Low-level agents now execute towards the shared goal
+        ll_obs, ll_reward, ll_terminated, ll_truncated, ll_info = self.env.step(
+            ll_actions
+        )
+
+        # other envs may have other ways to fail tasks,
+        # but in LBF running out of time is the only way to do it
+        task_completed = ll_info["task_completed"]
+        task_failed = ll_truncated
+
+        # the HLMDP's step depends on if the task was completed successfully or not and the chosen next state
+        _, hl_reward, hl_terminated, hl_info = self.hlmdp.step(
+            hl_actions, task_completed, task_failed
+        )
+
+        # the HL step needs to happen here based on the success or failure of the low-level agents
+        # or it just stays still :P
+
+        # Combine rewards: HL rewards for goal transitions + LL rewards
+        total_reward = hl_reward + ll_reward
+        terminated = ll_terminated or hl_terminated
+
+        # Merge HL and LL info
+        hl_info = {
+            # "hl_actions": hl_actions,
+            # "hl_reward": hl_reward,
+            # "hl_state": hl_state,
+            # "hl_terminated": hl_terminated,
+        }
+        ll_info.update(hl_info)
+
+        return ll_obs, total_reward, terminated, ll_truncated, ll_info
+
+    def get_state(self) -> dict:
+        """
+        Returns combined low-level and high-level state.
+
+        Returns
+        -------
+        NDArray
+            Joint state including LL and HL components
+        """
+        state = {"ll_state": self.env.get_state(), "hl_state": self.hlmdp.get_state()}
+
+        return state
+
+    def get_obs(self) -> NDArray:
+        """
+        Returns low-level obs since high-level obs not used in our alg.
+
+        Returns
+        -------
+        NDArray
+            shape (n_samples=1, n_agents, n_obs_features)
+        """
+        ll_obs = self.env.get_obs()
+
+        return ll_obs
+
+    def get_avail_actions(self) -> list:
+        return self.env.get_avail_actions()
+
+    @property
+    def episode_limit(self):
+        return self.env.episode_limit
+
+    def get_env_info(self) -> dict[str, Any]:
+        info: dict = self.env.get_env_info()
+
+        hl_info = self.hlmdp.get_env_info()
+        for k in list(hl_info.keys()):
+            hl_info[f"hl_{k}"] = hl_info.pop(k)
+        info = info | hl_info
+
+        # high-level MDP stuff
+        # info["n_hl_actions"] = self.hlmdp.action_space.n
+        # info["n_hl_obs"] = self.hlmdp.observation_space.n
+        # info["hl_action_space"] = self.hlmdp.action_space
+        # info["hl_obs_space"] = self.hlmdp.observation_space
+
+        return info
+
+    def render(self):
+        ll_img = self.env.render()
+
+        hl_img = self.hlmdp.render()
+        print('\n breakpoint post hl_img')
+        __import__('ipdb').set_trace(context=3)
+
+
+        # make the image, then resize to fit together with ll_img and stick them together to return the image
+        # return
+
+

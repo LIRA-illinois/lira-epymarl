@@ -7,7 +7,7 @@ from .smaclite_wrapper import SMACliteWrapper
 
 # Additional environments
 from .gym_multigrid_wrapper import GymMultiGridWrapper
-from .basic_gymnasium_wrapper import BasicGymnasiumWrapper, SUPPORTED_ENVS as basic_supported_envs
+from .basic_gymnasium_wrappers import BasicGymnasiumWrapper, HLMDPEnvWrapper, SUPPORTED_ENVS as basic_supported_envs
 
 if sys.platform == "linux":
     os.environ.setdefault(
@@ -75,7 +75,12 @@ REGISTRY["gym_multigrid"] = gym_multigrid_fn
 
 
 def gym_env_fn(common_reward=None, reward_scalarisation=None, **env_args) -> gym.Env:
-    return BasicGymnasiumWrapper(env_args=env_args)
+    if env_args.get("hierarchical", False):
+        env_args.pop("hierarchical")
+        env = HLMDPEnvWrapper(env_args=env_args)
+    else:
+        env = BasicGymnasiumWrapper(env_args=env_args)
+    return env
 
 
 for env in basic_supported_envs:
