@@ -316,11 +316,26 @@ class HLMDPEnvWrapper(gym.Wrapper):
         ll_img = self.env.render()
 
         hl_img = self.hlmdp.render()
-        print('\n breakpoint post hl_img')
-        __import__('ipdb').set_trace(context=3)
 
+        # Get dimensions
+        ll_h, ll_w = ll_img.shape[:2]
+        hl_h, hl_w = hl_img.shape[:2]
+        max_width = max(ll_w, hl_w)
 
-        # make the image, then resize to fit together with ll_img and stick them together to return the image
-        # return
+        # Pad smaller image with zeros to match max width
+        if ll_w < max_width:
+            pad_width = max_width - ll_w
+            ll_img = np.pad(ll_img, ((0, 0), (0, pad_width), (0, 0)), mode='constant', constant_values=0)
 
+        if hl_w < max_width:
+            pad_width = max_width - hl_w
+            hl_img = np.pad(hl_img, ((0, 0), (0, pad_width), (0, 0)), mode='constant', constant_values=0)
+
+        # Stack vertically with LL on bottom
+        combined_img = np.vstack([hl_img, ll_img])
+
+        # from PIL import Image
+        # img = Image.fromarray(combined_img)
+        # img.save("total_env.png")
+        return combined_img
 
