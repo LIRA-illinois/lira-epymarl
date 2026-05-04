@@ -229,19 +229,18 @@ class GridSearch(object):
 
                 run_updates = [f"{k}={v}" for k, v in run_params.items()]
 
+                # needed for debugging while using Sacred
+                # --force makes Sacred ignore this error since it sucks at checking whether params are actually used in your code or not
+                # sacred.utils.ConfigAddedError: Added new config entry that is not used anywhere
+                sacred_debug_suffix = "-d --force"
+
                 if self.args.debug:
                     base_cmd = "ipdb3 -c continue"
-                    # needed for debugging while using Sacred
-                    # -- force makes Sacred ignore this error since it sucks at checking whether params are actually used in your code or not
-                    # sacred.utils.ConfigAddedError: Added new config entry that is not used anywhere
-                    sacred_debug_suffix = "-d --force"
 
                 else:
                     base_cmd = "python3"
-                    sacred_debug_suffix = ""
 
                 python_cmd = f"{base_cmd} {script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)} {sacred_debug_suffix}"
-
                 run_params["cmd"] = python_cmd
                 run_setups.append(run_params)
 
@@ -410,8 +409,7 @@ class GridSearch(object):
         parser.add_argument(
             "-d",
             "--debug",
-            type=bool,
-            default=False,
+            action="store_true",
         )
 
         return parser.parse_args()

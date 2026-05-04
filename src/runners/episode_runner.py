@@ -144,8 +144,12 @@ class EpisodeRunner:
             #     RIGHT = 4
             #     LOAD = 5
 
-            # go right
-            # actions["env_actions"] = np.array([[0, 4, 4]])
+            # complete 1st task, fail on 2nd task
+            # if 0 < self.t <= 9:
+            #     # go right
+            #     actions["env_actions"] = np.array([[4, 4, 4]])
+            # else:
+            #     actions["env_actions"] = np.array([[0, 4, 4]])
 
             # # go right
             actions["env_actions"] = np.array([[4, 4, 4]])
@@ -226,6 +230,11 @@ class EpisodeRunner:
 
         # Select actions in the last stored state
         actions = self._select_actions(test_mode=test_mode)
+
+        # render a frame of the env with the current HL actions chosen
+        if isinstance(self.env, RecordVideoExtended):
+            self.env.env.render_actions = actions
+            self.env._capture_frame()
 
         last_actions: dict = {}
         if isinstance(actions, dict):

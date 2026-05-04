@@ -26,18 +26,18 @@ parameters:
   wandb_project:
     values: [comm_experiments]
   # everything on
-  use_wandb:
-    values: [True]
-  use_sacred:
-    values: [True]
-  save_model:
-    values: [True]
-  wandb_save_model:
-    values: [True]
-  save_test_replays:
-    values: [True]
-  wandb_save_test_replays:
-    values: [True]
+  # use_wandb:
+  #   values: [True]
+  # use_sacred:
+  #   values: [True]
+  # save_model:
+  #   values: [True]
+  # wandb_save_model:
+  #   values: [True]
+  # save_test_replays:
+  #   values: [True]
+  # wandb_save_test_replays:
+  #   values: [True]
   # live_render:
   #   values: [False]
 
@@ -72,8 +72,10 @@ parameters:
     values: [0.00005]
 
   t_max:
-    values: [50]
+    values: [100]
   test_nepisode:
+    values: [10]
+  n_test_replays_save:
     values: [2]
 
   ##################

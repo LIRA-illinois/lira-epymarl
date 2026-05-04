@@ -25,6 +25,7 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
 
 ex = Experiment("pymarl")
 
+
 @ex.main
 def my_main(_run, _config, _log):
     def config_copy(config):
@@ -109,7 +110,7 @@ if __name__ == "__main__":
 
     # now add all the config to sacred
     if config_dict["use_sacred"]:
-        sacred_capture_mode = "fd"
+        sacred_capture_mode = "no"
         logger = get_logger()
         ex.logger = logger
         ex.captured_out_filter = apply_backspaces_and_linefeeds

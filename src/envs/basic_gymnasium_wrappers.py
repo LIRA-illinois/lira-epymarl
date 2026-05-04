@@ -314,13 +314,14 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
     def render(self):
         ll_img = self.env.render()
+        ll_h, ll_w = ll_img.shape[:2]
+
         if self.render_actions is None:
             hl_img = self.hlmdp.render()
         else:
             hl_img = self.hlmdp.render(self.render_actions["hl_actions"])
 
         # Get dimensions
-        ll_h, ll_w = ll_img.shape[:2]
         hl_h, hl_w = hl_img.shape[:2]
         max_width = max(ll_w, hl_w)
 
@@ -335,7 +336,6 @@ class HLMDPEnvWrapper(gym.Wrapper):
                 mode="constant",
                 constant_values=0,
             )
-
         if hl_w < max_width:
             pad_total = max_width - hl_w
             pad_left = pad_total // 2
@@ -353,4 +353,5 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # from PIL import Image
         # img = Image.fromarray(combined_img)
         # img.save("total_env.png")
+
         return combined_img

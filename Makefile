@@ -21,8 +21,14 @@ c ?= delta
 m ?= 30
 r ?= 2
 d ?= False
+# debugging
+ifeq ($(d), True)
+    debug = --debug
+else
+    debug =
+endif
 run_experiment:
-	@bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} --debug=${d}'
+	@bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${debug}'
 
 activate_venv:
 	bash -c 'source .venv/bin/activate; /bin/bash'

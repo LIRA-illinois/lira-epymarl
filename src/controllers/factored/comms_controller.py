@@ -114,3 +114,6 @@ class CommsMAC:
 
         # inputs = th.cat([x.reshape(bs * self.n_agents, -1) for x in inputs], dim=1)
         # return inputs
+
+    def save_models(self, path: str):
+        self.env_mac.save_models(path)

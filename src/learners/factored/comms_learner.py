@@ -10,9 +10,6 @@ class CommsLearner:
         #TODO have this set up your Gurobi optimziation problem and stuff
         self.env_learner = le_REGISTRY[args.learner](mac, scheme, logger, args)
 
-
-
-
         self.args = args
         self.mac = mac
         self.logger = logger
@@ -171,3 +168,6 @@ class CommsLearner:
 
     def cuda(self) -> None:
         self.env_learner.cuda()
+
+    def save_models(self, path: str) -> None:
+        self.env_learner.save_models(path)
