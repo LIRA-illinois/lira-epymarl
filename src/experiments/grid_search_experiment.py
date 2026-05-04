@@ -232,7 +232,9 @@ class GridSearch(object):
                 if self.args.debug:
                     base_cmd = "ipdb3 -c continue"
                     # needed for debugging while using Sacred
-                    sacred_debug_suffix = "-d"
+                    # -- force makes Sacred ignore this error since it sucks at checking whether params are actually used in your code or not
+                    # sacred.utils.ConfigAddedError: Added new config entry that is not used anywhere
+                    sacred_debug_suffix = "-d --force"
 
                 else:
                     base_cmd = "python3"

@@ -25,7 +25,6 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
 
 ex = Experiment("pymarl")
 
-
 @ex.main
 def my_main(_run, _config, _log):
     def config_copy(config):

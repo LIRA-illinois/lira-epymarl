@@ -1,3 +1,4 @@
+from typing import Optional
 from collections import defaultdict
 from os import makedirs
 from os.path import join
@@ -117,7 +118,7 @@ class EpisodeRunner:
         #     print(val)
         #     print()
 
-    def select_actions(self, test_mode: bool) -> NDArray | tuple:
+    def _select_actions(self, test_mode: bool) -> NDArray | tuple:
         """
         choose actions with option to use action space sampler
 
@@ -144,6 +145,9 @@ class EpisodeRunner:
             #     LOAD = 5
 
             # go right
+            # actions["env_actions"] = np.array([[0, 4, 4]])
+
+            # # go right
             actions["env_actions"] = np.array([[4, 4, 4]])
 
             # following the format from the parallel episode runner
@@ -165,35 +169,30 @@ class EpisodeRunner:
         while not terminated:
             pre_transition_data = self._get_pre_transition_data()
             self.batch.update(pre_transition_data, ts=self.t)
-            self.print_data(pre_transition_data)
+            # self.print_data(pre_transition_data)
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
-            actions = self.select_actions(test_mode=test_mode)
+            actions = self._select_actions(test_mode=test_mode)
 
-            if self.args.live_render:
-                render_save_dir = join(
-                    "results", "live_renders", f"zzz_{self.args.env}"
-                )
-                makedirs(render_save_dir, exist_ok=True)
-                mpl_img.imsave(
-                    join(render_save_dir, f"{self.t}_pre_step.png"), self.env.render()
-                )
-                # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
-                # print("pre transition state")
-                # print(state)
+            # render a frame of the env with the current HL actions chosen
+            if isinstance(self.env, RecordVideoExtended):
+                self.env.env.render_actions = actions
+                self.env._capture_frame()
+
+            # if self.args.live_render:
+            #     self._live_render(file_name="pre_step")
+
+            # don't use this, just use the RecordVideo class
+            # if test_mode and self.args.render:
+            #     self.env.render()
 
             _, reward, terminated, truncated, env_info = self._step(actions)
             terminated = terminated or truncated
 
             # if self.args.live_render:
-            #     mpl_img.imsave(join(save_dir, f"{self.t}_post_transition.png"), self.env.render())
-            #     # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
-            #     # print("post transition state")
-            #     # print(state)
+            #     self._live_render(file_name="post_step")
 
-            if test_mode and self.args.render:
-                self.env.render()
             episode_return += reward
 
             post_transition_data = {
@@ -214,24 +213,19 @@ class EpisodeRunner:
             self.t += 1
 
         last_data = self._get_pre_transition_data()
-        self.print_data(last_data)
+        # self.print_data(last_data)
 
-        if self.args.live_render:
-            makedirs(render_save_dir, exist_ok=True)
-            mpl_img.imsave(
-                join(render_save_dir, f"{self.t}_final_state.png"), self.env.render()
-            )
-        print("done with ep")
-        print('\n breakpoint ')
-        __import__('ipdb').set_trace(context=3)
+        # if self.args.live_render:
+        #     self._live_render(file_name="final_state")
 
+        # print("done with ep")
 
         if test_mode and self.args.render:
             print(f"Episode return: {episode_return}")
         self.batch.update(last_data, ts=self.t)
 
         # Select actions in the last stored state
-        actions = self.select_actions(test_mode=test_mode)
+        actions = self._select_actions(test_mode=test_mode)
 
         last_actions: dict = {}
         if isinstance(actions, dict):
@@ -271,6 +265,16 @@ class EpisodeRunner:
             self.log_train_stats_t = self.t_env
 
         return self.batch
+
+    def _live_render(self, file_name: str, actions: Optional[dict] = None):
+        render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
+        makedirs(render_save_dir, exist_ok=True)
+        mpl_img.imsave(
+            join(render_save_dir, f"{self.t}_{file_name}.png"), self.env.render()
+        )
+        # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
+        # print("pre transition state")
+        # print(state)
 
     def _step(self, actions):
         if isinstance(actions, dict):

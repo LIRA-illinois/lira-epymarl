@@ -24,7 +24,6 @@ class ILPModel():
         # state is a scalar in the HLMDP
         hl_state = ep_batch["hl_state"][:, t_ep, :].cpu().numpy().flatten()
         mdp_state = int(hl_state[0])
-        task_completed = bool(hl_state[1])
 
         chosen_next_mdp_state: int
         comms_allocation: float
@@ -38,24 +37,21 @@ class ILPModel():
 
         if (t_env == 0) and (t_ep == 0):
             print("solving model-based MDP problem (ILP) to get full tabular policy")
-            # assume the high-level model never changes for a given env during training
-            # you can pre-solve this one time for each env and then save the tabular policy to a dict or something
-            # walk thru each state in the HLMDP
-            # construct avail actions given the current state using the avail_actions method from the env itself
-            # solve the optimization problem to populate a tabular policy
-            # grab an action for the current HLMDP state
-            ## idk how I want to handle comms values yet, but its only currently relevant for evaluation so don't worry about it for now
+
+        # assume the high-level model never changes for a given env during training
+        # you can pre-solve this one time for each env and then save the tabular policy to a dict or something
+        # walk thru each state in the HLMDP
+        # construct avail actions given the current state using the avail_actions method from the env itself
+        # solve the optimization problem to populate a tabular policy
+        # grab an action for the current HLMDP state
+        ## idk how I want to handle comms values yet, but its only currently relevant for evaluation so don't worry about it for now
+        # if you just completd a task, low-level agents need a new task assigned to them
+        # then once we're running this in the loop, just grab the correct action from the tabular policy based on the current state
+        if mdp_state == 2:
             chosen_next_mdp_state = mdp_state
 
         else:
-            if task_completed:
-                # if you just completd a task, low-level agents need a new task assigned to them
-                # then once we're running this in the loop, just grab the correct action from the tabular policy based on the current state
-                chosen_next_mdp_state = mdp_state + 1
-
-            else:
-                # if you didn't just complete a task, take a null, "stay" action to keep pursuing the current goal
-                chosen_next_mdp_state = mdp_state
+           chosen_next_mdp_state = mdp_state + 1
 
         actions: dict = {
             "chosen_next_state": chosen_next_mdp_state,

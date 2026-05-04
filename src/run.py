@@ -277,7 +277,7 @@ def run_sequential(args, logger):
 
             # learner should handle saving/loading -- delegate actor save/load to mac,
             # use appropriate filenames to do critics, optimizer states
-            learner.save_models(save_path)
+            # learner.save_models(save_path)
 
             if args.use_wandb and args.wandb_save_model:
                 for model_name in os.listdir(save_path):

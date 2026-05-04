@@ -1,5 +1,4 @@
 from typing import Any, Optional, Literal
-
 import numpy as np
 from numpy.typing import NDArray
 import gymnasium as gym
@@ -209,6 +208,16 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # you can use a dict to represent that since they're factored and different structure
         # similar for the obs space
 
+    def reset(self, seed: Optional[int] = None, options: dict = None):
+        _, hl_info = self.hlmdp.reset(seed=seed, options=options)
+        ll_obs, ll_info = self.env.reset(seed=seed, options=options)
+
+        # only used for rendering HLMDP actions
+        self.render_actions = None
+
+        ll_info.update(hl_info)
+        return ll_obs, ll_info
+
     def step(self, actions: dict) -> tuple[NDArray, float, bool, bool, dict]:
         """
         Execute one step of the environment.
@@ -219,9 +228,6 @@ class HLMDPEnvWrapper(gym.Wrapper):
             High-level actions from agents, shape (n_agents,)
             Action indices into the MDP's action space
         """
-
-        # AI generated version, not quite right, but a good enough starting point
-
         # All agents share the same high-level action
         hl_actions = actions["hl_actions"]
         ll_actions = actions["env_actions"]
@@ -235,14 +241,17 @@ class HLMDPEnvWrapper(gym.Wrapper):
             ll_actions
         )
 
-        # other envs may have other ways to fail tasks,
+        # stop showing the action since the agent just reached a new state the HLMDP
+        if ll_info["task_completed"]:
+            self.render_actions = None
+
+        # other envs may have other ways to fail the overall project,
         # but in LBF running out of time is the only way to do it
-        task_completed = ll_info["task_completed"]
-        task_failed = ll_truncated
+        project_failed = ll_truncated
 
         # the HLMDP's step depends on if the task was completed successfully or not and the chosen next state
-        _, hl_reward, hl_terminated, hl_info = self.hlmdp.step(
-            hl_actions, task_completed, task_failed
+        hl_obs, hl_reward, hl_terminated, hl_truncated, hl_info = self.hlmdp.step(
+            hl_actions, ll_info["task_completed"], project_failed
         )
 
         # the HL step needs to happen here based on the success or failure of the low-level agents
@@ -251,17 +260,12 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # Combine rewards: HL rewards for goal transitions + LL rewards
         total_reward = hl_reward + ll_reward
         terminated = ll_terminated or hl_terminated
+        truncated = ll_truncated or hl_truncated
 
         # Merge HL and LL info
-        hl_info = {
-            # "hl_actions": hl_actions,
-            # "hl_reward": hl_reward,
-            # "hl_state": hl_state,
-            # "hl_terminated": hl_terminated,
-        }
-        ll_info.update(hl_info)
+        info = ll_info | hl_info
 
-        return ll_obs, total_reward, terminated, ll_truncated, ll_info
+        return ll_obs, total_reward, terminated, truncated, info
 
     def get_state(self) -> dict:
         """
@@ -297,39 +301,51 @@ class HLMDPEnvWrapper(gym.Wrapper):
         return self.env.episode_limit
 
     def get_env_info(self) -> dict[str, Any]:
-        info: dict = self.env.get_env_info()
+        ll_info: dict = self.env.get_env_info()
 
         hl_info = self.hlmdp.get_env_info()
+        # add hl prefix to stuff in the hl info dict
         for k in list(hl_info.keys()):
             hl_info[f"hl_{k}"] = hl_info.pop(k)
-        info = info | hl_info
 
-        # high-level MDP stuff
-        # info["n_hl_actions"] = self.hlmdp.action_space.n
-        # info["n_hl_obs"] = self.hlmdp.observation_space.n
-        # info["hl_action_space"] = self.hlmdp.action_space
-        # info["hl_obs_space"] = self.hlmdp.observation_space
+        info = ll_info | hl_info
 
         return info
 
     def render(self):
         ll_img = self.env.render()
-
-        hl_img = self.hlmdp.render()
+        if self.render_actions is None:
+            hl_img = self.hlmdp.render()
+        else:
+            hl_img = self.hlmdp.render(self.render_actions["hl_actions"])
 
         # Get dimensions
         ll_h, ll_w = ll_img.shape[:2]
         hl_h, hl_w = hl_img.shape[:2]
         max_width = max(ll_w, hl_w)
 
-        # Pad smaller image with zeros to match max width
+        # pad the smaller image so it is centered
         if ll_w < max_width:
-            pad_width = max_width - ll_w
-            ll_img = np.pad(ll_img, ((0, 0), (0, pad_width), (0, 0)), mode='constant', constant_values=0)
+            pad_total = max_width - ll_w
+            pad_left = pad_total // 2
+            pad_right = pad_total - pad_left
+            ll_img = np.pad(
+                ll_img,
+                ((0, 0), (pad_left, pad_right), (0, 0)),
+                mode="constant",
+                constant_values=0,
+            )
 
         if hl_w < max_width:
-            pad_width = max_width - hl_w
-            hl_img = np.pad(hl_img, ((0, 0), (0, pad_width), (0, 0)), mode='constant', constant_values=0)
+            pad_total = max_width - hl_w
+            pad_left = pad_total // 2
+            pad_right = pad_total - pad_left
+            hl_img = np.pad(
+                hl_img,
+                ((0, 0), (pad_left, pad_right), (0, 0)),
+                mode="constant",
+                constant_values=0,
+            )
 
         # Stack vertically with LL on bottom
         combined_img = np.vstack([hl_img, ll_img])
@@ -338,4 +354,3 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # img = Image.fromarray(combined_img)
         # img.save("total_env.png")
         return combined_img
-

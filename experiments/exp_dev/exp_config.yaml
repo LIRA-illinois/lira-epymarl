@@ -26,40 +26,40 @@ parameters:
   wandb_project:
     values: [comm_experiments]
   # everything on
-  # use_wandb:
-  #   values: [True]
-  # use_sacred:
-  #   values: [True]
-  # save_model:
-  #   values: [True]
-  # wandb_save_model:
-  #   values: [True]
-  # save_test_replays:
-  #   values: [True]
-  # wandb_save_test_replays:
-  #   values: [True]
+  use_wandb:
+    values: [True]
+  use_sacred:
+    values: [True]
+  save_model:
+    values: [True]
+  wandb_save_model:
+    values: [True]
+  save_test_replays:
+    values: [True]
+  wandb_save_test_replays:
+    values: [True]
   # live_render:
-  #   values: [True]
+  #   values: [False]
 
   # everything off
-  use_wandb:
-    values: [False]
-  use_sacred:
-    values: [False]
-  save_model:
-    values: [False]
-  wandb_save_model:
-    values: [False]
-  save_test_replays:
-    values: [False]
-  wandb_save_test_replays:
-    values: [False]
+  # use_wandb:
+  #   values: [False]
+  # use_sacred:
+  #   values: [False]
+  # save_model:
+  #   values: [False]
+  # wandb_save_model:
+  #   values: [False]
+  # save_test_replays:
+  #   values: [False]
+  # wandb_save_test_replays:
+  #   values: [False]
   # live_render:
   #   values: [False]
 
   # live replays saved
-  live_render:
-    values: [True]
+  # live_render:
+  #   values: [True]
 
   ##################
   # MARL alg config
@@ -72,9 +72,9 @@ parameters:
     values: [0.00005]
 
   t_max:
-    values: [100]
+    values: [50]
   test_nepisode:
-    values: [1]
+    values: [2]
 
   ##################
   # Environment config
@@ -89,7 +89,7 @@ parameters:
   env_args.sight:
     values: [2]
   env_args.max_episode_steps:
-    values: [10]
+    values: [25]
   env_args.max_num_fruit:
     values: [0]
     # values: [2]
