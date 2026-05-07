@@ -186,8 +186,10 @@ class BasicGymnasiumWrapper(gym.Wrapper):
 
 
 class HLMDPEnvWrapper(gym.Wrapper):
-    def __init__(self, env_args: dict):
-        self.task_type: Literal["atomic", "composed"] = env_args.pop("task_type")
+    def __init__(self, env_args: dict, hl_env_args: Optional[dict] = None):
+        if hl_env_args is not None:
+            self.task_type: Literal["atomic", "composed"] = hl_env_args.pop("task_type")
+
         self.num_rooms: int = env_args.pop("num_rooms", 2)
         self.num_comms_values: int = env_args.pop("num_comms_values", 1)
 

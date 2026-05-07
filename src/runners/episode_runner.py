@@ -135,29 +135,47 @@ class EpisodeRunner:
                 self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
             )
 
-            # class LBFActions(enum.IntEnum):
-            #     # matches the order from original LBF action set
-            #     STAY = 0
-            #     UP = 1
-            #     DOWN = 2
-            #     LEFT = 3
-            #     RIGHT = 4
-            #     LOAD = 5
-
-            # complete 1st task, fail on 2nd task
-            # if 0 < self.t <= 9:
-            #     # go right
-            #     actions["env_actions"] = np.array([[4, 4, 4]])
-            # else:
-            #     actions["env_actions"] = np.array([[0, 4, 4]])
-
-            # # go right
-            actions["env_actions"] = np.array([[4, 4, 4]])
+            # actions = self.manual_policy(actions)
 
             # following the format from the parallel episode runner
             if isinstance(actions, Tensor):
                 actions = actions.cpu().numpy()
 
+        return actions
+
+    def manual_policy(self, actions):
+        # class LBFActions(enum.IntEnum):
+        #     # matches the order from original LBF action set
+        #     STAY = 0
+        #     UP = 1
+        #     DOWN = 2
+        #     LEFT = 3
+        #     RIGHT = 4
+        #     LOAD = 5
+
+        # go left
+        print(f"t: {self.t}")
+        actions = np.array([[3, 2, 3]])
+
+        # cycle into the goals
+        # if self.t == 0:
+        #     actions = np.array([[4, 0, 4]])
+        # elif self.t == 1:
+        #     actions = np.array([[3, 4, 3]])
+        # elif self.t % 2 == 0:
+        #     actions = np.array([[4, 3, 4]])
+        # else:
+        #     actions = np.array([[3, 4, 3]])
+
+        # complete 1st task, fail on 2nd task
+        # if 0 < self.t <= 9:
+        #     # go right
+        #     actions["env_actions"] = np.array([[4, 4, 4]])
+        # else:
+        #     actions["env_actions"] = np.array([[0, 4, 4]])
+
+        # # # go right
+        # actions["env_actions"] = np.array([[4, 4, 4]])
         return actions
 
     def run(self, test_mode=False):
@@ -184,12 +202,8 @@ class EpisodeRunner:
                 self.env.env.render_actions = actions
                 self.env._capture_frame()
 
-            # if self.args.live_render:
-            #     self._live_render(file_name="pre_step")
-
-            # don't use this, just use the RecordVideo class
-            # if test_mode and self.args.render:
-            #     self.env.render()
+            if self.args.live_render:
+                self._live_render(file_name="pre_step")
 
             _, reward, terminated, truncated, env_info = self._step(actions)
             terminated = terminated or truncated
@@ -219,8 +233,8 @@ class EpisodeRunner:
         last_data = self._get_pre_transition_data()
         # self.print_data(last_data)
 
-        # if self.args.live_render:
-        #     self._live_render(file_name="final_state")
+        if self.args.live_render:
+            self._live_render(file_name="final_state")
 
         # print("done with ep")
 

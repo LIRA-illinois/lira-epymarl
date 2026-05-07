@@ -1,3 +1,4 @@
+from typing import Optional
 import os
 import sys
 import gymnasium as gym
@@ -7,7 +8,11 @@ from .smaclite_wrapper import SMACliteWrapper
 
 # Additional environments
 from .gym_multigrid_wrapper import GymMultiGridWrapper
-from .basic_gymnasium_wrappers import BasicGymnasiumWrapper, HLMDPEnvWrapper, SUPPORTED_ENVS as basic_supported_envs
+from .basic_gymnasium_wrappers import (
+    BasicGymnasiumWrapper,
+    HLMDPEnvWrapper,
+    SUPPORTED_ENVS as basic_supported_envs,
+)
 
 if sys.platform == "linux":
     os.environ.setdefault(
@@ -71,15 +76,19 @@ REGISTRY["gymma"] = gymma_fn
 def gym_multigrid_fn(**kwargs) -> gym.Env:
     return GymMultiGridWrapper(**kwargs)
 
+
 REGISTRY["gym_multigrid"] = gym_multigrid_fn
 
 
 def gym_env_fn(common_reward=None, reward_scalarisation=None, **env_args) -> gym.Env:
-    if env_args.get("hierarchical", False):
-        env_args.pop("hierarchical")
-        env = HLMDPEnvWrapper(env_args=env_args)
+    hierarchical = env_args.pop("hierarchical", False)
+    hl_env_args: Optional[dict] = env_args.pop("hl_env_args", None)
+
+    if hierarchical:
+        env = HLMDPEnvWrapper(env_args=env_args, hl_env_args=hl_env_args)
     else:
         env = BasicGymnasiumWrapper(env_args=env_args)
+
     return env
 
 

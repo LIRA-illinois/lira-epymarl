@@ -39,35 +39,40 @@ parameters:
   # wandb_save_test_replays:
   #   values: [True]
   # live_render:
-  #   values: [False]
+  #   values: [True]
 
   # everything off
-  # use_wandb:
-  #   values: [False]
-  # use_sacred:
-  #   values: [False]
-  # save_model:
-  #   values: [False]
-  # wandb_save_model:
-  #   values: [False]
-  # save_test_replays:
-  #   values: [False]
-  # wandb_save_test_replays:
-  #   values: [False]
+  use_wandb:
+    values: [False]
+  use_sacred:
+    values: [False]
+  save_model:
+    values: [False]
+  wandb_save_model:
+    values: [False]
+  save_test_replays:
+    values: [False]
+  wandb_save_test_replays:
+    values: [False]
   # live_render:
   #   values: [False]
 
   # live replays saved
-  # live_render:
-  #   values: [True]
+  live_render:
+    values: [True]
 
   ##################
   # MARL alg config
   ##################
-  config:
-    values: [maic_comm_opt]
   # config:
-  #   values: [maic]
+  #   values: [maic_comm_opt]
+  # env_args.hierarchical:
+  #   values: [True]
+  config:
+    values: [maic]
+  env_args.hierarchical:
+    values: [False]
+
   lr:
     values: [0.00005]
 
@@ -89,9 +94,9 @@ parameters:
   env_args.n_agents:
     values: [3]
   env_args.sight:
-    values: [2]
+    values: [3]
   env_args.max_episode_steps:
-    values: [25]
+    values: [75]
   env_args.max_num_fruit:
     values: [0]
     # values: [2]
@@ -99,6 +104,11 @@ parameters:
     values: [multigrid_flattened]
   env_args.obs_type:
     values: [multigrid_flattened]
+  env_args.observe_other_agents:
+    values: [False]
+
+  env_args.highlight_visible_cells:
+    values: [True]
 
   # comms allocation params
   env_args.team_bandwidth_allocation_action:
@@ -107,9 +117,7 @@ parameters:
     values: [3]
 
   # hierarchical decision-making params for "project MDP"
-  env_args.hierarchical:
-    values: [True]
-  env_args.task_type:
+  env_args.hl_env_args.task_type:
     values: [composed]
 
 

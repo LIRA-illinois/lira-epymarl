@@ -50,7 +50,7 @@ parameters:
   # Environment config
   ##################
   env_args.sight:
-    values: [3, 5, 7]
+    values: [5, 7]
   env_args.force_coop:
     values: [False]
   env-config:
@@ -65,6 +65,10 @@ parameters:
     values: [multigrid_flattened]
   env_args.obs_type:
     values: [multigrid_flattened]
+  env_args.observe_other_agents:
+    values: [True, False]
+  env_args.highlight_visible_cells:
+    values: [True]
 
 ##################
 # Conditional parameters

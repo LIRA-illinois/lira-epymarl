@@ -25,7 +25,7 @@ class MAICAgent(nn.Module):
         self.latent_dim = args.latent_dim
         self.n_actions = args.n_actions
 
-        self.comms_value: float
+        self.comms_value: float = 1.0
 
         activation_func = nn.LeakyReLU()
 
@@ -70,21 +70,45 @@ class MAICAgent(nn.Module):
         test_mode: bool = False,
         **kwargs,
     ):
+        # auxiliary losses
+        aux_losses: dict = {}
+
         q_local, hidden_state = self._get_local_q_value(
             inputs=inputs, hidden_state=hidden_state
         )
 
-        latent, latent_embed = self._get_teammate_embedding(
-            hidden_state=hidden_state, bs=bs, test_mode=test_mode
-        )
+        if self.n_agents > 1:
+            latent, latent_embed = self._get_teammate_embedding(
+                hidden_state=hidden_state, bs=bs, test_mode=test_mode
+            )
 
-        gated_msg = self._get_messages(
-            hidden_state=hidden_state, bs=bs, latent=latent, test_mode=test_mode
-        )
+            gated_msg = self._get_messages(
+                hidden_state=hidden_state, bs=bs, latent=latent, test_mode=test_mode
+            )
 
-        # update estimated Q-value using incentive messsages from other agents
-        msg_tot = th.sum(gated_msg, dim=1).view(bs * self.n_agents, self.n_actions)
-        q_out: Tensor = q_local + msg_tot
+            # update estimated Q-value using incentive messsages from other agents
+            msg_tot = th.sum(gated_msg, dim=1).view(bs * self.n_agents, self.n_actions)
+            q_out: Tensor = q_local + msg_tot
+
+
+            if "train_mode" in kwargs and kwargs["train_mode"]:
+                if hasattr(self.args, "mi_loss_weight") and self.args.mi_loss_weight > 0:
+                    aux_losses["mi_loss"] = self._get_action_mi_loss(
+                        hidden_state, bs, latent_embed, q_out
+                    )
+
+                if (
+                    hasattr(self.args, "entropy_loss_weight")
+                    and self.args.entropy_loss_weight > 0
+                ):
+                    alpha = self._get_attention_weights(
+                        hidden_state=hidden_state, latent=latent, bs=bs, compute_loss=True
+                    )
+                    aux_losses["entropy_loss"] = self._get_entropy_loss(alpha)
+
+        else:
+            # same as VDN, QMIX, or whatever mixer you're using
+            q_out = q_local
 
         # verify that changing comms value affects q_out
         # if test_mode:
@@ -94,25 +118,7 @@ class MAICAgent(nn.Module):
         #     print("q_local\n", q_local)
         #     print("q_out\n", q_out)
 
-        # get auxiliary losses
-        returns = {}
-
-        if "train_mode" in kwargs and kwargs["train_mode"]:
-            if hasattr(self.args, "mi_loss_weight") and self.args.mi_loss_weight > 0:
-                returns["mi_loss"] = self._get_action_mi_loss(
-                    hidden_state, bs, latent_embed, q_out
-                )
-
-            if (
-                hasattr(self.args, "entropy_loss_weight")
-                and self.args.entropy_loss_weight > 0
-            ):
-                alpha = self._get_attention_weights(
-                    hidden_state=hidden_state, latent=latent, bs=bs, compute_loss=True
-                )
-                returns["entropy_loss"] = self._get_entropy_loss(alpha)
-
-        return q_out, hidden_state, returns
+        return q_out, hidden_state, aux_losses
 
     def _get_local_q_value(
         self, inputs: Tensor, hidden_state: Tensor
