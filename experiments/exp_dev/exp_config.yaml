@@ -72,10 +72,8 @@ parameters:
     values: [maic]
   env_args.hierarchical:
     values: [False]
-
   lr:
     values: [0.00005]
-
   t_max:
     values: [100]
   test_nepisode:
@@ -88,18 +86,26 @@ parameters:
   ##################
   env-config:
     values: [multigrid-lbf-v0]
+  manual_policy:
+    values: [False]
+
   env_args.map_name:
-    values: [3ga_2r_small_agents_placed]
+    values: [1r_small]
+    # values: [3ga_2r_small_agents_placed]
     # values: [3ga_2r_small]
   env_args.n_agents:
-    values: [3]
+    values: [4]
   env_args.sight:
-    values: [3]
+    values: [7]
   env_args.max_episode_steps:
     values: [75]
+  env_args.min_fruit_level:
+    values: [2]
+  env_args.max_fruit_level:
+    values: [4]
   env_args.max_num_fruit:
-    values: [0]
-    # values: [2]
+    # values: [0]
+    values: [5]
   env_args.state_type:
     values: [multigrid_flattened]
   env_args.obs_type:
@@ -109,6 +115,10 @@ parameters:
 
   env_args.highlight_visible_cells:
     values: [True]
+
+  # env_args.reward_config.failed_load_penalty:
+  #   values: [-0.1]
+
 
   # comms allocation params
   env_args.team_bandwidth_allocation_action:

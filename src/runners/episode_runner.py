@@ -135,7 +135,8 @@ class EpisodeRunner:
                 self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
             )
 
-            # actions = self.manual_policy(actions)
+            if self.args.manual_policy:
+                actions = self.manual_policy(actions)
 
             # following the format from the parallel episode runner
             if isinstance(actions, Tensor):
@@ -153,9 +154,25 @@ class EpisodeRunner:
         #     RIGHT = 4
         #     LOAD = 5
 
-        # go left
         print(f"t: {self.t}")
-        actions = np.array([[3, 2, 3]])
+
+        if self.t in [2, 6]:
+            # grab
+            actions = np.array([[5, 5, 5]])
+        else:
+            # right
+            actions = np.array([[4, 4, 4]])
+
+        # actions = np.array([[3, 2, 3]])
+
+        # right
+        # actions = np.array([[4, 4, 4]])
+
+        # if self.t < 5:
+        #     actions = np.array([[4, 4, 4]])
+        # else:
+        #     actions = np.array([[3, 3, 3]])
+
 
         # cycle into the goals
         # if self.t == 0:
@@ -174,7 +191,7 @@ class EpisodeRunner:
         # else:
         #     actions["env_actions"] = np.array([[0, 4, 4]])
 
-        # # # go right
+        # go right
         # actions["env_actions"] = np.array([[4, 4, 4]])
         return actions
 
@@ -206,11 +223,11 @@ class EpisodeRunner:
                 self._live_render(file_name="pre_step")
 
             _, reward, terminated, truncated, env_info = self._step(actions)
+
             terminated = terminated or truncated
 
             # if self.args.live_render:
             #     self._live_render(file_name="post_step")
-
             episode_return += reward
 
             post_transition_data = {
