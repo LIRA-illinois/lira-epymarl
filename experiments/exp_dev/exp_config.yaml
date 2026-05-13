@@ -46,7 +46,7 @@ parameters:
   # use_wandb:
   #   values: [False]
   # use_sacred:
-  #   values: [False]
+  #   values: [True]
   # save_model:
   #   values: [False]
   # wandb_save_model:
@@ -59,8 +59,8 @@ parameters:
   #   values: [False]
 
   # live replays saved
-  live_render:
-    values: [True]
+  # live_render:
+  #   values: [True]
 
   ##################
   # MARL alg config
@@ -76,7 +76,7 @@ parameters:
   lr:
     values: [0.00005]
   t_max:
-    values: [120]
+    values: [90]
   test_interval:
     values: [50]
   runner_log_interval:
@@ -95,10 +95,9 @@ parameters:
     values: [False]
 
   # comms allocation params
-  multi_comms_eval:
-    values: [True]
-  num_comms_values:
-    values: [3]
+  # all values in the space-delimited list will be evaluated in a single run
+  comms_values_eval:
+    values: [[0.0 0.5 1.0]]
 
   env_args.map_name:
     values: [1r_small]
@@ -110,7 +109,6 @@ parameters:
     values: [7]
   env_args.max_episode_steps:
     values: [30]
-    # values: [75]
   env_args.min_fruit_level:
     values: [2]
   env_args.max_fruit_level:

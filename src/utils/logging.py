@@ -141,12 +141,14 @@ class Logger:
                         os.path.splitext(video)[1][1:],
                     )
 
-                    self.wandb.log(
-                        {
+                    data = {
                             f"{video_name}_{extension}": wandb.Video(
                                 video_path, format=extension
                             )
-                        },
+                        }
+
+                    self.wandb.log(
+                        data=data,
                         step=t_env,
                     )
 

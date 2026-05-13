@@ -42,13 +42,6 @@ class Simulation:
 
     def run_sim(self) -> None:
         self.hierarchical: bool = hasattr(self.args, "factored_hierarchical_policy")
-        self.multi_comms_eval: bool = hasattr(self.args, "multi_comms_eval")
-
-        if self.multi_comms_eval:
-            # way of doing this without using the MDP class
-            self.comms_values_eval = np.linspace(
-                0.0, 1.0, num=self.args.num_comms_values
-            ).tolist()
 
         if self.args.checkpoint_path != "":
             self._load_checkpoint(hierarchical)
@@ -152,13 +145,7 @@ class Simulation:
 
                 last_time = time.time()
                 last_test_t = self.runner.t_env
-
-                if self.multi_comms_eval:
-
-                    self.evaluate_multi_comms(self.comms_values_eval)
-
-                else:
-                    self.evaluate(get_success_rates)
+                self.evaluate()
 
             # save models
             if self.args.save_model and (
@@ -184,62 +171,36 @@ class Simulation:
         self.runner.close_env()
         self.logger.console_logger.info("Finished Training")
 
-    def evaluate(self, get_success_rates: bool = False) -> None:
-        # enable replay saving for some of the test episodes
-        # if self.args.save_test_replays:
-        #     self.runner.start_recording(self.args.n_test_replays_save)
+    def evaluate(self) -> None:
+        if hasattr(self.args, "comms_values_eval"):
+            self._evaluate_multi_comms(self.args.comms_values_eval)
 
-        task_outcomes = defaultdict(list)
+        else:
+            self._evaluate_basic()
+
+    def _evaluate_basic(self):
+        """evaluate a single trained policy"""
+        self.logger.console_logger.info("=" * 50)
+        self.logger.console_logger.info("Evaluating Policy")
+        self.logger.console_logger.info("=" * 50)
+
+        # enable replay saving for some of the test episodes
+        if self.args.save_test_replays:
+            self.runner.start_recording(self.args.n_test_replays_save)
 
         n_test_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
         for test_ep_idx in range(n_test_eps):
-            # if test_ep_idx >= self.args.n_test_replays_save:
-            #     self.runner.stop_recording()
+            if (
+                self.args.save_test_replays
+                and test_ep_idx >= self.args.n_test_replays_save - 1
+            ):
+                self.runner.stop_recording()
 
-            episode_batch = self.runner.run(test_mode=True)
-
-            if get_success_rates:
-                # TODO fix this up, actually get this working
-                # get the current task and whether it resulted in a success or not
-                # AI generated version, kinda wrong, but good starting point
-                # hl_states = episode_batch["hl_state"].cpu().numpy()
-                terminated = episode_batch["terminated"].cpu().numpy()
-
-                # Track which task was attempted and whether it succeeded
-                for ts in range(episode_batch.max_t_filled()):
-                    # task_id = int(hl_states[0, ts, 0])  # Assuming first element is task state
-                    episode_success = bool(
-                        terminated[0, ts]
-                    )  # Task success if episode terminated
-
-                    task_outcomes[task_id].append(episode_success)
-
-            # Calculate success rates and log
-            for task_id, outcomes in task_outcomes.items():
-                success_rate = np.mean(outcomes) if outcomes else 0.0
-                ll_task_success_rates[task_id] = success_rate
-                self.logger.log_stat(
-                    f"test_success_rate_task_{task_id}", success_rate, self.runner.t_env
-                )
-
-    def evaluate_loaded(self, hierarchical: bool = False) -> None:
-        self.runner.log_train_stats_t = self.runner.t_env
-
-        for _ in range(self.args.test_nepisode):
             self.runner.run(test_mode=True)
 
-        if self.args.save_replay:
-            self.runner.save_replay()
-
-        self.runner.close_env()
-        self.logger.log_stat("episode", self.runner.t_env, self.runner.t_env)
-        self.logger.print_recent_stats()
-        self.logger.console_logger.info("Finished Evaluation")
-
-    def evaluate_multi_comms(self, comms_values: list[float]) -> None:
+    def _evaluate_multi_comms(self, comms_values: list[float]) -> None:
         """
-        Evaluate the trained policy across multiple comms allocation values.
-        All logging is handled in EpisodeRunner.
+        Evaluate a trained policy across multiple comms allocation values.
 
         Parameters
         ----------
@@ -248,7 +209,7 @@ class Simulation:
         """
         self.logger.console_logger.info("=" * 50)
         self.logger.console_logger.info(
-            f"Evaluating Policy Across Comms values: {comms_values}"
+            f"Evaluating Policy Across Comms Values: {comms_values}"
         )
         self.logger.console_logger.info("=" * 50)
 
@@ -261,9 +222,7 @@ class Simulation:
 
             # Start recording videos for this comms value
             if self.args.save_test_replays:
-                self.runner.start_recording(
-                    self.args.n_test_replays_save, name_prefix=f"comms_{comms_value:.2f}"
-                )
+                self.runner.start_recording(self.args.n_test_replays_save, video_prefix=f"comms_{comms_value:.2f}")
 
             # run evaluation episodes
             n_test_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
@@ -271,7 +230,7 @@ class Simulation:
             # Reset stats for this comms value
             # self.runner.reset_comms_stats(comms_value)
 
-           # Update controller with new comms value
+            # Update controller with new comms value
             self.runner.mac.update_comms_value(comms_value)
 
             for test_ep_idx in range(n_test_eps):
@@ -287,6 +246,20 @@ class Simulation:
             # Ensure recording is stopped before moving to next comms value
             if self.args.save_test_replays:
                 self.runner.stop_recording()
+
+    def evaluate_loaded(self, hierarchical: bool = False) -> None:
+        self.runner.log_train_stats_t = self.runner.t_env
+
+        for _ in range(self.args.test_nepisode):
+            self.runner.run(test_mode=True)
+
+        if self.args.save_replay:
+            self.runner.save_replay()
+
+        self.runner.close_env()
+        self.logger.log_stat("episode", self.runner.t_env, self.runner.t_env)
+        self.logger.print_recent_stats()
+        self.logger.console_logger.info("Finished Evaluation")
 
     # helper methods
     def save(self) -> None:

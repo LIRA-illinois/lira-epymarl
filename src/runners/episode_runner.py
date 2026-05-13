@@ -1,4 +1,3 @@
-from torch.jit import trace
 from typing import Optional
 from collections import defaultdict
 from os import makedirs
@@ -71,7 +70,7 @@ class EpisodeRunner:
     def save_replay(self):
         self.env.save_replay()
 
-    def start_recording(self, n_test_replays_save: int, name_prefix: str = "replay"):
+    def start_recording(self, n_test_replays_save: int, video_prefix: str = "replay"):
         # get video folder from wandb logger
         # make the video dir
         replay_dir = join(self.logger.dir, f"replays")
@@ -85,7 +84,7 @@ class EpisodeRunner:
             env=self.env,
             video_folder=video_folder,
             episode_trigger=lambda e: True,
-            name_prefix=name_prefix,
+            name_prefix=video_prefix,
             output_formats=["mp4"],
         )
 
@@ -431,12 +430,8 @@ class EpisodeRunner:
         Log stats for a specific comms value during multi-comms evaluation.
         """
         if self.args.common_reward:
-            if comms_value == 0.0:
-                return_mean = 0.69 * self.t_env # nice
-            else:
-                return_mean = np.mean(returns)
             self.logger.log_stat(
-                f"{prefix}return_mean_comms_{comms_value}", return_mean, self.t_env
+                f"{prefix}return_mean_comms_{comms_value}", np.mean(returns), self.t_env
             )
             self.logger.log_stat(
                 f"{prefix}return_std_comms_{comms_value}", np.std(returns), self.t_env

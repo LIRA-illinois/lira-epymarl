@@ -26,6 +26,15 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
 ex = Experiment("pymarl")
 
 
+def string_inputs_to_list(config: dict, key: str) -> dict :
+    """Converts space-delimited string list to list of floats for the given key in the config dictionary."""
+    eval_str = config[key].split("=")[0][1:-1]
+    float_values: list[float] = [float(x) for x in eval_str.split(" ")]
+    config[key] = float_values
+
+    return config
+
+
 @ex.main
 def my_main(_run, _config, _log):
     def config_copy(config):
@@ -41,6 +50,9 @@ def my_main(_run, _config, _log):
     np.random.seed(config["seed"])
     th.manual_seed(config["seed"])
     config["env_args"]["seed"] = config["seed"]
+
+    if "comms_values_eval" in config:
+        config = string_inputs_to_list(config, "comms_values_eval")
 
     # run the framework
     Simulation(_run, config, _log)
@@ -79,6 +91,7 @@ def get_run_config(params) -> dict:
                     assert False, "{}.yaml error: {}".format(config_name, exc)
             return config_dict
 
+
     # Get the defaults from default.yaml
     with open(join(dirname(__file__), "config", "default.yaml"), "r") as f:
         try:
@@ -89,7 +102,7 @@ def get_run_config(params) -> dict:
     # Load algorithm and env base configs
     env_config = _get_config(params, "--env-config", "envs")
     alg_config = _get_config(params, "--config", "algs")
-    # config_dict = {**config_dict, **env_config, **alg_config}
+
     config_dict = recursive_dict_update(config_dict, env_config)
     config_dict = recursive_dict_update(config_dict, alg_config)
 
@@ -114,7 +127,6 @@ if __name__ == "__main__":
         logger = get_logger()
         ex.logger = logger
         ex.captured_out_filter = apply_backspaces_and_linefeeds
-
     else:
         # set to "no" if you want to see stdout/stderr in console
         sacred_capture_mode = "no"

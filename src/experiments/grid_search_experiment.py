@@ -218,15 +218,13 @@ class GridSearch(object):
                 if k in self.basic_config_params:
                     options.append(f"--{k}={v}")
                 else:
-                    if k not in scenario_params:
-                        updates.append(f"{k}={v}")
+                    updates.append(f"{k}={v}")
 
             # define the command to be run
             for seed in seeds:
                 # unique name for each wandb run using seed
                 run_params = scenario_params.copy()
                 run_params["seed"] = seed
-
                 run_updates = [f"{k}={v}" for k, v in run_params.items()]
 
                 # needed for debugging while using Sacred
@@ -272,6 +270,7 @@ class GridSearch(object):
                 *self.bash_prefix,
                 runner_cmds,
             ]
+
 
             proc = subprocess.Popen(
                 run_cmd,
