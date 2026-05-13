@@ -46,13 +46,17 @@ parameters:
   lr:
     values: [0.00005]
   test_nepisode:
-    values: [100]
+    values: [50]
   n_test_replays_save:
     values: [5]
+  test_interval:
+    values: [50000]
+  t_max:
+    values: [2050000]
 
   # all values in the space-delimited list will be evaluated in a single run
   comms_values_eval:
-    values: [[0.0 0.5 1.0]]
+    values: [[0.0 0.5 0.6 0.7 0.8 0.85 0.9 0.95 1.0]]
 
   ##################
   # Environment config
@@ -84,6 +88,7 @@ parameters:
   # reward config
   env_args.reward_config.failed_load_penalty:
     values: [0.0, -0.01]
+
 
   # rendering
   env_args.highlight_visible_cells:
