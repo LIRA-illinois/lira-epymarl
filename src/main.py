@@ -18,7 +18,7 @@ import logging
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 
 from utils.logging import get_logger
-from run import run
+from run import Simulation
 
 # ensure to make sure the `protobuf` package works
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
@@ -43,7 +43,7 @@ def my_main(_run, _config, _log):
     config["env_args"]["seed"] = config["seed"]
 
     # run the framework
-    run(_run, config, _log)
+    Simulation(_run, config, _log)
 
 
 def get_run_config(params) -> dict:

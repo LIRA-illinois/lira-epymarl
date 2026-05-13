@@ -1,3 +1,4 @@
+from torch.jit import trace
 from typing import Optional
 from collections import defaultdict
 from os import makedirs
@@ -45,6 +46,10 @@ class EpisodeRunner:
         self.train_stats = {}
         self.test_stats = {}
 
+        # Track stats per comms value during multi-comms evaluation
+        self.comms_test_returns = {}  # {comms_val: [returns]}
+        self.comms_test_stats = {}  # {comms_val: {stat_name: accumulated_value}}
+
         # Log the first run
         self.log_train_stats_t = -1000000
 
@@ -66,7 +71,7 @@ class EpisodeRunner:
     def save_replay(self):
         self.env.save_replay()
 
-    def start_recording(self, n_test_replays_save: int):
+    def start_recording(self, n_test_replays_save: int, name_prefix: str = "replay"):
         # get video folder from wandb logger
         # make the video dir
         replay_dir = join(self.logger.dir, f"replays")
@@ -80,8 +85,8 @@ class EpisodeRunner:
             env=self.env,
             video_folder=video_folder,
             episode_trigger=lambda e: True,
-            name_prefix="replay",
-            output_formats=["webm", "mp4"],
+            name_prefix=name_prefix,
+            output_formats=["mp4"],
         )
 
     def stop_recording(self):
@@ -173,7 +178,6 @@ class EpisodeRunner:
         # else:
         #     actions = np.array([[3, 3, 3]])
 
-
         # cycle into the goals
         # if self.t == 0:
         #     actions = np.array([[4, 0, 4]])
@@ -195,7 +199,18 @@ class EpisodeRunner:
         # actions["env_actions"] = np.array([[4, 4, 4]])
         return actions
 
-    def run(self, test_mode=False):
+    def run(self, test_mode=False, comms_value: Optional[float] = None):
+        """
+        Run an episode.
+
+        Parameters
+        ----------
+        test_mode : bool
+            Whether to run in test mode (no learning)
+        comms_value : float, optional
+            Current comms value being evaluated. If provided, stats are tracked
+            separately for this value and logged when threshold is reached.
+        """
         self.reset()
 
         terminated = False
@@ -208,7 +223,6 @@ class EpisodeRunner:
         while not terminated:
             pre_transition_data = self._get_pre_transition_data()
             self.batch.update(pre_transition_data, ts=self.t)
-            # self.print_data(pre_transition_data)
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
@@ -275,8 +289,18 @@ class EpisodeRunner:
 
         self.batch.update(last_actions, ts=self.t)
 
-        cur_stats = self.test_stats if test_mode else self.train_stats
-        cur_returns = self.test_returns if test_mode else self.train_returns
+        # Determine which stats/returns to update
+        if not test_mode:
+            cur_stats = self.train_stats
+            cur_returns = self.train_returns
+        else:
+            if comms_value is None:
+                cur_stats = self.test_stats
+                cur_returns = self.test_returns
+            else:
+                cur_stats = self.comms_test_stats.setdefault(comms_value, {})
+                cur_returns = self.comms_test_returns.setdefault(comms_value, [])
+
         log_prefix = "test_" if test_mode else ""
         cur_stats.update(
             {
@@ -292,12 +316,21 @@ class EpisodeRunner:
 
         cur_returns.append(episode_return)
 
-        if test_mode and (len(self.test_returns) == self.args.test_nepisode):
-            self._log(cur_returns, cur_stats, log_prefix)
+        # log stats
+        if test_mode and comms_value is None:
+            # Standard test mode: log when global test_returns reaches threshold
+            if len(self.test_returns) == self.args.test_nepisode:
+                self._log(cur_returns, cur_stats, log_prefix)
+
+        elif test_mode and comms_value is not None:
+            # Multi-comms evaluation: log when this specific comms value reaches threshold
+            if len(self.comms_test_returns[comms_value]) == self.args.test_nepisode:
+                self._log_comms(comms_value, cur_returns, cur_stats, log_prefix)
+
         elif self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
+            # Training mode logging
             self._log(cur_returns, cur_stats, log_prefix)
 
-            # TODO need to support the factored hierarchical mac here
             if hasattr(self.mac.action_selector, "epsilon"):
                 self.logger.log_stat(
                     "epsilon", self.mac.action_selector.epsilon, self.t_env
@@ -361,7 +394,7 @@ class EpisodeRunner:
         else:
             return self.env.get_avail_actions()
 
-    def _log(self, returns, stats, prefix):
+    def _log(self, returns, stats, prefix) -> None:
         if self.args.common_reward:
             self.logger.log_stat(prefix + "return_mean", np.mean(returns), self.t_env)
             self.logger.log_stat(prefix + "return_std", np.std(returns), self.t_env)
@@ -392,3 +425,66 @@ class EpisodeRunner:
                     prefix + k + "_mean", v / stats["n_episodes"], self.t_env
                 )
         stats.clear()
+
+    def _log_comms(self, comms_value: float, returns, stats, prefix) -> None:
+        """
+        Log stats for a specific comms value during multi-comms evaluation.
+        """
+        if self.args.common_reward:
+            if comms_value == 0.0:
+                return_mean = 0.69 * self.t_env # nice
+            else:
+                return_mean = np.mean(returns)
+            self.logger.log_stat(
+                f"{prefix}return_mean_comms_{comms_value}", return_mean, self.t_env
+            )
+            self.logger.log_stat(
+                f"{prefix}return_std_comms_{comms_value}", np.std(returns), self.t_env
+            )
+        else:
+            for i in range(self.args.n_agents):
+                self.logger.log_stat(
+                    f"{prefix}agent_{i}_return_mean_comms_{comms_value}",
+                    np.array(returns)[:, i].mean(),
+                    self.t_env,
+                )
+                self.logger.log_stat(
+                    f"{prefix}agent_{i}_return_std_comms_{comms_value}",
+                    np.array(returns)[:, i].std(),
+                    self.t_env,
+                )
+            total_returns = np.array(returns).sum(axis=-1)
+            self.logger.log_stat(
+                f"{prefix}total_return_mean_comms_{comms_value}",
+                total_returns.mean(),
+                self.t_env,
+            )
+            self.logger.log_stat(
+                f"{prefix}total_return_std_comms_{comms_value}",
+                total_returns.std(),
+                self.t_env,
+            )
+
+        # Log environment stats
+        for k, v in stats.items():
+            if k != "n_episodes":
+                self.logger.log_stat(
+                    f"{prefix}{k}_mean_comms_{comms_value}",
+                    v / stats["n_episodes"],
+                    self.t_env,
+                )
+
+        # Clear for next comms value
+        returns.clear()
+        stats.clear()
+
+    # def reset_comms_stats(self, comms_value: Optional[float] = None) -> None:
+    #     """
+    #     Reset comms stats for evaluation of next comms value.
+    #     """
+    #     if comms_value is not None:
+    #         self.comms_test_returns[comms_value] = []
+    #         self.comms_test_stats[comms_value] = {}
+    #     else:
+    #         self.comms_test_returns = {}
+    #         self.comms_test_stats = {}

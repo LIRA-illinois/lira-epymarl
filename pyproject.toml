@@ -36,3 +36,9 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 # only use poetry for dependency management, not to create an importable package from this project, do this to avoid changing the directory structure to that required for an importable package
 package-mode = false
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]

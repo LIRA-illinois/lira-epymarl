@@ -81,21 +81,22 @@ class RecordVideoExtended(RecordVideo):
             moviepy_logger = None if self.disable_logger else "bar"
 
             # Build the output path with appropriate extension
-            for format in self.output_formats:
+            for output_format in self.output_formats:
                 path = os.path.join(
-                    self.video_folder, f"{self._video_name}.{format}"
+                    self.video_folder, f"{self._video_name}.{output_format}"
                 )
 
                 # Write video in the specified format
-                if format == "webm":
+                if output_format == "webm":
                     # Write WebM format with VP9 codec
                     clip.write_videofile(
                         path, codec="libvpx-vp9", audio=False, logger=moviepy_logger
                     )
-                elif format == "gif":
+                elif output_format == "gif":
                     # Write GIF format
                     clip.write_gif(path, logger=moviepy_logger)
                 else:
+
                     # Default to MP4 format
                     clip.write_videofile(path, codec="libx264", logger=moviepy_logger)
 

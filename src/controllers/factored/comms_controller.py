@@ -7,7 +7,6 @@ from modules.agents import REGISTRY as agent_REGISTRY
 from components.action_selectors import CommsActionSelector
 
 
-# This multi-agent controller shares parameters between agents
 class CommsMAC:
     def __init__(self, scheme, groups, args):
 

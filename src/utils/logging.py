@@ -136,7 +136,10 @@ class Logger:
             for _, _, videos in os.walk(video_dir):
                 for video in videos:
                     video_path = os.path.join(video_dir, video)
-                    video_name, extension = video.split(".")[0], video.split(".")[1]
+                    video_name, extension = (
+                        os.path.splitext(video)[0],
+                        os.path.splitext(video)[1][1:],
+                    )
 
                     self.wandb.log(
                         {
