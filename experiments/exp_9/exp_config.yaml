@@ -45,6 +45,14 @@ parameters:
     values: [maic]
   lr:
     values: [0.00005]
+  test_nepisode:
+    values: [100]
+  n_test_replays_save:
+    values: [5]
+
+  # all values in the space-delimited list will be evaluated in a single run
+  comms_values_eval:
+    values: [[0.0 0.5 1.0]]
 
   ##################
   # Environment config
@@ -75,12 +83,11 @@ parameters:
 
   # reward config
   env_args.reward_config.failed_load_penalty:
-    values: [-0.01]
+    values: [0.0, -0.01]
 
   # rendering
   env_args.highlight_visible_cells:
     values: [True]
-
 
 ##################
 # Conditional parameters

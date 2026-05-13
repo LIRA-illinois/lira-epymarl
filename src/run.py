@@ -190,9 +190,14 @@ class Simulation:
 
         n_test_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
         for test_ep_idx in range(n_test_eps):
+            if test_ep_idx % 50 == 0:
+                self.logger.console_logger.info(
+                    f"Test Episode: {test_ep_idx} / {n_test_eps}"
+                )
+
             if (
                 self.args.save_test_replays
-                and test_ep_idx >= self.args.n_test_replays_save - 1
+                and test_ep_idx >= self.args.n_test_replays_save
             ):
                 self.runner.stop_recording()
 
@@ -227,21 +232,24 @@ class Simulation:
             # run evaluation episodes
             n_test_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
 
-            # Reset stats for this comms value
-            # self.runner.reset_comms_stats(comms_value)
-
             # Update controller with new comms value
             self.runner.mac.update_comms_value(comms_value)
 
             for test_ep_idx in range(n_test_eps):
-                self.runner.run(test_mode=True, comms_value=comms_value)
+                if test_ep_idx % 50 == 0:
+                    self.logger.console_logger.info(
+                        f"Test Episode: {test_ep_idx} / {n_test_eps}"
+                    )
 
                 # Stop recording after n_test_replays_save episodes
                 if (
                     self.args.save_test_replays
-                    and test_ep_idx >= self.args.n_test_replays_save - 1
+                    and test_ep_idx >= self.args.n_test_replays_save
                 ):
                     self.runner.stop_recording()
+
+                self.runner.run(test_mode=True, comms_value=comms_value)
+
 
             # Ensure recording is stopped before moving to next comms value
             if self.args.save_test_replays:

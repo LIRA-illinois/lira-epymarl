@@ -139,7 +139,7 @@ class EpisodeRunner:
                 self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
             )
 
-            if self.args.manual_policy:
+            if hasattr(self.args, "manual_policy"):
                 actions = self.manual_policy(actions)
 
             # following the format from the parallel episode runner
@@ -472,14 +472,3 @@ class EpisodeRunner:
         # Clear for next comms value
         returns.clear()
         stats.clear()
-
-    # def reset_comms_stats(self, comms_value: Optional[float] = None) -> None:
-    #     """
-    #     Reset comms stats for evaluation of next comms value.
-    #     """
-    #     if comms_value is not None:
-    #         self.comms_test_returns[comms_value] = []
-    #         self.comms_test_stats[comms_value] = {}
-    #     else:
-    #         self.comms_test_returns = {}
-    #         self.comms_test_stats = {}
