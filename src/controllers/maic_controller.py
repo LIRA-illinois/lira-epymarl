@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 import torch as th
 
 from modules.agents import REGISTRY as agent_REGISTRY
@@ -92,12 +92,17 @@ class MAICMAC:
     def save_models(self, path):
         th.save(self.agent.state_dict(), "{}/agent.th".format(path))
 
-    def load_models(self, path):
-        self.agent.load_state_dict(
-            th.load(
-                "{}/agent.th".format(path), map_location=lambda storage, loc: storage
+    def load_models(self, path: str | dict):
+        if isinstance(path, str):
+            self.agent.load_state_dict(
+                th.load(
+                    "{}/agent.th".format(path), map_location=lambda storage, loc: storage
+                )
             )
-        )
+        elif isinstance(path, dict):
+            state_dict = path
+            self.agent.load_state_dict(state_dict)
+
 
     def _build_agents(self, input_shape):
         self.agent = agent_REGISTRY[self.args.agent](input_shape, self.args)

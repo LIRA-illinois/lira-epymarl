@@ -45,10 +45,6 @@ class EpisodeRunner:
         self.train_stats = {}
         self.test_stats = {}
 
-        # Track stats per comms value during multi-comms evaluation
-        self.comms_test_returns = {}  # {comms_val: [returns]}
-        self.comms_test_stats = {}  # {comms_val: {stat_name: accumulated_value}}
-
         # Log the first run
         self.log_train_stats_t = -1000000
 
@@ -70,12 +66,15 @@ class EpisodeRunner:
     def save_replay(self):
         self.env.save_replay()
 
-    def start_recording(self, n_test_replays_save: int, video_prefix: str = "replay"):
+    def start_recording(self, n_test_replays_save: int, video_prefix: str = "replay", t_env: Optional[int] = None):
         # get video folder from wandb logger
         # make the video dir
+        if t_env is None:
+            t_env = self.t_env
+
         replay_dir = join(self.logger.dir, f"replays")
         makedirs(replay_dir, exist_ok=True)
-        video_folder = join(replay_dir, f"t_{self.t_env}")
+        video_folder = join(replay_dir, f"t_{t_env}")
         self.logger.console_logger.info(
             f"Saving {n_test_replays_save} test episode replays to {video_folder}"
         )
@@ -88,12 +87,15 @@ class EpisodeRunner:
             output_formats=["mp4"],
         )
 
-    def stop_recording(self):
+    def stop_recording(self, t_env: Optional[int] = None):
+        if t_env is None:
+            t_env = self.t_env
+
         if isinstance(self.env, RecordVideoExtended):
             self.env.stop_recording()
             if self.logger.save_replays:
                 self.logger.log_replays(
-                    video_dir=self.env.video_folder, t_env=self.t_env
+                    video_dir=self.env.video_folder, t_env=t_env
                 )
             self.env = self.env.env
         else:
@@ -158,14 +160,25 @@ class EpisodeRunner:
         #     RIGHT = 4
         #     LOAD = 5
 
-        print(f"t: {self.t}")
+        # print(f"t: {self.t}")
+        if self.mac.comms_value == 0.0:
+            if self.t == 0:
+                # right
+                actions = np.array([[4, 4, 4]])
+            else:
+                # grab
+                actions = np.array([[5, 5, 5]])
 
-        if self.t in [2, 6]:
-            # grab
-            actions = np.array([[5, 5, 5]])
-        else:
-            # right
-            actions = np.array([[4, 4, 4]])
+        elif self.mac.comms_value == 1.0:
+            # left
+            actions = np.array([[3, 3, 3]])
+
+        # if self.t in [2, 6]:
+        #     # grab
+        #     actions = np.array([[5, 5, 5]])
+        # else:
+        #     # right
+        #     actions = np.array([[4, 4, 4]])
 
         # actions = np.array([[3, 2, 3]])
 
@@ -198,7 +211,7 @@ class EpisodeRunner:
         # actions["env_actions"] = np.array([[4, 4, 4]])
         return actions
 
-    def run(self, test_mode=False, comms_value: Optional[float] = None):
+    def run(self, test_mode: bool = False, return_log_stats: bool = True):
         """
         Run an episode.
 
@@ -206,9 +219,6 @@ class EpisodeRunner:
         ----------
         test_mode : bool
             Whether to run in test mode (no learning)
-        comms_value : float, optional
-            Current comms value being evaluated. If provided, stats are tracked
-            separately for this value and logged when threshold is reached.
         """
         self.reset()
 
@@ -293,12 +303,8 @@ class EpisodeRunner:
             cur_stats = self.train_stats
             cur_returns = self.train_returns
         else:
-            if comms_value is None:
-                cur_stats = self.test_stats
-                cur_returns = self.test_returns
-            else:
-                cur_stats = self.comms_test_stats.setdefault(comms_value, {})
-                cur_returns = self.comms_test_returns.setdefault(comms_value, [])
+            cur_stats = self.test_stats
+            cur_returns = self.test_returns
 
         log_prefix = "test_" if test_mode else ""
         cur_stats.update(
@@ -316,27 +322,30 @@ class EpisodeRunner:
         cur_returns.append(episode_return)
 
         # log stats
-        if test_mode and comms_value is None:
-            # Standard test mode: log when global test_returns reaches threshold
+        out = {}
+
+        if test_mode:
             if len(self.test_returns) == self.args.test_nepisode:
-                self._log(cur_returns, cur_stats, log_prefix)
+                log_stats = self.get_log_stats(cur_returns, cur_stats, log_prefix)
+                if return_log_stats:
+                    # return data in cur_returns and cur_stats for processing outside of episode runner
+                    out["log_stats"] = log_stats
+                else:
+                    self._log(log_stats)
+        else:
+            if self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
+                # Training mode logging
+                log_stats = self.get_log_stats(cur_returns, cur_stats, log_prefix)
+                self._log(log_stats)
 
-        elif test_mode and comms_value is not None:
-            # Multi-comms evaluation: log when this specific comms value reaches threshold
-            if len(self.comms_test_returns[comms_value]) == self.args.test_nepisode:
-                self._log_comms(comms_value, cur_returns, cur_stats, log_prefix)
+                if hasattr(self.mac.action_selector, "epsilon"):
+                    self.logger.log_stat(
+                        "epsilon", self.mac.action_selector.epsilon, self.t_env
+                    )
+                self.log_train_stats_t = self.t_env
 
-        elif self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
-            # Training mode logging
-            self._log(cur_returns, cur_stats, log_prefix)
-
-            if hasattr(self.mac.action_selector, "epsilon"):
-                self.logger.log_stat(
-                    "epsilon", self.mac.action_selector.epsilon, self.t_env
-                )
-            self.log_train_stats_t = self.t_env
-
-        return self.batch
+        out["batch"] = self.batch
+        return out
 
     def _live_render(self, file_name: str, actions: Optional[dict] = None):
         render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
@@ -393,82 +402,41 @@ class EpisodeRunner:
         else:
             return self.env.get_avail_actions()
 
-    def _log(self, returns, stats, prefix) -> None:
+    def get_log_stats(self, returns, stats, prefix) -> dict:
+        # populates a dict with all the stats you want to log with appropriate keys
+        log_stats = {}
+        # returns
         if self.args.common_reward:
-            self.logger.log_stat(prefix + "return_mean", np.mean(returns), self.t_env)
-            self.logger.log_stat(prefix + "return_std", np.std(returns), self.t_env)
+            log_stats["return_mean"] = np.mean(returns)
+            log_stats["return_std"] = np.std(returns)
         else:
             for i in range(self.args.n_agents):
-                self.logger.log_stat(
-                    prefix + f"agent_{i}_return_mean",
-                    np.array(returns)[:, i].mean(),
-                    self.t_env,
-                )
-                self.logger.log_stat(
-                    prefix + f"agent_{i}_return_std",
-                    np.array(returns)[:, i].std(),
-                    self.t_env,
-                )
-            total_returns = np.array(returns).sum(axis=-1)
-            self.logger.log_stat(
-                prefix + "total_return_mean", total_returns.mean(), self.t_env
-            )
-            self.logger.log_stat(
-                prefix + "total_return_std", total_returns.std(), self.t_env
-            )
-        returns.clear()
+                log_stats[f"agent_{i}_return_mean"] = np.array(returns)[:, i].mean()
+                log_stats[f"agent_{i}_return_std"] = np.array(returns)[:, i].std()
 
+            total_returns = np.array(returns).sum(axis=-1)
+            log_stats["total_return_mean"] = total_returns.mean()
+            log_stats["total_return_std"] = total_returns.std()
+
+        # other stats
         for k, v in stats.items():
             if k != "n_episodes":
-                self.logger.log_stat(
-                    prefix + k + "_mean", v / stats["n_episodes"], self.t_env
-                )
-        stats.clear()
+                log_stats[f"{k}_mean"] = v / stats["n_episodes"]
+            else:
+                log_stats[f"{k}"] = stats["n_episodes"]
 
-    def _log_comms(self, comms_value: float, returns, stats, prefix) -> None:
-        """
-        Log stats for a specific comms value during multi-comms evaluation.
-        """
-        if self.args.common_reward:
-            self.logger.log_stat(
-                f"{prefix}return_mean_comms_{comms_value}", np.mean(returns), self.t_env
-            )
-            self.logger.log_stat(
-                f"{prefix}return_std_comms_{comms_value}", np.std(returns), self.t_env
-            )
-        else:
-            for i in range(self.args.n_agents):
-                self.logger.log_stat(
-                    f"{prefix}agent_{i}_return_mean_comms_{comms_value}",
-                    np.array(returns)[:, i].mean(),
-                    self.t_env,
-                )
-                self.logger.log_stat(
-                    f"{prefix}agent_{i}_return_std_comms_{comms_value}",
-                    np.array(returns)[:, i].std(),
-                    self.t_env,
-                )
-            total_returns = np.array(returns).sum(axis=-1)
-            self.logger.log_stat(
-                f"{prefix}total_return_mean_comms_{comms_value}",
-                total_returns.mean(),
-                self.t_env,
-            )
-            self.logger.log_stat(
-                f"{prefix}total_return_std_comms_{comms_value}",
-                total_returns.std(),
-                self.t_env,
-            )
+        # add prefix to all the keys in log_stats
+        log_stats_out = {}
+        for k in log_stats:
+            log_stats_out[f"{prefix}{k}"] = log_stats[k]
 
-        # Log environment stats
-        for k, v in stats.items():
-            if k != "n_episodes":
-                self.logger.log_stat(
-                    f"{prefix}{k}_mean_comms_{comms_value}",
-                    v / stats["n_episodes"],
-                    self.t_env,
-                )
+        self._clear_stats(returns, stats)
+        return log_stats_out
 
-        # Clear for next comms value
+    def _log(self, log_stats: dict) -> None:
+        for k, v in log_stats.items():
+            self.logger.log_stat(k, v, self.t_env)
+
+    def _clear_stats(self, returns, stats):
         returns.clear()
         stats.clear()

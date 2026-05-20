@@ -1,16 +1,20 @@
-from types import SimpleNamespace
+from types import SimpleNamespace, SimpleNamespace as SN
 import datetime
 from os import makedirs, listdir
 from os.path import dirname, abspath, join, isdir
 import pprint
 import time
 import threading
-from types import SimpleNamespace as SN
-from typing import Any
-from collections import defaultdict
-import numpy as np
+from typing import Any, Optional
 
+import os
+import multiprocessing as mp
+from multiprocessing import Pool
+
+import pandas as pd
+import matplotlib.pyplot as plt
 import torch as th
+import wandb
 
 from controllers import REGISTRY as mac_REGISTRY
 from controllers.factored import REGISTRY as factored_mac_REGISTRY
@@ -20,12 +24,177 @@ from components.episode_buffer import ReplayBuffer
 from components.transforms import OneHot
 from runners import REGISTRY as r_REGISTRY
 from utils.general_reward_support import test_alg_config_supports_reward
-from utils.logging import Logger
+from utils.logging import Logger, LocalLoggerForWorker
 from utils.timehelper import time_left, time_str
+
+
+def build_sim(
+    args: SN,
+    logger: Logger | LocalLoggerForWorker,
+    model_state_dict: Optional[dict] = None,
+) -> tuple[SN, Any, ReplayBuffer, Any]:
+    def _build_env_spec(args: SN, logger):
+        """Create runner, query env info, and build base scheme/groups/preprocess."""
+        runner = r_REGISTRY[args.runner](args=args, logger=logger)
+
+        env_info = runner.get_env_info()
+        args.n_agents = env_info["n_agents"]
+        args.n_actions = env_info["n_actions"]
+        args.state_shape = env_info["state_shape"]
+
+        # Default/Base scheme
+        scheme = {
+            "state": {"vshape": env_info["state_shape"]},
+            "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
+            "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
+            "avail_actions": {
+                "vshape": (env_info["n_actions"],),
+                "group": "agents",
+                "dtype": th.int,
+            },
+            "terminated": {"vshape": (1,), "dtype": th.uint8},
+        }
+
+        if args.common_reward:
+            scheme["reward"] = {"vshape": (1,)}
+        else:
+            scheme["reward"] = {"vshape": (args.n_agents,)}
+
+        if hasattr(args, "factored_hierarchical_policy"):
+            scheme["hl_state"] = {"vshape": env_info["hl_state_shape"]}
+
+        groups = {"agents": args.n_agents}
+        preprocess = {"actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])}
+
+        return args, runner, env_info, scheme, groups, preprocess
+
+    def _build_replay_buffer(
+        scheme: dict,
+        groups: dict,
+        env_info: dict,
+        preprocess: dict,
+        args: SN,
+    ) -> ReplayBuffer:
+
+        device = "cpu" if args.buffer_cpu_only else args.device
+
+        return ReplayBuffer(
+            scheme=scheme,
+            groups=groups,
+            buffer_size=args.buffer_size,
+            max_seq_length=env_info["episode_limit"] + 1,
+            preprocess=preprocess,
+            device=device,
+        )
+
+    args, runner, env_info, scheme, groups, preprocess = _build_env_spec(args, logger)
+
+    buffer = _build_replay_buffer(
+        scheme=scheme,
+        groups=groups,
+        env_info=env_info,
+        preprocess=preprocess,
+        args=args,
+    )
+
+    # build controller and learner
+    # buffer.scheme has preprocess in it, needed to init these objects
+    if hasattr(args, "factored_hierarchical_policy"):
+        mac = factored_mac_REGISTRY[args.factored_mac](buffer.scheme, groups, args)
+        learner = factored_le_REGISTRY[args.factored_learner](
+            mac, buffer.scheme, logger, args
+        )
+    else:
+        mac = mac_REGISTRY[args.mac](buffer.scheme, groups, args)
+        learner = le_REGISTRY[args.learner](mac, buffer.scheme, logger, args)
+
+    if args.use_cuda:
+        learner.cuda()
+        mac.cuda()
+
+    if model_state_dict is not None:
+        mac.load_models(model_state_dict)
+
+    # Give runner the scheme
+    runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
+
+    return args, runner, buffer, learner
+
+
+def run_eval_episodes(
+    args: SN,
+    runner,
+    n_eps: int,
+    record: bool = False,
+    prefix: str | None = None,
+    t_env: Optional[int] = None,
+):
+    """Run n_eps evaluation episodes, optionally recording, and return last result."""
+    if record:
+        runner.start_recording(n_eps, video_prefix=prefix, t_env=t_env)
+
+    last_result = None
+    for i in range(n_eps):
+        if i % 50 == 0:
+            runner.logger.console_logger.info(f"Test Episode: {i} / {n_eps}")
+
+        return_stats = i == n_eps - 1
+        # last_result only has "log_stats" in it after all eps have run
+        last_result = runner.run(test_mode=True, return_log_stats=return_stats)
+
+        # Stop recording after some episodes
+        if args.save_test_replays and i >= args.n_test_replays_save:
+            runner.stop_recording(t_env=t_env)
+
+    return last_result
+
+
+def evaluate_single_comms(
+    comms_value: float, runner, args: SN, t_env: Optional[int] = None
+) -> dict:
+    """Evaluate a single comms value on an existing runner/mac."""
+    runner.mac.update_comms_value(comms_value)
+    n_test_eps = max(1, args.test_nepisode // runner.batch_size)
+
+    prefix = None
+    if args.save_test_replays:
+        prefix = f"comms_{comms_value:.2f}"
+
+    result = run_eval_episodes(
+        args,
+        runner,
+        n_test_eps,
+        record=args.save_test_replays,
+        prefix=prefix,
+        t_env=t_env,
+    )
+
+    result["log_stats"]["t_env"] = t_env
+    result["log_stats"]["comms_value"] = comms_value
+    return result
+
+
+def _mp_worker_evaluate(
+    comms_value: float, args: SN, t_env: int, model_state_dict: dict, logger_dir: str
+) -> dict:
+    """Worker function run inside a child process.
+
+    Builds runner/mac/learner locally, loads model state dict, runs evaluation for `comms_value`, and returns serializable stats.
+    """
+    # Minimal logger for worker
+    logger = LocalLoggerForWorker(logger_dir)
+
+    # build env runner and other necessary objects
+    args, runner, _, _ = build_sim(args, logger, model_state_dict)
+    result = evaluate_single_comms(comms_value, runner, args, t_env)
+
+    return result
 
 
 class Simulation:
     def __init__(self, _run, _config, _log) -> None:
+        mp.set_start_method("spawn")
+
         self.args: SN
         self.args = self._parse_config(_config, _log)
 
@@ -35,20 +204,19 @@ class Simulation:
         self.runner: Any
         self.learner: Any
         self.buffer: Any
-        self._build_sim()
-
-        self.run_sim()
-        self.finish()
+        self.args, self.runner, self.buffer, self.learner = build_sim(
+            self.args, self.logger
+        )
 
     def run_sim(self) -> None:
         self.hierarchical: bool = hasattr(self.args, "factored_hierarchical_policy")
 
         if self.args.checkpoint_path != "":
-            self._load_checkpoint(hierarchical)
+            self._load_checkpoint(self.hierarchical)
 
             # run evaluation on loaded checkpoint
             if self.args.evaluate or self.args.save_replay:
-                self.evaluate_loaded(hierarchical)
+                self.evaluate_loaded(self.hierarchical)
                 return
 
         # run training
@@ -113,7 +281,8 @@ class Simulation:
 
         while self.runner.t_env <= self.args.t_max:
             # Run for a whole episode at a time
-            episode_batch = self.runner.run(test_mode=False)
+            result = self.runner.run(test_mode=False)
+            episode_batch = result["batch"] if isinstance(result, dict) else result
             self.buffer.insert_episode_batch(episode_batch)
 
             # run a learning update step
@@ -172,6 +341,7 @@ class Simulation:
         self.logger.console_logger.info("Finished Training")
 
     def evaluate(self) -> None:
+        """evaluation of low-level policy for hierarchical training, or normal evaluation if not using hierarchical training"""
         if hasattr(self.args, "comms_values_eval"):
             self._evaluate_multi_comms(self.args.comms_values_eval)
 
@@ -179,31 +349,19 @@ class Simulation:
             self._evaluate_basic()
 
     def _evaluate_basic(self):
-        """evaluate a single trained policy"""
+        """evaluate a single, non-hierarchical trained policy"""
         self.logger.console_logger.info("=" * 50)
         self.logger.console_logger.info("Evaluating Policy")
         self.logger.console_logger.info("=" * 50)
 
-        # enable replay saving for some of the test episodes
-        if self.args.save_test_replays:
-            self.runner.start_recording(self.args.n_test_replays_save)
-
         n_test_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
-        for test_ep_idx in range(n_test_eps):
-            if test_ep_idx % 50 == 0:
-                self.logger.console_logger.info(
-                    f"Test Episode: {test_ep_idx} / {n_test_eps}"
-                )
+        run_eval_episodes(
+            self.args, self.runner, n_test_eps, record=self.args.save_test_replays
+        )
 
-            if (
-                self.args.save_test_replays
-                and test_ep_idx >= self.args.n_test_replays_save
-            ):
-                self.runner.stop_recording()
-
-            self.runner.run(test_mode=True)
-
-    def _evaluate_multi_comms(self, comms_values: list[float]) -> None:
+    def _evaluate_multi_comms(
+        self, comms_values: list[float], parallel: bool = True
+    ) -> None:
         """
         Evaluate a trained policy across multiple comms allocation values.
 
@@ -218,44 +376,90 @@ class Simulation:
         )
         self.logger.console_logger.info("=" * 50)
 
-        for comms_value in comms_values:
-            # Run evaluation episodes
-            # EpisodeRunner will log stats when test_nepisode threshold is reached
-            self.logger.console_logger.info(
-                f"Evaluating with comms_value = {comms_value}"
+        eval_data: list[dict] = []
+
+        if parallel:
+            # move tensors to CPU so they can be pickled for multiprocessing
+            model_state_dict = {
+                k: v.cpu() for k, v in self.runner.mac.agent.state_dict().items()
+            }
+
+            # Dispatch workers
+            n_procs = min(len(comms_values), max(1, (os.cpu_count() or 1) - 1))
+
+            inputs = [
+                (c, self.args, self.runner.t_env, model_state_dict, self.logger.dir)
+                for c in comms_values
+            ]
+
+            with Pool(processes=n_procs) as pool:
+                results: list[dict] = list(pool.starmap(_mp_worker_evaluate, inputs))
+
+            eval_data = [res["log_stats"] for res in results]
+
+        else:
+            # Serial evaluation using shared helper
+            for comms_value in comms_values:
+                self.logger.console_logger.info(
+                    f"Evaluating with comms_value = {comms_value}"
+                )
+
+                stats_row = evaluate_single_comms(
+                    comms_value=comms_value,
+                    runner=self.runner,
+                    args=self.args,
+                    t_env=self.runner.t_env,
+                )["log_stats"]
+
+                eval_data.append(stats_row)
+
+        # Convert to DataFrame and log
+        df_eval = pd.DataFrame.from_records(eval_data)
+
+        self.logger.log_stat_table(df_eval, t=self.runner.t_env)
+        self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
+
+    def _make_comms_eval_plots(self, data_table: wandb.Table, t: int) -> None:
+        """Make plots for comms evaluation.
+
+        Plots each metric in `cols` vs `t_env` for every comms value present
+        (or provided in `comms_values`) and logs images to wandb if enabled.
+        """
+        df = data_table.get_dataframe()
+
+        # Columns to plot (exclude t_env as it's the x axis)
+        cols = [
+            "test_return_mean",
+            "test_return_std",
+            "test_task_completed_mean",
+            "test_ep_length_mean",
+        ]
+        comms_values = sorted(df["comms_value"].unique())
+
+        for col in cols:
+            plt.figure()
+            for comms_value in comms_values:
+                df_plot = df[df.get("comms_value") == comms_value]
+                label = f"Comms: {comms_value}"
+                plt.plot(df_plot["t_env"], df_plot[col], marker="o", label=label)
+
+            plt.xlabel("t_env")
+            plt.ylabel(col)
+            plt.title(f"{col}")
+            plt.legend()
+            plt.grid(True)
+
+            save_dir = join(self.logger.dir, "figures", f"t_{t}")
+            makedirs(save_dir, exist_ok=True)
+            save_path = join(save_dir, f"comms_eval_{col}.png")
+            plt.tight_layout()
+            plt.savefig(save_path)
+            plt.close()
+            self.logger.log_image(
+                column_name=col, image_path=save_path, t=int(self.runner.t_env)
             )
 
-            # Start recording videos for this comms value
-            if self.args.save_test_replays:
-                self.runner.start_recording(self.args.n_test_replays_save, video_prefix=f"comms_{comms_value:.2f}")
-
-            # run evaluation episodes
-            n_test_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
-
-            # Update controller with new comms value
-            self.runner.mac.update_comms_value(comms_value)
-
-            for test_ep_idx in range(n_test_eps):
-                if test_ep_idx % 50 == 0:
-                    self.logger.console_logger.info(
-                        f"Test Episode: {test_ep_idx} / {n_test_eps}"
-                    )
-
-                # Stop recording after n_test_replays_save episodes
-                if (
-                    self.args.save_test_replays
-                    and test_ep_idx >= self.args.n_test_replays_save
-                ):
-                    self.runner.stop_recording()
-
-                self.runner.run(test_mode=True, comms_value=comms_value)
-
-
-            # Ensure recording is stopped before moving to next comms value
-            if self.args.save_test_replays:
-                self.runner.stop_recording()
-
-    def evaluate_loaded(self, hierarchical: bool = False) -> None:
+    def evaluate_loaded(self) -> None:
         self.runner.log_train_stats_t = self.runner.t_env
 
         for _ in range(self.args.test_nepisode):
@@ -410,74 +614,6 @@ class Simulation:
             _log.info("\n\n" + experiment_params + "\n")
             self.logger.setup_sacred(_run)
 
-    def _build_sim(self) -> None:
-        # Init runner so we can get env info
-        self.runner = r_REGISTRY[self.args.runner](args=self.args, logger=self.logger)
-
-        # Set up schemes and groups here
-        env_info = self.runner.get_env_info()
-        self.args.n_agents = env_info["n_agents"]
-        self.args.n_actions = env_info["n_actions"]
-        self.args.state_shape = env_info["state_shape"]
-
-        # Default/Base scheme
-        scheme = {
-            "state": {"vshape": env_info["state_shape"]},
-            "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
-            "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
-            "avail_actions": {
-                "vshape": (env_info["n_actions"],),
-                "group": "agents",
-                "dtype": th.int,
-            },
-            "terminated": {"vshape": (1,), "dtype": th.uint8},
-        }
-
-        # For individual rewards in gymma reward is of shape (1, n_agents)
-        if self.args.common_reward:
-            scheme["reward"] = {"vshape": (1,)}
-        else:
-            scheme["reward"] = {"vshape": (self.args.n_agents,)}
-
-        # support separate high-level env that interfaces with low-level env
-        if hasattr(self.args, "factored_hierarchical_policy"):
-            scheme["hl_state"] = {"vshape": env_info["hl_state_shape"]}
-
-        groups = {"agents": self.args.n_agents}
-        preprocess = {
-            "actions": ("actions_onehot", [OneHot(out_dim=self.args.n_actions)])
-        }
-
-        self.buffer = ReplayBuffer(
-            scheme=scheme,
-            groups=groups,
-            buffer_size=self.args.buffer_size,
-            max_seq_length=env_info["episode_limit"] + 1,
-            preprocess=preprocess,
-            device="cpu" if self.args.buffer_cpu_only else self.args.device,
-        )
-
-        # build controller and learner
-        # buffer.scheme has preprocess in it, needed to init these objects
-        if hasattr(self.args, "factored_hierarchical_policy"):
-            mac = factored_mac_REGISTRY[self.args.factored_mac](
-                self.buffer.scheme, groups, self.args
-            )
-            self.learner = factored_le_REGISTRY[self.args.factored_learner](
-                mac, self.buffer.scheme, self.logger, self.args
-            )
-        else:
-            mac = mac_REGISTRY[self.args.mac](self.buffer.scheme, groups, self.args)
-            self.learner = le_REGISTRY[self.args.learner](
-                mac, self.buffer.scheme, self.logger, self.args
-            )
-
-        if self.args.use_cuda:
-            self.learner.cuda()
-
-        # Give runner the scheme
-        self.runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
-
     def finish(self) -> None:
         # Finish logging
         self.logger.finish()
@@ -493,6 +629,3 @@ class Simulation:
                 print("Thread joined")
 
         print("Exiting script")
-
-        # Making sure framework really exits
-        # os._exit(os.EX_OK)

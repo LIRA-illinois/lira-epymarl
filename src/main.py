@@ -55,7 +55,9 @@ def my_main(_run, _config, _log):
         config = string_inputs_to_list(config, "comms_values_eval")
 
     # run the framework
-    Simulation(_run, config, _log)
+    sim = Simulation(_run, config, _log)
+    sim.run_sim()
+    sim.finish()
 
 
 def get_run_config(params) -> dict:

@@ -1,3 +1,4 @@
+import copy
 from typing import Any, Optional, Literal
 import numpy as np
 from numpy.typing import NDArray
@@ -57,7 +58,6 @@ class BasicGymnasiumWrapper(gym.Wrapper):
     """
     Basic wrapper that supports Gymnasium and non-gymnasium envs to ensure they conform to the Gymnasium API standards. Designed for the join1 env from MAIC, but may be extended to support other envs too.
     """
-
     def __init__(self, env_args: dict):
         self.env_name: str = env_args.pop("key")
         self.seed: int = env_args.pop("seed")

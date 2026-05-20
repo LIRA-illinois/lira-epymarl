@@ -1,8 +1,10 @@
+from typing import Optional
 import os
 from collections import defaultdict
 from hashlib import sha256
 import json
 import logging
+import pandas as pd
 
 import wandb
 import numpy as np
@@ -18,7 +20,8 @@ class Logger:
         self.use_hdf = False
         self.save_replays: bool = False
 
-        self.stats = defaultdict(lambda: [])
+        self.stats = defaultdict(list)
+        # self.stats = defaultdict(lambda: [])
         self.dir: str
 
     def setup_tb(self, directory_name):
@@ -56,6 +59,7 @@ class Logger:
 
         self.use_wandb = True
         self.save_replays = save_replays
+        self.data_table: Optional[wandb.Table] = None
 
         if group_name == "":
             alg_name = config["name"]
@@ -130,6 +134,22 @@ class Logger:
 
             self._run_obj.log_scalar(key, value, t)
 
+    def log_stat_table(self, data: pd.DataFrame, t: int):
+        """Log accumulated evaluation statistics as a wandb table."""
+        if self.use_wandb:
+            if self.data_table is None:
+                self.data_table = wandb.Table(dataframe=data, log_mode="MUTABLE")
+            else:
+                # add rows to the table
+                for _, row in data.iterrows():
+                    self.data_table.add_data(*row.tolist())
+
+            wandb.log({"eval_stats": self.data_table}, step=t)
+
+    def log_image(self, column_name: str, image_path: str, t: int):
+        data = {f"comms_eval/{column_name}": wandb.Image(image_path)}
+        self.wandb.log(data=data, step=t)
+
     def log_replays(self, video_dir: str, t_env: int):
         # log all replays in a directory to a wandb run
         if self.use_wandb:
@@ -142,10 +162,10 @@ class Logger:
                     )
 
                     data = {
-                            f"{video_name}_{extension}": wandb.Video(
-                                video_path, format=extension
-                            )
-                        }
+                        f"{video_name}_{extension}": wandb.Video(
+                            video_path, format=extension
+                        )
+                    }
 
                     self.wandb.log(
                         data=data,
@@ -181,6 +201,35 @@ class Logger:
             if self.wandb_current_data:
                 self.wandb.log(self.wandb_current_data, step=self.wandb_current_t)
             self.wandb.finish()
+
+
+class LocalLoggerForWorker:
+    """Minimal logger used inside worker processes to avoid sharing main logger."""
+
+    class CL:
+        def info(self, *a, **k):
+            print(*a)
+
+        def warning(self, *a, **k):
+            print("WARNING:", *a)
+
+    def __init__(self, dir: str):
+        self.dir = dir
+        self.console_logger = LocalLoggerForWorker.CL()
+        self.save_replays = False
+
+    def log_replays(self, *a, **k):
+        return
+
+    def log_stat(self, *a, **k):
+        return
+
+    def log_image(self, *a, **k):
+        return
+
+    def log_stat_table(self, *a, **k):
+        return
+
 
 
 # set up a custom logger
