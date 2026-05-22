@@ -2,7 +2,6 @@ from types import SimpleNamespace, SimpleNamespace as SN
 import datetime
 from os import makedirs, listdir, cpu_count
 from os.path import dirname, abspath, join, isdir
-import pprint
 import time
 import threading
 from typing import Any
@@ -10,6 +9,9 @@ import multiprocessing as mp
 
 import pandas as pd
 import matplotlib.pyplot as plt
+# use different backend to support multiprocessing
+plt.switch_backend('agg')
+
 import torch as th
 import wandb
 
@@ -24,7 +26,7 @@ from utils.timehelper import time_left, time_str
 
 class Simulation:
     def __init__(self, _run, _config, _log) -> None:
-        mp.set_start_method("spawn")
+        mp.set_start_method("spawn", force=True)
 
         self.args: SN
         self.args = self._parse_config(_config, _log)
@@ -200,12 +202,10 @@ class Simulation:
                 k: v.cpu() for k, v in self.runner.mac.agent.state_dict().items()
             }
 
-            wandb_attrs = ["entity", "project", "id"]
+            wandb_attrs = ["entity", "project", "id", "name"]
             wandb_config = {}
             for attr in wandb_attrs:
                 wandb_config[attr] = getattr(self.logger.wandb, attr)
-            wandb_config["mode"] = "shared"
-
 
             # prepare inputs for multiprocessing workers
             n_procs = min(len(comms_values), max(1, (cpu_count() or 1) - 1))
@@ -236,10 +236,11 @@ class Simulation:
                 self.logger.info(f"Evaluating with comms_value = {comms_value}")
 
                 result = run_eval_episodes(
-                    comms_value=comms_value,
                     args=self.args,
                     runner=self.runner,
+                    n_eval_eps=n_eval_eps,
                     t_env=self.runner.t_env,
+                    comms_value=comms_value,
                 )
 
                 eval_data.append(result["log_stats"])
@@ -438,11 +439,12 @@ class Simulation:
             )
 
         # sacred is on by default
-        if args.use_sacred:
-            _log.info("Experiment Parameters:")
-            experiment_params = pprint.pformat(_config, indent=4, width=1)
-            _log.info("\n\n" + experiment_params + "\n")
-            self.logger.setup_sacred(_run)
+        # deprecated, use wandb instead
+        # if args.use_sacred:
+        #     _log.info("Experiment Parameters:")
+        #     experiment_params = pprint.pformat(_config, indent=4, width=1)
+        #     _log.info("\n\n" + experiment_params + "\n")
+        #     self.logger.setup_sacred(_run)
 
     def finish(self) -> None:
         # Finish logging

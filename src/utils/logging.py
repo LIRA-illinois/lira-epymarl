@@ -1,3 +1,4 @@
+from cv2 import trace
 from typing import Optional
 import os
 from collections import defaultdict
@@ -10,14 +11,19 @@ import wandb
 import numpy as np
 
 
+def _log_setup(step_metric: str, t: int) -> dict:
+    return {step_metric: t}
+
+
 class MainLogger:
     def __init__(self, console_logger):
         self.console_logger = console_logger
 
-        self.use_tb = False
         self.use_wandb = False
-        self.use_sacred = False
-        self.use_hdf = False
+
+        # deprecated, use wandb
+        # self.use_tb = False
+        # self.use_sacred = False
 
         self.stats = defaultdict(list)
         # self.stats = defaultdict(lambda: [])
@@ -31,15 +37,6 @@ class MainLogger:
             self.console_logger.info(self.header)
         else:
             self.console_logger.info(log_str)
-
-    def setup_tb(self, directory_name):
-        # Import here so it doesn't have to be installed if you don't use it
-        from tensorboard_logger import configure, log_value
-
-        configure(directory_name)
-        self.tb_logger = log_value
-        self.use_tb = True
-        self.info(f"Tensorboard logging dir: {directory_name}", log_header=True)
 
     def setup_wandb(
         self,
@@ -83,15 +80,23 @@ class MainLogger:
         # start a wandb run
         self.wandb = wandb.init(
             id=run_id,
+            name=run_name,
             entity=team_name,
             project=project_name,
             config=config,
             group=group_name,
-            mode="shared",
             dir="results/wandb/",
+            settings=wandb.Settings(
+                x_label="main_proc",
+                mode="shared",
+                x_primary=True,
+            ),
         )
-        # enable subprocesses to log back to the central wandb by preventing deadlocks from trying to use the same central service
-        os.environ["WANDB_DISABLE_SERVICE"] = "True"
+
+        # extra setup to support "shared" mode for parallel subprocesses that
+        # log to the same wandb run id
+        self.step_metric = "t_env"
+        self.wandb.define_metric("*", step_metric=self.step_metric)
 
         # save run files here
         self.dir = self.wandb.dir
@@ -102,27 +107,22 @@ class MainLogger:
         self.wandb_current_t = -1
         self.wandb_current_data = {}
 
-    def setup_sacred(self, sacred_run_dict):
-        self._run_obj = sacred_run_dict
-        self.sacred_info = sacred_run_dict.info
-        self.use_sacred = True
+    def log_stat(self, key, value, t: int):
+        # logging is delayed by period due to how finish() works
 
-    def log_stat(self, key, value, t, to_sacred=True):
+        # used for printing stats periodically
         self.stats[key].append((t, value))
 
-        if self.use_tb:
-            self.tb_logger(key, value, t)
+        if self.wandb_current_t != t:
+            self.wandb_current_data[self.step_metric] = self.wandb_current_t
+            self.wandb.log(self.wandb_current_data)
+            self.wandb_current_data = {}
 
-        if self.use_wandb:
-            if self.wandb_current_t != t and self.wandb_current_data:
-                # self.console_logger.info(
-                #     f"Logging to WANDB: {self.wandb_current_data} at t={self.wandb_current_t}"
-                # )
-                self.wandb.log(self.wandb_current_data, step=self.wandb_current_t)
-                self.wandb_current_data = {}
-            self.wandb_current_t = t
-            self.wandb_current_data[key] = value
+        self.wandb_current_t = t
+        self.wandb_current_data[key] = value
 
+        """
+        # deprecated, use wandb instead
         if self.use_sacred and to_sacred:
             if key in self.sacred_info:
                 self.sacred_info["{}_T".format(key)].append(t)
@@ -132,48 +132,46 @@ class MainLogger:
                 self.sacred_info[key] = [value]
 
             self._run_obj.log_scalar(key, value, t)
+        """
 
-    def log_stat_table(self, data: pd.DataFrame, t: int):
+    def log_stat_table(self, df_data: pd.DataFrame, t: int):
         """Log accumulated evaluation statistics as a wandb table."""
-        if self.use_wandb:
-            if self.data_table is None:
-                self.data_table = wandb.Table(dataframe=data, log_mode="MUTABLE")
-            else:
-                # add rows to the table
-                for _, row in data.iterrows():
-                    self.data_table.add_data(*row.tolist())
+        data = _log_setup(self.step_metric, t)
 
-            wandb.log({"eval_stats": self.data_table}, step=t)
+        if self.data_table is None:
+            self.data_table = wandb.Table(dataframe=df_data, log_mode="MUTABLE")
+        else:
+            # add rows to the table
+            for _, row in df_data.iterrows():
+                self.data_table.add_data(*row.tolist())
+
+        data["eval_stats"] = self.data_table
+        self.wandb.log(data)
 
     def log_image(self, column_name: str, image_path: str, t: int):
-        data = {f"comms_eval/{column_name}": wandb.Image(image_path)}
-        self.wandb.log(data=data, step=t)
+        data = _log_setup(self.step_metric, t)
+        data[f"comms_eval/{column_name}"] = wandb.Image(image_path)
 
-    def log_replays(self, video_dir: str, t_env: int):
+        self.wandb.log(data=data)
+
+    def log_replays(self, video_dir: str, t: int):
         # log all replays in a directory to a wandb run
-        if self.use_wandb:
-            for _, _, videos in os.walk(video_dir):
-                for video in videos:
-                    video_path = os.path.join(video_dir, video)
-                    video_name, extension = (
-                        os.path.splitext(video)[0],
-                        os.path.splitext(video)[1][1:],
-                    )
+        for _, _, videos in os.walk(video_dir):
+            for video in videos:
+                video_path = os.path.join(video_dir, video)
+                video_name, extension = (
+                    os.path.splitext(video)[0],
+                    os.path.splitext(video)[1][1:],
+                )
 
-                    data = {
-                        f"{video_name}_{extension}": wandb.Video(
-                            video_path, format=extension
-                        )
-                    }
-
-                    self.wandb.log(
-                        data=data,
-                        step=t_env,
-                    )
+                data = _log_setup(self.step_metric, t)
+                data[f"{video_name}_{extension}"] = wandb.Video(
+                    video_path, format=extension
+                )
+                self.wandb.log(data=data)
 
     def log_model(self, save_path, t_env, model_name):
-        if self.use_wandb:
-            self.wandb.log_model(path=save_path, name=f"t_env_{t_env}_{model_name}")
+        self.wandb.log_model(path=save_path, name=f"t_env_{t_env}_{model_name}")
 
     def print_recent_stats(self):
         log_str = "Recent Stats | t_env: {:>10} | Episode: {:>8}\n".format(
@@ -201,6 +199,23 @@ class MainLogger:
                 self.wandb.log(self.wandb_current_data, step=self.wandb_current_t)
             self.wandb.finish()
 
+    """
+    deprecated, use wandb since we developed many more advance logging features using that
+    def setup_tb(self, directory_name):
+        # Import here so it doesn't have to be installed if you don't use it
+        from tensorboard_logger import configure, log_value
+
+        configure(directory_name)
+        self.tb_logger = log_value
+        self.use_tb = True
+        self.info(f"Tensorboard logging dir: {directory_name}", log_header=True)
+
+    def setup_sacred(self, sacred_run_dict):
+        self._run_obj = sacred_run_dict
+        self.sacred_info = sacred_run_dict.info
+        self.use_sacred = True
+    """
+
 
 class LocalLogger:
     """Minimal logger used inside worker processes to avoid sharing main logger.
@@ -212,7 +227,7 @@ class LocalLogger:
         def info(self, *a, **k):
             print(*a)
 
-    def __init__(self, dir: str, wandb_config: dict):
+    def __init__(self, dir: str, wandb_config: dict, comms_value: float):
         """
         Initialize the local logger.
 
@@ -226,23 +241,43 @@ class LocalLogger:
         self.dir = dir
         self.console_logger = LocalLogger.BasicConsoleLogger()
 
-        # start a wandb run to log in global output.log from worker process
-        wandb_config["resume"] = "must"
+        # delete main process's connection so this parallel process can start its own unique connection to the wandb server when you call wandb.init()
+        del os.environ["WANDB_SERVICE"]
 
-        print("setting up wandb for worker")
-        self.wandb = wandb.init(**wandb_config)
+        # Suppresses all terminal logging output
+        os.environ["WANDB_SILENT"] = "true"
 
-    def log_replays(self, *a, **k):
-        return
+        # pick up the main wandb run in shared mode to log to the wandb website
+        self.wandb = wandb.init(
+            **wandb_config,
+            settings=wandb.Settings(
+                x_label=f"subproc_eval_{comms_value}",
+                x_primary=False,
+                mode="shared",
+            ),
+        )
+        self.step_metric = "t_env"
+        self.wandb.define_metric("*", step_metric=self.step_metric)
 
-    def log_stat(self, *a, **k):
-        return
+    def log_stat(self, key, value, t: int):
+        data = _log_setup(self.step_metric, t)
+        data[key] = value
+        self.wandb.log(data)
 
-    def log_image(self, *a, **k):
-        return
-
-    def log_stat_table(self, *a, **k):
-        return
+    def log_replays(self, video_dir: str, t: int):
+        # log all replays in a directory to a wandb run
+        for _, _, videos in os.walk(video_dir):
+            for video in videos:
+                video_path = os.path.join(video_dir, video)
+                video_name, extension = (
+                    os.path.splitext(video)[0],
+                    os.path.splitext(video)[1][1:],
+                )
+                data = _log_setup(self.step_metric, t)
+                data[f"{video_name}_{extension}"] = wandb.Video(
+                    video_path, format=extension
+                )
+                self.wandb.log(data=data)
 
     def finish(self):
         self.wandb.finish()

@@ -1,6 +1,6 @@
-# import warnings
-# warnings.filterwarnings("ignore", category=UserWarning)
-# warnings.filterwarnings("ignore", category=DeprecationWarning)
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from collections.abc import Mapping
 from copy import deepcopy

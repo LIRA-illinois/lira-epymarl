@@ -83,7 +83,7 @@ class EpisodeRunner:
         replay_dir = join(self.logger.dir, f"replays")
         makedirs(replay_dir, exist_ok=True)
         video_folder = join(replay_dir, f"t_{t_env}")
-        self.logger.console_logger.info(
+        self.logger.info(
             f"Saving {n_test_replays_save} test episode replays to {video_folder}"
         )
         # outputs multiple formats for different uses, webm for browser compatibility and mp4 for Powerpoint
@@ -101,7 +101,7 @@ class EpisodeRunner:
 
         if isinstance(self.env, RecordVideoExtended):
             self.env.stop_recording()
-            self.logger.log_replays(video_dir=self.env.video_folder, t_env=t_env)
+            self.logger.log_replays(video_dir=self.env.video_folder, t=t_env)
             self.env = self.env.env
         else:
             pass

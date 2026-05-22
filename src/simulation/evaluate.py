@@ -14,12 +14,10 @@ def run_eval_episodes(
     comms_value: Optional[float] = None,
 ):
     """Run n_eval_eps evaluation episodes, optionally recording, and return last result."""
-    log_prefix = ""
     if comms_value is not None:
         runner.mac.update_comms_value(comms_value)
         if args.save_test_replays:
             video_prefix = f"comms_{comms_value:.2f}"
-            log_prefix += f"Comms Value: {comms_value:.2f} | "
 
     if args.save_test_replays:
         runner.start_recording(
@@ -31,8 +29,8 @@ def run_eval_episodes(
     last_result = None
     for i in range(n_eval_eps):
         if i % 50 == 0:
-            runner.logger.console_logger.info(
-                log_prefix + f"Test Episode: {i} / {n_eval_eps}"
+            runner.logger.info(
+                f"Test Episode: {i} / {n_eval_eps}"
             )
 
         return_stats = i == n_eval_eps - 1
@@ -66,8 +64,7 @@ def eval_worker(
     run_id is a wandb run id from the main process
     """
     # Minimal logger for worker
-    logger = LocalLogger(logger_dir, wandb_config)
-    print(f"here's my eval_worker for {comms_value}")
+    logger = LocalLogger(logger_dir, wandb_config, comms_value)
 
     # build env runner and other necessary objects
     args, runner, _, _ = build_sim(args, logger, agent_state_dict)
@@ -79,5 +76,7 @@ def eval_worker(
         t_env=t_env,
         comms_value=comms_value,
     )
+
+    logger.finish()
 
     return result
