@@ -1,13 +1,11 @@
 from types import SimpleNamespace, SimpleNamespace as SN
 import datetime
-from os import makedirs, listdir
+from os import makedirs, listdir, cpu_count
 from os.path import dirname, abspath, join, isdir
 import pprint
 import time
 import threading
-from typing import Any, Optional
-
-import os
+from typing import Any
 import multiprocessing as mp
 
 import pandas as pd
@@ -15,179 +13,13 @@ import matplotlib.pyplot as plt
 import torch as th
 import wandb
 
-from controllers import REGISTRY as mac_REGISTRY
-from controllers.factored import REGISTRY as factored_mac_REGISTRY
-from learners import REGISTRY as le_REGISTRY
-from learners.factored import REGISTRY as factored_le_REGISTRY
-from components.episode_buffer import ReplayBuffer
-from components.transforms import OneHot
-from runners import REGISTRY as r_REGISTRY
+from .evaluate import run_eval_episodes, eval_worker
+from .build import build_sim
+
 from utils.utils import mp_kwargs_wrapper
 from utils.general_reward_support import test_alg_config_supports_reward
-from utils.logging import MainLogger, LocalLogger
+from utils.logging import MainLogger
 from utils.timehelper import time_left, time_str
-
-# helper methods
-# defined outside the Simulation class since they need to be usable from a parallel subprocess
-# and the Simulation class is not easily serializable with Pickle or Dill
-
-
-def build_sim(
-    args: SN,
-    logger: MainLogger | LocalLogger,
-    agent_state_dict: Optional[dict] = None,
-) -> tuple[SN, Any, ReplayBuffer, Any]:
-    def _build_env_spec(args: SN, logger):
-        """Create runner, query env info, and build base scheme/groups/preprocess."""
-        runner = r_REGISTRY[args.runner](args=args, logger=logger)
-
-        env_info = runner.get_env_info()
-        args.n_agents = env_info["n_agents"]
-        args.n_actions = env_info["n_actions"]
-        args.state_shape = env_info["state_shape"]
-
-        # Default/Base scheme
-        scheme = {
-            "state": {"vshape": env_info["state_shape"]},
-            "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
-            "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
-            "avail_actions": {
-                "vshape": (env_info["n_actions"],),
-                "group": "agents",
-                "dtype": th.int,
-            },
-            "terminated": {"vshape": (1,), "dtype": th.uint8},
-        }
-
-        if args.common_reward:
-            scheme["reward"] = {"vshape": (1,)}
-        else:
-            scheme["reward"] = {"vshape": (args.n_agents,)}
-
-        if hasattr(args, "factored_hierarchical_policy"):
-            scheme["hl_state"] = {"vshape": env_info["hl_state_shape"]}
-
-        groups = {"agents": args.n_agents}
-        preprocess = {"actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])}
-
-        return args, runner, env_info, scheme, groups, preprocess
-
-    def _build_replay_buffer(
-        scheme: dict,
-        groups: dict,
-        env_info: dict,
-        preprocess: dict,
-        args: SN,
-    ) -> ReplayBuffer:
-
-        device = "cpu" if args.buffer_cpu_only else args.device
-
-        return ReplayBuffer(
-            scheme=scheme,
-            groups=groups,
-            buffer_size=args.buffer_size,
-            max_seq_length=env_info["episode_limit"] + 1,
-            preprocess=preprocess,
-            device=device,
-        )
-
-    args, runner, env_info, scheme, groups, preprocess = _build_env_spec(args, logger)
-
-    buffer = _build_replay_buffer(
-        scheme=scheme,
-        groups=groups,
-        env_info=env_info,
-        preprocess=preprocess,
-        args=args,
-    )
-
-    # build controller and learner
-    # buffer.scheme has preprocess in it, needed to init these objects
-    if hasattr(args, "factored_hierarchical_policy"):
-        mac = factored_mac_REGISTRY[args.factored_mac](buffer.scheme, groups, args)
-        learner = factored_le_REGISTRY[args.factored_learner](
-            mac, buffer.scheme, logger, args
-        )
-    else:
-        mac = mac_REGISTRY[args.mac](buffer.scheme, groups, args)
-        learner = le_REGISTRY[args.learner](mac, buffer.scheme, logger, args)
-
-    if args.use_cuda:
-        learner.cuda()
-        mac.cuda()
-
-    if agent_state_dict is not None:
-        mac.load_models(agent_state_dict)
-
-    # Give runner the scheme
-    runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
-
-    return args, runner, buffer, learner
-
-
-def run_eval_episodes(
-    args: SN,
-    runner,
-    n_eval_eps: int,
-    prefix: str = "replay",
-    t_env: Optional[int] = None,
-    comms_value: Optional[float] = None,
-):
-    """Run n_eval_eps evaluation episodes, optionally recording, and return last result."""
-    if comms_value is not None:
-        runner.mac.update_comms_value(comms_value)
-        if args.save_test_replays:
-            prefix = f"comms_{comms_value:.2f}"
-
-    if args.save_test_replays:
-        runner.start_recording(n_eval_eps, video_prefix=prefix, t_env=t_env)
-
-    last_result = None
-    for i in range(n_eval_eps):
-        if i % 50 == 0:
-            runner.logger.console_logger.info(f"Test Episode: {i} / {n_eval_eps}")
-
-        return_stats = i == n_eval_eps - 1
-        # last_result only has "log_stats" in it after all eps have run
-        last_result = runner.run(test_mode=True, return_log_stats=return_stats)
-
-        # Stop recording after some episodes
-        if args.save_test_replays and i >= args.n_test_replays_save:
-            runner.stop_recording(t_env=t_env)
-
-    if comms_value is not None:
-        last_result["log_stats"]["t_env"] = t_env
-        last_result["log_stats"]["comms_value"] = comms_value
-
-    return last_result
-
-def _eval_worker(
-    comms_value: float,
-    args: SN,
-    n_eval_eps: int,
-    t_env: int,
-    agent_state_dict: dict,
-    logger_dir: str,
-) -> dict:
-    """Worker function run inside a child process.
-
-    Builds runner/mac/learner locally, loads model state dict, runs evaluation for `comms_value`, and returns stats dictionary.
-    """
-    # Minimal logger for worker
-    logger = LocalLogger(logger_dir)
-
-    # build env runner and other necessary objects
-    args, runner, _, _ = build_sim(args, logger, agent_state_dict)
-
-    result = run_eval_episodes(
-        args=args,
-        runner=runner,
-        n_eval_eps=n_eval_eps,
-        t_env=t_env,
-        comms_value=comms_value,
-    )
-
-    return result
 
 
 class Simulation:
@@ -225,46 +57,11 @@ class Simulation:
         else:
             self.train_flat()
 
-    def train_hierarchical(self) -> None:
-        """
-        Two-stage training: first train low-level policy, then use its success rates
-        in the high-level agent that interfaces with the HLMDP.
-        """
-        # Stage 1: Train low-level policy for a single subtask
-        self.logger.console_logger.info("=" * 50)
-        self.logger.console_logger.info("Training Low-Level Policy")
-        self.logger.console_logger.info("=" * 50)
-
-        self.train_flat(get_success_rates=True)
-
-        # evaluate the final low-level policy w/ more samples than you did during training (or whatever)
-        # Stage 2: Evaluate low-level policy and build success rate model
-        self.logger.console_logger.info("=" * 50)
-        self.logger.console_logger.info("Evaluating Low-Level Policy")
-        self.logger.console_logger.info("=" * 50)
-
-        ll_task_success_rates = self._evaluate_low_level_policy()
-        self.logger.console_logger.info(
-            f"Low-level success rates: {ll_task_success_rates}"
-        )
-
-        # Stage 3: Train high-level policy with learned success rates
-        self.logger.console_logger.info("=" * 50)
-        self.logger.console_logger.info("Optimizing High-Level Policy")
-        self.logger.console_logger.info("=" * 50)
-
-        self._train_high_level_policy(ll_task_success_rates)
-
-        self.runner.close_env()
-        self.logger.console_logger.info("Finished Hierarchical Training")
-
     def train_flat(self, get_success_rates: bool = False) -> None:
         """
         original EPYMARL training for non-hierarchical policies
         """
-        self.logger.console_logger.info("=" * 50)
-        self.logger.console_logger.info("Training Policy")
-        self.logger.console_logger.info("=" * 50)
+        self.logger.info("Training Policy", log_header=True)
 
         # timing setup
         episode = 0
@@ -276,9 +73,7 @@ class Simulation:
         last_time = start_time
 
         # training loop
-        self.logger.console_logger.info(
-            "Beginning training for {} timesteps".format(self.args.t_max)
-        )
+        self.logger.info("Beginning training for {} timesteps".format(self.args.t_max))
 
         while self.runner.t_env <= self.args.t_max:
             # Run for a whole episode at a time
@@ -301,10 +96,8 @@ class Simulation:
 
             # run evaluation episodes
             if (self.runner.t_env - last_test_t) / self.args.test_interval >= 1.0:
-                self.logger.console_logger.info(
-                    f"t_env: {self.runner.t_env} / {self.args.t_max}"
-                )
-                self.logger.console_logger.info(
+                self.logger.info(f"t_env: {self.runner.t_env} / {self.args.t_max}")
+                self.logger.info(
                     (
                         "Estimated time left: "
                         f"{time_left(last_time, last_test_t, self.runner.t_env, self.args.t_max)}. "
@@ -339,7 +132,31 @@ class Simulation:
             self.buffer.save(run_id)
 
         self.runner.close_env()
-        self.logger.console_logger.info("Finished Training")
+        self.logger.info("Finished Training")
+
+    def train_hierarchical(self) -> None:
+        """
+        Two-stage training: first train low-level policy, then use its success rates
+        in the high-level agent that interfaces with the HLMDP.
+        """
+        # Stage 1: Train low-level policy for a single subtask
+        self.logger.info("Training Low-Level Policy", log_header=True)
+        self.train_flat(get_success_rates=True)
+
+        # evaluate the final low-level policy w/ more samples than you did during training (or whatever)
+        # Stage 2: Evaluate low-level policy and build success rate model
+        self.logger.info("Evaluating Low-Level Policy", log_header=True)
+
+        ll_task_success_rates = self._evaluate_low_level_policy()
+        self.logger.info(f"Low-level success rates: {ll_task_success_rates}")
+
+        # Stage 3: Train high-level policy with learned success rates
+        self.logger.info("Optimizing High-Level Policy", log_header=True)
+
+        self._train_high_level_policy(ll_task_success_rates)
+
+        self.runner.close_env()
+        self.logger.info("Finished Hierarchical Training")
 
     def evaluate(self) -> None:
         """evaluation of low-level policy for hierarchical training, or normal evaluation if not using hierarchical training"""
@@ -352,9 +169,7 @@ class Simulation:
 
     def _evaluate_basic(self, n_eval_eps: int):
         """evaluate a single, non-hierarchical trained policy"""
-        self.logger.console_logger.info("=" * 50)
-        self.logger.console_logger.info("Evaluating Policy")
-        self.logger.console_logger.info("=" * 50)
+        self.logger.info("Evaluating Policy", log_header=True)
 
         run_eval_episodes(
             args=self.args,
@@ -373,11 +188,9 @@ class Simulation:
         comms_values : list[float]
             List of comms values to evaluate (e.g., [0.0, 0.5, 1.0])
         """
-        self.logger.console_logger.info("=" * 50)
-        self.logger.console_logger.info(
-            f"Evaluating Policy Across Comms Values: {comms_values}"
+        self.logger.info(
+            f"Evaluating Policy Across Comms Values: {comms_values}", log_header=True
         )
-        self.logger.console_logger.info("=" * 50)
 
         eval_data: list[dict] = []
 
@@ -387,35 +200,40 @@ class Simulation:
                 k: v.cpu() for k, v in self.runner.mac.agent.state_dict().items()
             }
 
+            wandb_attrs = ["entity", "project", "id"]
+            wandb_config = {}
+            for attr in wandb_attrs:
+                wandb_config[attr] = getattr(self.logger.wandb, attr)
+            wandb_config["mode"] = "shared"
+
+
             # prepare inputs for multiprocessing workers
-            n_procs = min(len(comms_values), max(1, (os.cpu_count() or 1) - 1))
+            n_procs = min(len(comms_values), max(1, (cpu_count() or 1) - 1))
             inputs = []
             for comms_value in comms_values:
+
                 input_args = {
-                    "function": _eval_worker,
+                    "function": eval_worker,
                     "comms_value": comms_value,
                     "args": self.args,
                     "n_eval_eps": n_eval_eps,
                     "t_env": self.runner.t_env,
                     "agent_state_dict": agent_state_dict,
                     "logger_dir": self.logger.dir,
+                    "wandb_config": wandb_config,
                 }
                 inputs.append(input_args)
 
             # run multiprocessing
             with mp.Pool(processes=n_procs) as pool:
-                results: list[dict] = list(
-                    pool.map(mp_kwargs_wrapper, inputs)
-                )
+                results: list[dict] = list(pool.map(mp_kwargs_wrapper, inputs))
 
             eval_data = [res["log_stats"] for res in results]
 
         else:
             # Serial evaluation using shared helper
             for comms_value in comms_values:
-                self.logger.console_logger.info(
-                    f"Evaluating with comms_value = {comms_value}"
-                )
+                self.logger.info(f"Evaluating with comms_value = {comms_value}")
 
                 result = run_eval_episodes(
                     comms_value=comms_value,
@@ -485,7 +303,7 @@ class Simulation:
         self.runner.close_env()
         self.logger.log_stat("episode", self.runner.t_env, self.runner.t_env)
         self.logger.print_recent_stats()
-        self.logger.console_logger.info("Finished Evaluation")
+        self.logger.info("Finished Evaluation")
 
     def save(self) -> None:
         save_path = join(
@@ -497,7 +315,7 @@ class Simulation:
 
         # "results/models/{}".format(unique_token)
         makedirs(save_path, exist_ok=True)
-        self.logger.console_logger.info("Saving models to {}".format(save_path))
+        self.logger.info("Saving models to {}".format(save_path))
 
         # learner should handle saving/loading -- delegate actor save/load to mac,
         # use appropriate filenames to do critics, optimizer states
@@ -516,7 +334,7 @@ class Simulation:
         timestep_to_load = 0
 
         if not isdir(self.args.checkpoint_path):
-            self.logger.console_logger.info(
+            self.logger.info(
                 "Checkpoint directiory {} doesn't exist".format(
                     self.args.checkpoint_path
                 )
@@ -541,7 +359,7 @@ class Simulation:
 
         model_path = join(self.args.checkpoint_path, str(timestep_to_load))
 
-        self.logger.console_logger.info("Loading model from {}".format(model_path))
+        self.logger.info("Loading model from {}".format(model_path))
         self.learner.load_models(model_path)
         self.runner.t_env = timestep_to_load
 
@@ -617,7 +435,6 @@ class Simulation:
                 group_name=args.run_name,
                 run_name=run_name,
                 mode=args.wandb_mode,
-                save_replays=args.wandb_save_test_replays,
             )
 
         # sacred is on by default

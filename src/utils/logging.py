@@ -10,7 +10,7 @@ import wandb
 import numpy as np
 
 
-class Logger:
+class MainLogger:
     def __init__(self, console_logger):
         self.console_logger = console_logger
 
@@ -18,11 +18,19 @@ class Logger:
         self.use_wandb = False
         self.use_sacred = False
         self.use_hdf = False
-        self.save_replays: bool = False
 
         self.stats = defaultdict(list)
         # self.stats = defaultdict(lambda: [])
         self.dir: str
+        self.header = "=" * 25
+
+    def info(self, log_str: str, log_header: bool = False):
+        if log_header:
+            self.console_logger.info(self.header)
+            self.console_logger.info(log_str)
+            self.console_logger.info(self.header)
+        else:
+            self.console_logger.info(log_str)
 
     def setup_tb(self, directory_name):
         # Import here so it doesn't have to be installed if you don't use it
@@ -31,11 +39,7 @@ class Logger:
         configure(directory_name)
         self.tb_logger = log_value
         self.use_tb = True
-
-        self.console_logger.info("*******************")
-        self.console_logger.info("Tensorboard logging dir:")
-        self.console_logger.info(f"{directory_name}")
-        self.console_logger.info("*******************")
+        self.info(f"Tensorboard logging dir: {directory_name}", log_header=True)
 
     def setup_wandb(
         self,
@@ -46,7 +50,6 @@ class Logger:
         group_name: str = "",
         run_name: str = "",
         run_id: str | None = None,
-        save_replays: bool = False,
     ):
 
         assert (
@@ -58,7 +61,6 @@ class Logger:
         ], f"Invalid value for `wandb_mode`. Received {mode} but only 'online' and 'offline' are supported."
 
         self.use_wandb = True
-        self.save_replays = save_replays
         self.data_table: Optional[wandb.Table] = None
 
         if group_name == "":
@@ -81,22 +83,19 @@ class Logger:
         # start a wandb run
         self.wandb = wandb.init(
             id=run_id,
-            name=run_name,
             entity=team_name,
             project=project_name,
             config=config,
             group=group_name,
-            mode=mode,
+            mode="shared",
             dir="results/wandb/",
         )
+        # enable subprocesses to log back to the central wandb by preventing deadlocks from trying to use the same central service
+        os.environ["WANDB_DISABLE_SERVICE"] = "True"
 
         # save run files here
         self.dir = self.wandb.dir
-
-        self.console_logger.info("*******************")
-        self.console_logger.info("WANDB RUN ID:")
-        self.console_logger.info(f"{self.wandb.id}")
-        self.console_logger.info("*******************")
+        self.info(f"WANDB RUN ID: {self.wandb.id}", log_header=True)
 
         # accumulate data at same timestep and only log in one batch once
         # all data has been gathered
@@ -194,7 +193,7 @@ class Logger:
                 )
             log_str += "{:<25}{:>8}".format(k + ":", item)
             log_str += "\n" if i % 4 == 0 else "\t"
-        self.console_logger.info(log_str)
+        self.info(log_str)
 
     def finish(self):
         if self.use_wandb:
@@ -203,20 +202,35 @@ class Logger:
             self.wandb.finish()
 
 
-class LocalLoggerForWorker:
-    """Minimal logger used inside worker processes to avoid sharing main logger."""
+class LocalLogger:
+    """Minimal logger used inside worker processes to avoid sharing main logger.
+    Assumes wandb handles logging to a central log file and just prints to console."""
 
-    class CL:
+    class BasicConsoleLogger:
+        """basic logger that just prints to terminal"""
+
         def info(self, *a, **k):
             print(*a)
 
-        def warning(self, *a, **k):
-            print("WARNING:", *a)
+    def __init__(self, dir: str, wandb_config: dict):
+        """
+        Initialize the local logger.
 
-    def __init__(self, dir: str):
+        Parameters
+        ----------
+        dir : str
+            Directory to save logs to
+        run_id : str
+            wandb run ID to use for centralized logging
+        """
         self.dir = dir
-        self.console_logger = LocalLoggerForWorker.CL()
-        self.save_replays = False
+        self.console_logger = LocalLogger.BasicConsoleLogger()
+
+        # start a wandb run to log in global output.log from worker process
+        wandb_config["resume"] = "must"
+
+        print("setting up wandb for worker")
+        self.wandb = wandb.init(**wandb_config)
 
     def log_replays(self, *a, **k):
         return
@@ -230,12 +244,16 @@ class LocalLoggerForWorker:
     def log_stat_table(self, *a, **k):
         return
 
+    def finish(self):
+        self.wandb.finish()
 
 
 # set up a custom logger
-def get_logger():
-    logger = logging.getLogger()
+def get_logger(name: Optional[str] = None):
+    logger = logging.getLogger(name=name)
     logger.handlers = []
+
+    # output to terminal
     ch = logging.StreamHandler()
     formatter = logging.Formatter(
         "[%(levelname)s %(asctime)s] %(name)s %(message)s", "%H:%M:%S"

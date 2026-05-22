@@ -1,9 +1,8 @@
-try:
-    # until python 3.10
-    from collections import Mapping
-except:
-    # from python 3.10
-    from collections.abc import Mapping
+# import warnings
+# warnings.filterwarnings("ignore", category=UserWarning)
+# warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+from collections.abc import Mapping
 from copy import deepcopy
 from os.path import dirname, abspath, join
 import sys
@@ -15,18 +14,20 @@ from sacred.utils import apply_backspaces_and_linefeeds
 import torch as th
 import logging
 
-logging.getLogger("matplotlib").setLevel(logging.WARNING)
+logging.getLogger("matplotlib").setLevel(logging.CRITICAL)
+logging.getLogger("PIL").setLevel(logging.CRITICAL)
+logging.getLogger("urllib3.connectionpool").setLevel(logging.CRITICAL)
+
 
 from utils.logging import get_logger
-from run import Simulation
+from simulation.run import Simulation
 
-# ensure to make sure the `protobuf` package works
+# ensure to make sure the `protobuf` package works (only used for tensorboard, may not be needed?)
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
-
 ex = Experiment("pymarl")
 
 
-def string_inputs_to_list(config: dict, key: str) -> dict :
+def string_inputs_to_list(config: dict, key: str) -> dict:
     """Converts space-delimited string list to list of floats for the given key in the config dictionary."""
     eval_str = config[key].split("=")[0][1:-1]
     float_values: list[float] = [float(x) for x in eval_str.split(" ")]
@@ -92,7 +93,6 @@ def get_run_config(params) -> dict:
                 except yaml.YAMLError as exc:
                     assert False, "{}.yaml error: {}".format(config_name, exc)
             return config_dict
-
 
     # Get the defaults from default.yaml
     with open(join(dirname(__file__), "config", "default.yaml"), "r") as f:

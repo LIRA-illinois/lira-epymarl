@@ -66,9 +66,17 @@ class EpisodeRunner:
     def save_replay(self):
         self.env.save_replay()
 
-    def start_recording(self, n_test_replays_save: int, video_prefix: str = "replay", t_env: Optional[int] = None):
+    def start_recording(
+        self,
+        n_test_replays_save: int,
+        video_prefix: str = "replay",
+        t_env: Optional[int] = None,
+    ):
+        # use env in parallel comms eval when the new runners don't have updated t_env
+
         # get video folder from wandb logger
         # make the video dir
+
         if t_env is None:
             t_env = self.t_env
 
@@ -93,10 +101,7 @@ class EpisodeRunner:
 
         if isinstance(self.env, RecordVideoExtended):
             self.env.stop_recording()
-            if self.logger.save_replays:
-                self.logger.log_replays(
-                    video_dir=self.env.video_folder, t_env=t_env
-                )
+            self.logger.log_replays(video_dir=self.env.video_folder, t_env=t_env)
             self.env = self.env.env
         else:
             pass

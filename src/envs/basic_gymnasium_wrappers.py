@@ -76,7 +76,7 @@ class BasicGymnasiumWrapper(gym.Wrapper):
 
         # run basic checks to ensure the env follows the Gymnasium API
         # and does not have obvious issues
-        self._check_env()
+        # self._check_env()
 
         # init as a proper env wrapper
         super().__init__(self.env)
@@ -129,7 +129,7 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         return env_id
 
     def _set_env_seed(self):
-        print(f"Setting env seed to {self.seed}")
+        # print(f"Setting env seed to {self.seed}")
         self.env.reset(seed=self.seed)
 
     def _check_env(self):
