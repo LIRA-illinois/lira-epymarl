@@ -51,6 +51,9 @@ parameters:
     values: [5]
   test_interval:
     values: [50000]
+  # set test_interval and save_model_interval so you can load the model from any eval for further processing
+  save_model_interval:
+    values: [50000]
   t_max:
     values: [2050000]
 

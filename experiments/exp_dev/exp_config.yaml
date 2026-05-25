@@ -29,10 +29,12 @@ parameters:
   use_wandb:
     values: [True]
   use_sacred:
-    values: [True]
+    values: [False]
   save_model:
     values: [True]
   wandb_save_model:
+    values: [True]
+  delete_local_models:
     values: [True]
   save_test_replays:
     values: [True]
@@ -76,15 +78,24 @@ parameters:
   lr:
     values: [0.00005]
   t_max:
-    values: [150]
+    values: [100]
   test_interval:
+    values: [40]
+  save_model_interval:
     values: [40]
   runner_log_interval:
     values: [40]
   test_nepisode:
-    values: [15]
+    values: [10]
   n_test_replays_save:
     values: [5]
+
+  evaluate:
+    values: [True]
+  eval_run_id:
+    values: [orhckkhh]
+  load_step:
+    values: [60, 120]
 
   ##################
   # Environment config

@@ -1,6 +1,6 @@
-from cv2 import trace
 from typing import Optional
 import os
+from os.path import join
 from collections import defaultdict
 from hashlib import sha256
 import json
@@ -9,6 +9,8 @@ import pandas as pd
 
 import wandb
 import numpy as np
+
+WANDB_DIR = join("results", "wandb")
 
 
 def _log_setup(step_metric: str, t: int) -> dict:
@@ -46,9 +48,8 @@ class MainLogger:
         mode,
         group_name: str = "",
         run_name: str = "",
-        run_id: str | None = None,
+        eval_run_id: Optional[str] = None,
     ):
-
         assert (
             team_name is not None and project_name is not None
         ), "W&B logging requires specification of both `wandb_team` and `wandb_project`."
@@ -60,6 +61,15 @@ class MainLogger:
         self.use_wandb = True
         self.data_table: Optional[wandb.Table] = None
 
+        self.log_suffix = ""
+        # load wandb run from server for evaluation
+        if eval_run_id is not None:
+            self.log_suffix = "_load"
+            api = wandb.Api()
+            load_path = join(project_name, eval_run_id)
+            self.wandb_inactive = api.run(load_path)
+
+        # define standardized group name
         if group_name == "":
             alg_name = config["name"]
             env_name = config["env"]
@@ -79,13 +89,13 @@ class MainLogger:
 
         # start a wandb run
         self.wandb = wandb.init(
-            id=run_id,
+            id=eval_run_id,
             name=run_name,
             entity=team_name,
             project=project_name,
             config=config,
             group=group_name,
-            dir="results/wandb/",
+            dir=WANDB_DIR,
             settings=wandb.Settings(
                 x_label="main_proc",
                 mode="shared",
@@ -119,7 +129,7 @@ class MainLogger:
             self.wandb_current_data = {}
 
         self.wandb_current_t = t
-        self.wandb_current_data[key] = value
+        self.wandb_current_data[key + self.log_suffix] = value
 
         """
         # deprecated, use wandb instead
@@ -145,12 +155,12 @@ class MainLogger:
             for _, row in df_data.iterrows():
                 self.data_table.add_data(*row.tolist())
 
-        data["eval_stats"] = self.data_table
+        data[f"eval_stats{self.log_suffix}"] = self.data_table
         self.wandb.log(data)
 
     def log_image(self, column_name: str, image_path: str, t: int):
         data = _log_setup(self.step_metric, t)
-        data[f"comms_eval/{column_name}"] = wandb.Image(image_path)
+        data[f"comms_eval/{column_name}{self.log_suffix}"] = wandb.Image(image_path)
 
         self.wandb.log(data=data)
 
@@ -158,20 +168,32 @@ class MainLogger:
         # log all replays in a directory to a wandb run
         for _, _, videos in os.walk(video_dir):
             for video in videos:
-                video_path = os.path.join(video_dir, video)
+                video_path = join(video_dir, video)
                 video_name, extension = (
                     os.path.splitext(video)[0],
                     os.path.splitext(video)[1][1:],
                 )
 
                 data = _log_setup(self.step_metric, t)
-                data[f"{video_name}_{extension}"] = wandb.Video(
+                data[f"{video_name}_{extension}{self.log_suffix}"] = wandb.Video(
                     video_path, format=extension
                 )
                 self.wandb.log(data=data)
 
-    def log_model(self, save_path, t_env, model_name):
-        self.wandb.log_model(path=save_path, name=f"t_env_{t_env}_{model_name}")
+    def log_agent(self, save_path: str, t: int):
+        # include environment timestep as metadata for the logged agent files
+        artifact_name = "agent"
+        metadata = {"t_env": t}
+
+        # log agent models as a wandb artifact so we can attach metadata
+        artifact = wandb.Artifact(name=artifact_name, type=artifact_name, metadata=metadata)
+        # add the model files
+        for root, _, files in os.walk(save_path):
+            for f in files:
+                artifact.add_file(join(root, f), name=f)
+
+        self.wandb.log_artifact(artifact)
+
 
     def print_recent_stats(self):
         log_str = "Recent Stats | t_env: {:>10} | Episode: {:>8}\n".format(
@@ -196,7 +218,8 @@ class MainLogger:
     def finish(self):
         if self.use_wandb:
             if self.wandb_current_data:
-                self.wandb.log(self.wandb_current_data, step=self.wandb_current_t)
+                self.wandb_current_data[self.step_metric] = self.wandb_current_t
+                self.wandb.log(self.wandb_current_data)
             self.wandb.finish()
 
     """
@@ -250,6 +273,7 @@ class LocalLogger:
         # pick up the main wandb run in shared mode to log to the wandb website
         self.wandb = wandb.init(
             **wandb_config,
+            dir=WANDB_DIR,
             settings=wandb.Settings(
                 x_label=f"subproc_eval_{comms_value}",
                 x_primary=False,
@@ -258,6 +282,9 @@ class LocalLogger:
         )
         self.step_metric = "t_env"
         self.wandb.define_metric("*", step_metric=self.step_metric)
+
+    def info(self, log_str: str):
+        self.console_logger.info(log_str)
 
     def log_stat(self, key, value, t: int):
         data = _log_setup(self.step_metric, t)
@@ -268,7 +295,7 @@ class LocalLogger:
         # log all replays in a directory to a wandb run
         for _, _, videos in os.walk(video_dir):
             for video in videos:
-                video_path = os.path.join(video_dir, video)
+                video_path = join(video_dir, video)
                 video_name, extension = (
                     os.path.splitext(video)[0],
                     os.path.splitext(video)[1][1:],

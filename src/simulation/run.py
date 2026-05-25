@@ -1,7 +1,8 @@
 from types import SimpleNamespace, SimpleNamespace as SN
 import datetime
 from os import makedirs, listdir, cpu_count
-from os.path import dirname, abspath, join, isdir
+from os.path import join, isdir
+import shutil
 import time
 import threading
 from typing import Any
@@ -9,8 +10,9 @@ import multiprocessing as mp
 
 import pandas as pd
 import matplotlib.pyplot as plt
-# use different backend to support multiprocessing
-plt.switch_backend('agg')
+
+# use agg backend to support multiprocessing
+plt.switch_backend("agg")
 
 import torch as th
 import wandb
@@ -41,15 +43,17 @@ class Simulation:
             self.args, self.logger
         )
 
+        self.n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
+
     def run_sim(self) -> None:
         hierarchical: bool = hasattr(self.args, "factored_hierarchical_policy")
 
-        if self.args.checkpoint_path != "":
+        if self.args.evaluate:
             self._load_checkpoint(hierarchical)
 
             # run evaluation on loaded checkpoint
             if self.args.evaluate or self.args.save_replay:
-                self.evaluate_loaded(hierarchical)
+                self.evaluate_loaded()
                 return
 
         # run training
@@ -67,7 +71,7 @@ class Simulation:
 
         # timing setup
         episode = 0
-        last_test_t = -self.args.test_interval - 1
+        last_test_t = 0
         last_log_t = 0
         model_save_time = 0
 
@@ -97,7 +101,7 @@ class Simulation:
                 self.learner.train(episode_sample, self.runner.t_env, episode)
 
             # run evaluation episodes
-            if (self.runner.t_env - last_test_t) / self.args.test_interval >= 1.0:
+            if self.runner.t_env - last_test_t >= self.args.test_interval:
                 self.logger.info(f"t_env: {self.runner.t_env} / {self.args.t_max}")
                 self.logger.info(
                     (
@@ -110,12 +114,13 @@ class Simulation:
 
                 last_time = time.time()
                 last_test_t = self.runner.t_env
-                self.evaluate()
+                self.evaluate(n_eval_eps=self.n_eval_eps)
 
+            # why different logic for the timing of saving models vs evaluating?
             # save model to disk
-            if self.args.save_model and (
-                self.runner.t_env - model_save_time >= self.args.save_model_interval
-                or model_save_time == 0
+            if (
+                self.args.save_model
+                and self.runner.t_env - model_save_time >= self.args.save_model_interval
             ):
                 model_save_time = self.runner.t_env
                 self.save()
@@ -129,9 +134,9 @@ class Simulation:
                 last_log_t = self.runner.t_env
 
         # save replay buffer for other post-processing
-        if self.args.save_replay_buffer:
-            run_id = f"{self.args.time_id}_{self.args.seed}_{self.args.scenario}"
-            self.buffer.save(run_id)
+        # if self.args.save_replay_buffer:
+        #     run_id = f"{self.args.time_id}_{self.args.seed}_{self.args.scenario}"
+        #     self.buffer.save(run_id)
 
         self.runner.close_env()
         self.logger.info("Finished Training")
@@ -160,10 +165,8 @@ class Simulation:
         self.runner.close_env()
         self.logger.info("Finished Hierarchical Training")
 
-    def evaluate(self) -> None:
+    def evaluate(self, n_eval_eps: int) -> None:
         """evaluation of low-level policy for hierarchical training, or normal evaluation if not using hierarchical training"""
-        n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
-
         if hasattr(self.args, "comms_values_eval"):
             self._evaluate_multi_comms(self.args.comms_values_eval, n_eval_eps)
         else:
@@ -295,11 +298,7 @@ class Simulation:
         """probably doesn't work given new eval functions"""
         self.runner.log_train_stats_t = self.runner.t_env
 
-        for _ in range(self.args.test_nepisode):
-            self.runner.run(test_mode=True)
-
-        if self.args.save_replay:
-            self.runner.save_replay()
+        self.evaluate(n_eval_eps=self.n_eval_eps)
 
         self.runner.close_env()
         self.logger.log_stat("episode", self.runner.t_env, self.runner.t_env)
@@ -307,9 +306,12 @@ class Simulation:
         self.logger.info("Finished Evaluation")
 
     def save(self) -> None:
-        save_path = join(
+        model_dir = join(
             self.args.local_results_path,
             "models",
+        )
+        save_path = join(
+            model_dir,
             self.args.unique_token,
             str(self.runner.t_env),
         )
@@ -323,31 +325,46 @@ class Simulation:
         self.learner.save_models(save_path)
 
         if self.args.use_wandb and self.args.wandb_save_model:
-            for model_name in listdir(save_path):
-                self.logger.log_model(
-                    save_path=join(save_path, model_name),
-                    t_env=self.runner.t_env,
-                    model_name=model_name,
-                )
+            self.logger.log_agent(
+                save_path=save_path,
+                t=self.runner.t_env,
+            )
+
+        # models are saved locally and on the wandb server
+        # as wandb artifacts and can be accessed with the wandb API
+        if self.args.delete_local_models:
+            shutil.rmtree(model_dir, ignore_errors=True)
 
     def _load_checkpoint(self, hierarchical: bool = False) -> None:
+        # get load time step for both cases
         timesteps = []
         timestep_to_load = 0
 
-        if not isdir(self.args.checkpoint_path):
-            self.logger.info(
-                "Checkpoint directiory {} doesn't exist".format(
-                    self.args.checkpoint_path
-                )
-            )
-            return
+        if self.args.eval_run_id is not None:
+            artifacts = self.logger.wandb_inactive.logged_artifacts()
 
-        # Go through all files in args.checkpoint_path
-        for name in listdir(self.args.checkpoint_path):
-            full_name = join(self.args.checkpoint_path, name)
-            # Check if they are dirs the names of which are numbers
-            if isdir(full_name) and name.isdigit():
-                timesteps.append(int(name))
+            # go thru metadata and get all time steps saved
+            agent_artifacts = []
+            for artifact in artifacts:
+                # Check if this artifact is a model and has the correct step in its metadata
+                if artifact.type == "agent":
+                    agent_artifacts.append(artifact)
+                    timesteps.append(artifact.metadata["t_env"])
+        else:
+            if not isdir(self.args.checkpoint_path):
+                self.logger.info(
+                    "Checkpoint directiory {} doesn't exist".format(
+                        self.args.checkpoint_path
+                    )
+                )
+                return
+
+            # Go through all files in args.checkpoint_path
+            for name in listdir(self.args.checkpoint_path):
+                full_name = join(self.args.checkpoint_path, name)
+                # Check if they are dirs the names of which are numbers
+                if isdir(full_name) and name.isdigit():
+                    timesteps.append(int(name))
 
         if self.args.load_step == 0:
             # choose the max timestep
@@ -358,11 +375,20 @@ class Simulation:
                 timesteps, key=lambda x: abs(x - self.args.load_step)
             )
 
-        model_path = join(self.args.checkpoint_path, str(timestep_to_load))
+        if self.args.eval_run_id is not None:
+            for artifact in agent_artifacts:
+                if artifact.metadata["t_env"] == timestep_to_load:
+                    model_path = artifact.download()
+        else:
+            model_path = join(self.args.checkpoint_path, str(timestep_to_load))
 
-        self.logger.info("Loading model from {}".format(model_path))
+        self.logger.info(f"Loading model from t={timestep_to_load} ({model_path})")
         self.learner.load_models(model_path)
         self.runner.t_env = timestep_to_load
+
+        if self.args.eval_run_id is not None:
+            # clean up local files that have been loaded into memory
+            shutil.rmtree("artifacts", ignore_errors=True)
 
     def _parse_config(self, _config, _log) -> SimpleNamespace:
         _config = self._args_sanity_check(_config, _log)
@@ -397,12 +423,12 @@ class Simulation:
         # setup logger
         self.logger = MainLogger(_log)
 
-        try:
+        if hasattr(_config["env_args"], "map_name"):
             map_name = _config["env_args"]["map_name"]
-        except:
+        else:
             map_name = _config["env_args"]["key"]
 
-        # run_name has a unique datetime in it, so only inclue curr_time if that is not available
+        # run_name has a unique datetime in it, so only include curr_time if that is not available
         curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[2:][:-3]
         unique_token = (
             f"{args.run_name if args.run_name != '' else curr_time}_"
@@ -411,12 +437,6 @@ class Simulation:
         )
 
         args.unique_token = unique_token
-        if args.use_tensorboard:
-            tb_logs_direc = join(
-                dirname(dirname(abspath(__file__))), "results", "tb_logs"
-            )
-            tb_exp_direc = join(tb_logs_direc, "{}").format(unique_token)
-            self.logger.setup_tb(tb_exp_direc)
 
         if args.use_wandb:
             if args.run_name != "":
@@ -436,15 +456,22 @@ class Simulation:
                 group_name=args.run_name,
                 run_name=run_name,
                 mode=args.wandb_mode,
+                eval_run_id=args.eval_run_id,
             )
 
+        # deprecated, use wandb
         # sacred is on by default
-        # deprecated, use wandb instead
         # if args.use_sacred:
         #     _log.info("Experiment Parameters:")
         #     experiment_params = pprint.pformat(_config, indent=4, width=1)
         #     _log.info("\n\n" + experiment_params + "\n")
         #     self.logger.setup_sacred(_run)
+        # if args.use_tensorboard:
+        #     tb_logs_direc = join(
+        #         dirname(dirname(abspath(__file__))), "results", "tb_logs"
+        #     )
+        #     tb_exp_direc = join(tb_logs_direc, "{}").format(unique_token)
+        #     self.logger.setup_tb(tb_exp_direc)
 
     def finish(self) -> None:
         # Finish logging
