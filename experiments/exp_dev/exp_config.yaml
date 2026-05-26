@@ -25,7 +25,7 @@ parameters:
   ##################
   wandb_project:
     values: [comm_experiments]
-  # everything on
+  # everything on except Sacred cuz it suuucks
   use_wandb:
     values: [True]
   use_sacred:
