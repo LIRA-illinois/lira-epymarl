@@ -168,7 +168,11 @@ class Simulation:
     def evaluate(self, n_eval_eps: int) -> None:
         """evaluation of low-level policy for hierarchical training, or normal evaluation if not using hierarchical training"""
         if hasattr(self.args, "comms_values_eval"):
-            self._evaluate_multi_comms(self.args.comms_values_eval, n_eval_eps)
+            self._evaluate_multi_comms(
+                self.args.comms_values_eval,
+                n_eval_eps,
+                parallel_eval=self.args.parallel_comms_eval,
+            )
         else:
             self._evaluate_basic(n_eval_eps)
 
@@ -183,7 +187,7 @@ class Simulation:
         )
 
     def _evaluate_multi_comms(
-        self, comms_values: list[float], n_eval_eps: int, parallel: bool = True
+        self, comms_values: list[float], n_eval_eps: int, parallel_eval: bool = True
     ) -> None:
         """
         Evaluate a trained policy across multiple comms allocation values.
@@ -199,7 +203,7 @@ class Simulation:
 
         eval_data: list[dict] = []
 
-        if parallel:
+        if parallel_eval:
             # move to CPU so tensors can be serialized for multiprocessing
             agent_state_dict = {
                 k: v.cpu() for k, v in self.runner.mac.agent.state_dict().items()

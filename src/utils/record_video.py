@@ -61,7 +61,7 @@ class RecordVideoExtended(RecordVideo):
         )
 
     def stop_recording(self, save: bool = True):
-        """Stop current recording and saves the video in the specified format (MP4, WebM, or GIF)."""
+        """Stop current recording single episode and saves the video in the specified format (MP4, WebM, or GIF)."""
         assert self.recording, "stop_recording was called, but no recording was started"
 
         if len(self.recorded_frames) == 0:
@@ -82,10 +82,10 @@ class RecordVideoExtended(RecordVideo):
 
             # Build the output path with appropriate extension
             for output_format in self.output_formats:
+                # manually save video for later logging
                 path = os.path.join(
                     self.video_folder, f"{self._video_name}.{output_format}"
                 )
-
                 # Write video in the specified format
                 if output_format == "webm":
                     # Write WebM format with VP9 codec
@@ -96,7 +96,6 @@ class RecordVideoExtended(RecordVideo):
                     # Write GIF format
                     clip.write_gif(path, logger=moviepy_logger)
                 else:
-
                     # Default to MP4 format
                     clip.write_videofile(path, codec="libx264", logger=moviepy_logger)
 

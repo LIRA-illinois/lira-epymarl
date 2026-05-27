@@ -166,8 +166,16 @@ class MainLogger:
 
         self.wandb.log(data=data)
 
-    def log_replays(self, video_dir: str, t: int):
+    def log_replays(
+        self,
+        video_dir: str,
+        t: int,
+        video_prefix: str = "replay",
+    ):
+        # log all replays in a directory to a wandb run as a table for easier visualization
+        data = _log_setup(self.step_metric, t)
         # log all replays in a directory to a wandb run
+        video_list = []
         for _, _, videos in os.walk(video_dir):
             for video in videos:
                 video_path = join(video_dir, video)
@@ -175,12 +183,19 @@ class MainLogger:
                     os.path.splitext(video)[0],
                     os.path.splitext(video)[1][1:],
                 )
+                video_list.append(wandb.Video(video_path, format=extension))
 
-                data = _log_setup(self.step_metric, t)
-                data[f"{video_name}_{extension}{self.log_suffix}"] = wandb.Video(
-                    video_path, format=extension
-                )
-                self.wandb.log(data=data)
+        data[f"{video_prefix}{self.log_suffix}"] = video_list
+        self.wandb.log(data=data)
+
+        # elif episode_batch is not None:
+        #     # log 5D batch of episodes as a wandb Video
+        #     videos = []
+        #     for i, vid in enumerate(episode_batch):
+        #         videos.append(wandb.Video(vid, fps=4, format="mp4"))
+
+        #     data[video_prefix] = videos
+        #     self.wandb.log(data=data)
 
     def log_agent(self, save_path: str, t: int):
         # include environment timestep as metadata for the logged agent files
@@ -188,14 +203,15 @@ class MainLogger:
         metadata = {"t_env": t}
 
         # log agent models as a wandb artifact so we can attach metadata
-        artifact = wandb.Artifact(name=artifact_name, type=artifact_name, metadata=metadata)
+        artifact = wandb.Artifact(
+            name=artifact_name, type=artifact_name, metadata=metadata
+        )
         # add the model files
         for root, _, files in os.walk(save_path):
             for f in files:
                 artifact.add_file(join(root, f), name=f)
 
         self.wandb.log_artifact(artifact)
-
 
     def print_recent_stats(self):
         log_str = "Recent Stats | t_env: {:>10} | Episode: {:>8}\n".format(

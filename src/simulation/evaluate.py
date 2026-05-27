@@ -14,16 +14,21 @@ def run_eval_episodes(
     comms_value: Optional[float] = None,
 ):
     """Run n_eval_eps evaluation episodes, optionally recording, and return last result."""
+
+    replay_subdir = ""
     if comms_value is not None:
         runner.mac.update_comms_value(comms_value)
         if args.save_test_replays:
-            video_prefix = f"comms_{comms_value:.2f}"
+            replay_subdir = f"comms_{comms_value:.2f}"
+            # gives each video a unique wandb key using its comms value
+            video_prefix = replay_subdir
 
     if args.save_test_replays:
         runner.start_recording(
             n_test_replays_save=args.n_test_replays_save,
             video_prefix=video_prefix,
             t_env=t_env,
+            replay_subdir=replay_subdir,
         )
 
     last_result = None
@@ -39,7 +44,7 @@ def run_eval_episodes(
 
         # Stop recording after some episodes
         if args.save_test_replays and i >= args.n_test_replays_save:
-            runner.stop_recording(t_env=t_env)
+            runner.stop_recording(t_env=t_env, video_prefix=replay_subdir)
 
     if comms_value is not None:
         last_result["log_stats"]["t_env"] = t_env

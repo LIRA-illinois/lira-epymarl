@@ -71,6 +71,7 @@ class EpisodeRunner:
         n_test_replays_save: int,
         video_prefix: str = "replay",
         t_env: Optional[int] = None,
+        replay_subdir: str = "",
     ):
         # use env in parallel comms eval when the new runners don't have updated t_env
 
@@ -80,13 +81,10 @@ class EpisodeRunner:
         if t_env is None:
             t_env = self.t_env
 
-        replay_dir = join(self.logger.dir, f"replays")
+        replay_dir = join(self.logger.dir, "replays", replay_subdir)
         makedirs(replay_dir, exist_ok=True)
         video_folder = join(replay_dir, f"t_{t_env}")
-        self.logger.info(
-            f"Saving {n_test_replays_save} test episode replays to {video_folder}"
-        )
-        # outputs multiple formats for different uses, webm for browser compatibility and mp4 for Powerpoint
+        self.logger.info(f"Saving {n_test_replays_save} test episode replays")
         self.env = RecordVideoExtended(
             env=self.env,
             video_folder=video_folder,
@@ -95,13 +93,21 @@ class EpisodeRunner:
             output_formats=["mp4"],
         )
 
-    def stop_recording(self, t_env: Optional[int] = None):
+    def stop_recording(
+        self, t_env: Optional[int] = None, video_prefix: str = "replays"
+    ):
         if t_env is None:
             t_env = self.t_env
 
         if isinstance(self.env, RecordVideoExtended):
+            # save final episode
             self.env.stop_recording()
-            self.logger.log_replays(video_dir=self.env.video_folder, t=t_env)
+
+            # log videos to wandb
+            self.logger.log_replays(
+                video_dir=self.env.video_folder, t=t_env, video_prefix=video_prefix
+            )
+
             self.env = self.env.env
         else:
             pass
@@ -164,7 +170,7 @@ class EpisodeRunner:
         #     LEFT = 3
         #     RIGHT = 4
         #     LOAD = 5
-        print(f"self.t: {self.t}")
+        # print(f"self.t: {self.t}")
         if self.t == 0:
             # all load, see if the fruit goes away
             actions = np.array([[5, 5, 5]])
