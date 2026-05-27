@@ -26,43 +26,43 @@ parameters:
   wandb_project:
     values: [comm_experiments]
   # everything on except Sacred cuz it suuucks
-  use_wandb:
-    values: [True]
-  use_sacred:
-    values: [False]
-  save_model:
-    values: [True]
-  wandb_save_model:
-    values: [True]
-  delete_local_models:
-    values: [True]
-  save_test_replays:
-    values: [True]
-  wandb_save_test_replays:
-    values: [True]
-  # live_render:
+  # use_wandb:
   #   values: [True]
+  # use_sacred:
+  #   values: [False]
+  # save_model:
+  #   values: [True]
+  # wandb_save_model:
+  #   values: [True]
+  # delete_local_models:
+  #   values: [True]
+  # save_test_replays:
+  #   values: [True]
+  # wandb_save_test_replays:
+  #   values: [True]
+  # live_render:
+    values: [True]
 
 
   # everything off
-  # use_wandb:
-  #   values: [False]
-  # use_sacred:
-  #   values: [True]
-  # save_model:
-  #   values: [False]
-  # wandb_save_model:
-  #   values: [False]
-  # save_test_replays:
-  #   values: [False]
-  # wandb_save_test_replays:
-  #   values: [False]
-  # live_render:
-  #   values: [False]
+  use_wandb:
+    values: [False]
+  use_sacred:
+    values: [False]
+  save_model:
+    values: [False]
+  wandb_save_model:
+    values: [False]
+  save_test_replays:
+    values: [False]
+  wandb_save_test_replays:
+    values: [False]
+  live_render:
+    values: [False]
 
   # live replays saved
-  # live_render:
-  #   values: [True]
+  live_render:
+    values: [True]
 
   ##################
   # MARL alg config
@@ -78,7 +78,7 @@ parameters:
   lr:
     values: [0.00005]
   t_max:
-    values: [100]
+    values: [40]
   test_interval:
     values: [40]
   save_model_interval:
@@ -90,12 +90,12 @@ parameters:
   n_test_replays_save:
     values: [5]
 
-  evaluate:
-    values: [True]
-  eval_run_id:
-    values: [orhckkhh]
-  load_step:
-    values: [60, 120]
+  # evaluate:
+  #   values: [True]
+  # eval_run_id:
+  #   values: [orhckkhh]
+  # load_step:
+  #   values: [60, 120]
 
   ##################
   # Environment config
@@ -108,11 +108,13 @@ parameters:
 
   # comms allocation params
   # all values in the space-delimited list will be evaluated in a single run
-  comms_values_eval:
-    values: [[0.0 1.0]]
+  # comms_values_eval:
+  #   values: [[0.0 0.0]]
+    # values: [[0.0 1.0]]
     # values: [[0.0 0.5 0.6 0.7 0.8 1.0]]
-  parallel_eval:
-    values: [True]
+  # parallel_eval:
+  #   # values: [True]
+  #   values: [False]
 
     # values: [[0.0 0.25 0.5 0.75 1.0]]
     # values: [[0.0 0.5 0.8 0.85 0.9 0.95 1.0]]
@@ -128,13 +130,13 @@ parameters:
     values: [7]
   env_args.max_episode_steps:
     values: [30]
-  env_args.min_fruit_level:
-    values: [2]
-  env_args.max_fruit_level:
-    values: [4]
-  env_args.max_num_fruit:
+  # env_args.min_fruit_level:
+  #   values: [2]
+  # env_args.max_fruit_level:
+  #   values: [4]
+  # env_args.max_num_fruit:
     # values: [0]
-    values: [3]
+    # values: [3]
   env_args.state_type:
     values: [multigrid_flattened]
   env_args.obs_type:

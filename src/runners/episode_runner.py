@@ -164,19 +164,33 @@ class EpisodeRunner:
         #     LEFT = 3
         #     RIGHT = 4
         #     LOAD = 5
+        print(f"self.t: {self.t}")
+        if self.t == 0:
+            # all load, see if the fruit goes away
+            actions = np.array([[5, 5, 5]])
+        elif self.t == 1:
+            # 2 load while 3rd moves down, see if the fruit goes away
+            actions = np.array([[5, 5, 2]])
+        elif self.t == 2:
+            # all 3 load
+            actions = np.array([[5, 5, 5]])
+            # actions = np.array([[0, 0, 0]])
+        else:
+            # actions = np.array([[5, 5, 5]])
+            actions = np.array([[0, 0, 0]])
 
         # print(f"t: {self.t}")
-        if self.mac.comms_value == 0.0:
-            if self.t == 0:
-                # right
-                actions = np.array([[4, 4, 4]])
-            else:
-                # grab
-                actions = np.array([[5, 5, 5]])
+        # if self.mac.comms_value == 0.0:
+        #     if self.t == 0:
+        #         # right
+        #         actions = np.array([[4, 4, 4]])
+        #     else:
+        #         # grab
+        #         actions = np.array([[5, 5, 5]])
 
-        elif self.mac.comms_value == 1.0:
-            # left
-            actions = np.array([[3, 3, 3]])
+        # elif self.mac.comms_value == 1.0:
+        #     # left
+        #     actions = np.array([[3, 3, 3]])
 
         # if self.t in [2, 6]:
         #     # grab

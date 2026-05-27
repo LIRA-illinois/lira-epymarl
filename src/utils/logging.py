@@ -118,18 +118,20 @@ class MainLogger:
         self.wandb_current_data = {}
 
     def log_stat(self, key, value, t: int):
-        # logging is delayed by period due to how finish() works
-
+        """
+        logging is delayed by period due to how finish() works
+        """
         # used for printing stats periodically
         self.stats[key].append((t, value))
 
-        if self.wandb_current_t != t:
-            self.wandb_current_data[self.step_metric] = self.wandb_current_t
-            self.wandb.log(self.wandb_current_data)
-            self.wandb_current_data = {}
+        if self.use_wandb:
+            if self.wandb_current_t != t:
+                self.wandb_current_data[self.step_metric] = self.wandb_current_t
+                self.wandb.log(self.wandb_current_data)
+                self.wandb_current_data = {}
 
-        self.wandb_current_t = t
-        self.wandb_current_data[key + self.log_suffix] = value
+            self.wandb_current_t = t
+            self.wandb_current_data[key + self.log_suffix] = value
 
         """
         # deprecated, use wandb instead
