@@ -9,7 +9,7 @@ from torch.distributions import kl_divergence
 
 # updated implementation w/ better encapsulation of functions and an explicit comms value parameter
 # also has a new method to change the comms value during training
-# @th.compile
+@th.compile
 class MAICAgent(nn.Module):
     """class for a team of agents that communicate using MAIC"""
 

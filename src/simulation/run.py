@@ -49,7 +49,7 @@ class Simulation:
         hierarchical: bool = hasattr(self.args, "factored_hierarchical_policy")
 
         if self.args.evaluate:
-            self._load_checkpoint(hierarchical)
+            self._load_checkpoint()
 
             # run evaluation on loaded checkpoint
             if self.args.evaluate or self.args.save_replay:
@@ -339,7 +339,7 @@ class Simulation:
         if self.args.delete_local_models:
             shutil.rmtree(model_dir, ignore_errors=True)
 
-    def _load_checkpoint(self, hierarchical: bool = False) -> None:
+    def _load_checkpoint(self) -> None:
         # get load time step for both cases
         timesteps = []
         timestep_to_load = 0

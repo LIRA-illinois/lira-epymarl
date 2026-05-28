@@ -27,8 +27,6 @@ parameters:
     values: [comm_experiments]
   use_wandb:
     values: [True]
-  use_sacred:
-    values: [False]
   save_model:
     values: [True]
   wandb_save_model:
@@ -39,6 +37,10 @@ parameters:
     values: [True]
   wandb_save_test_replays:
     values: [True]
+
+  # everything on except Sacred cuz it suuucks
+  use_sacred:
+    values: [False]
 
   ##################
   # MARL alg config
@@ -53,17 +55,16 @@ parameters:
     values: [5]
   test_interval:
     values: [100000]
-  # set test_interval and save_model_interval so you can load the model from any eval for further processing
+  # set test_interval = save_model_interval so you can load the model from any eval for further processing
   save_model_interval:
-    values: [50000]
+    values: [100000]
   t_max:
-    values: [3050000]
-    # values: [2050000]
+    values: [2050000]
 
   # all values in the space-delimited list will be evaluated in a single run
   comms_values_eval:
-    values: [[0.0 0.5 0.6 0.7 0.8 0.85 0.9 0.925 0.95 1.0]]
-  parallel_eval:
+    values: [[0.0 0.25 0.5 0.75 0.85 0.95 1.0]]
+  parallel_comms_eval:
     values: [True]
 
   ##################
@@ -75,7 +76,7 @@ parameters:
   env_args.map_name:
     values: [1r_small]
   env_args.n_agents:
-    values: [3, 4]
+    values: [3]
   env_args.max_agent_level:
     values: [1]
   env_args.force_coop:
@@ -93,6 +94,10 @@ parameters:
   env_args.observe_other_agents:
     values: [False]
 
+  # reward config
+  env_args.reward_config.failed_load_penalty:
+    values: [0.0, -0.025, -0.05]
+
   # rendering
   env_args.highlight_visible_cells:
     values: [True]
@@ -100,6 +105,8 @@ parameters:
   # experiment-specific env args
   env_args.max_num_fruit:
     values: [3]
+  env_args.max_fruit_level:
+    values: [2, 3]
 
 ##################
 # Conditional parameters
@@ -111,13 +118,3 @@ conditional_parameters:
     maic:
       mixer:
         values: [vdn]
-
-  env_args.n_agents:
-    3:
-      env_args.max_fruit_level:
-        values: [2, 3]
-    4:
-      env_args.max_fruit_level:
-        values: [3, 4]
-
-

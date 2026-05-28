@@ -43,7 +43,8 @@ def run_eval_episodes(
         last_result = runner.run(test_mode=True, return_log_stats=return_stats)
 
         # Stop recording after some episodes
-        if args.save_test_replays and i >= args.n_test_replays_save:
+        # -1 b/c i 0 indexed
+        if args.save_test_replays and i >= args.n_test_replays_save - 1:
             runner.stop_recording(t_env=t_env, video_prefix=replay_subdir)
 
     if comms_value is not None:

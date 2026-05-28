@@ -10,8 +10,10 @@ import pandas as pd
 import wandb
 import numpy as np
 
+# 10 minute timeout to try to prevent crashes due to wandb
+# API upload limits
+os.environ["WANDB_HTTP_TIMEOUT"] = "600"
 WANDB_DIR = join("results", "wandb")
-
 
 def _log_setup(step_metric: str, t: int) -> dict:
     return {step_metric: t}
@@ -131,7 +133,7 @@ class MainLogger:
                 self.wandb_current_data = {}
 
             self.wandb_current_t = t
-            self.wandb_current_data[key + self.log_suffix] = value
+            self.wandb_current_data[f"{key}{self.log_suffix}"] = value
 
         """
         # deprecated, use wandb instead
@@ -187,15 +189,6 @@ class MainLogger:
 
         data[f"{video_prefix}{self.log_suffix}"] = video_list
         self.wandb.log(data=data)
-
-        # elif episode_batch is not None:
-        #     # log 5D batch of episodes as a wandb Video
-        #     videos = []
-        #     for i, vid in enumerate(episode_batch):
-        #         videos.append(wandb.Video(vid, fps=4, format="mp4"))
-
-        #     data[video_prefix] = videos
-        #     self.wandb.log(data=data)
 
     def log_agent(self, save_path: str, t: int):
         # include environment timestep as metadata for the logged agent files
@@ -281,6 +274,8 @@ class LocalLogger:
         """
         self.dir = dir
         self.console_logger = LocalLogger.BasicConsoleLogger()
+        # doesn't support
+        self.log_suffix = ""
 
         # delete main process's connection so this parallel process can start its own unique connection to the wandb server when you call wandb.init()
         del os.environ["WANDB_SERVICE"]
@@ -309,8 +304,16 @@ class LocalLogger:
         data[key] = value
         self.wandb.log(data)
 
-    def log_replays(self, video_dir: str, t: int):
+    def log_replays(
+        self,
+        video_dir: str,
+        t: int,
+        video_prefix: str = "replay",
+    ):
+        # log all replays in a directory to a wandb run as a table for easier visualization
+        data = _log_setup(self.step_metric, t)
         # log all replays in a directory to a wandb run
+        video_list = []
         for _, _, videos in os.walk(video_dir):
             for video in videos:
                 video_path = join(video_dir, video)
@@ -318,11 +321,10 @@ class LocalLogger:
                     os.path.splitext(video)[0],
                     os.path.splitext(video)[1][1:],
                 )
-                data = _log_setup(self.step_metric, t)
-                data[f"{video_name}_{extension}"] = wandb.Video(
-                    video_path, format=extension
-                )
-                self.wandb.log(data=data)
+                video_list.append(wandb.Video(video_path, format=extension))
+
+        data[f"{video_prefix}{self.log_suffix}"] = video_list
+        self.wandb.log(data=data)
 
     def finish(self):
         self.wandb.finish()

@@ -7,6 +7,7 @@ from components.episode_buffer import EpisodeBatch
 from modules.mixers.vdn import VDNMixer
 from modules.mixers.qmix import QMixer
 
+@th.compile
 class MAICLearner:
     def __init__(self, mac, scheme, logger, args):
         self.args = args
