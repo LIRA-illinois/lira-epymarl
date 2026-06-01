@@ -1,5 +1,5 @@
 time: "0-48:00:00"
-memory_gb: 64
+memory_gb: 256
 # number of CPU cores available to each task in your job. 1 task = 1 python cmd
 # called cpus-per-tasks on Delta and ntasks on campus cluster
 cpus_per_task: 64
