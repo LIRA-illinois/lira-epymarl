@@ -210,12 +210,18 @@ class Simulation:
             }
 
             wandb_attrs = ["entity", "project", "id", "name"]
+
             wandb_config = {}
             for attr in wandb_attrs:
                 wandb_config[attr] = getattr(self.logger.wandb, attr)
 
             # prepare inputs for multiprocessing workers
-            n_procs = min(len(comms_values), max(1, (cpu_count() or 1) - 1))
+            n_procs = getattr(
+                self.args,
+                "max_parallel_eval_processes",
+                min(len(comms_values), max(1, (cpu_count() or 1) - 1)),
+            )
+
             inputs = []
             for comms_value in comms_values:
 
@@ -232,7 +238,7 @@ class Simulation:
                 inputs.append(input_args)
 
             # run multiprocessing
-            with mp.Pool(processes=n_procs) as pool:
+            with mp.Pool(processes=n_procs, maxtasksperchild=2) as pool:
                 results: list[dict] = list(pool.map(mp_kwargs_wrapper, inputs))
 
             eval_data = [res["log_stats"] for res in results]

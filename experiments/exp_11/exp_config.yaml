@@ -59,13 +59,16 @@ parameters:
   save_model_interval:
     values: [100000]
   t_max:
-    values: [2050000]
+    values: [3050000]
 
   # all values in the space-delimited list will be evaluated in a single run
   comms_values_eval:
-    values: [[0.0 0.25 0.5 0.75 0.85 0.95 1.0]]
+    values: [[0.0 0.25 0.5 0.75 0.85 0.9 0.95 1.0]]
   parallel_comms_eval:
     values: [True]
+  # set based on computer RAM, each process starts its own instance of CUDA which leads to large RAM usage per subprocess
+  max_parallel_eval_processes:
+    values: [4]
 
   ##################
   # Environment config
@@ -96,7 +99,8 @@ parameters:
 
   # reward config
   env_args.reward_config.failed_load_penalty:
-    values: [0.0, -0.025, -0.05]
+    values: [0.0, -0.01, -0.02]
+    # values: [0.0, -0.025, -0.05]
 
   # rendering
   env_args.highlight_visible_cells:
