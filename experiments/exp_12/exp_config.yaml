@@ -99,7 +99,7 @@ parameters:
 
   # reward config
   env_args.reward_config.failed_load_penalty:
-    values: [0.0, -0.005, -0.01]
+    values: [0.0, -0.01]
 
   # rendering
   env_args.highlight_visible_cells:
