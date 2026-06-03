@@ -71,7 +71,6 @@ class EpisodeRunner:
         n_test_replays_save: int,
         video_prefix: str = "replay",
         t_env: Optional[int] = None,
-        replay_subdir: str = "",
     ):
         # use env in parallel comms eval when the new runners don't have updated t_env
 
@@ -81,13 +80,12 @@ class EpisodeRunner:
         if t_env is None:
             t_env = self.t_env
 
-        replay_dir = join(self.logger.dir, "replays", replay_subdir)
+        replay_dir = join(self.logger.dir, "replays", f"t_{t_env}")
         makedirs(replay_dir, exist_ok=True)
-        video_folder = join(replay_dir, f"t_{t_env}")
         self.logger.info(f"Saving {n_test_replays_save} test episode replays")
         self.env = RecordVideoExtended(
             env=self.env,
-            video_folder=video_folder,
+            video_folder=replay_dir,
             episode_trigger=lambda e: True,
             name_prefix=video_prefix,
             output_formats=["mp4"],
@@ -115,9 +113,9 @@ class EpisodeRunner:
     def close_env(self):
         self.env.close()
 
-    def reset(self):
+    def reset(self, options: dict | None = None):
         self.batch = self.new_batch()
-        self.env.reset()
+        self.env.reset(options=options)
         self.t = 0
 
     def print_data(self, data: dict):
@@ -170,73 +168,93 @@ class EpisodeRunner:
         #     LEFT = 3
         #     RIGHT = 4
         #     LOAD = 5
-        # print(f"self.t: {self.t}")
-        if self.t == 0:
-            # all load, see if the fruit goes away
-            actions = np.array([[5, 5, 5]])
-        elif self.t == 1:
-            # 2 load while 3rd moves down, see if the fruit goes away
-            actions = np.array([[5, 5, 2]])
-        elif self.t == 2:
-            # all 3 load
-            actions = np.array([[5, 5, 5]])
-            # actions = np.array([[0, 0, 0]])
+
+        print(f"self.t: {self.t}")
+
+        if isinstance(actions, dict):
+            if self.mac.comms_value == 0.0:
+                # succeed 1st subtask, fail 2nd one
+                if 0 < self.t <= 3:
+                    # go right
+                    actions["env_actions"] = np.array([[4, 4, 4]])
+                else:
+                    actions["env_actions"] = np.array([[0, 0, 0]])
+
+            # succeed both subtasks
+            elif self.mac.comms_value == 1.0:
+                # go right
+                actions["env_actions"] = np.array([[4, 4, 4]])
+
+
+            # # go right
+            # actions["env_actions"] = np.array([[4, 4, 4]])
+
         else:
-            # actions = np.array([[5, 5, 5]])
-            actions = np.array([[0, 0, 0]])
+            actions = np.array([[5, 5, 5]])
 
-        # print(f"t: {self.t}")
-        # if self.mac.comms_value == 0.0:
-        #     if self.t == 0:
-        #         # right
-        #         actions = np.array([[4, 4, 4]])
-        #     else:
-        #         # grab
-        #         actions = np.array([[5, 5, 5]])
 
-        # elif self.mac.comms_value == 1.0:
-        #     # left
-        #     actions = np.array([[3, 3, 3]])
+            # if self.t == 0:
+            #     # all load, see if the fruit goes away
+            #     actions = np.array([[5, 5, 5]])
+            # elif self.t == 1:
+            #     # 2 load while 3rd moves down, see if the fruit goes away
+            #     actions = np.array([[5, 5, 2]])
+            # elif self.t == 2:
+            #     # all 3 load
+            #     actions = np.array([[5, 5, 5]])
+            #     # actions = np.array([[0, 0, 0]])
+            # else:
+            #     # actions = np.array([[5, 5, 5]])
+            #     actions = np.array([[0, 0, 0]])
 
-        # if self.t in [2, 6]:
-        #     # grab
-        #     actions = np.array([[5, 5, 5]])
-        # else:
-        #     # right
-        #     actions = np.array([[4, 4, 4]])
+            # if self.mac.comms_value == 0.0:
+            #     if self.t == 0:
+            #         # right
+            #         actions = np.array([[4, 4, 4]])
+            #     else:
+            #         # grab
+            #         actions = np.array([[5, 5, 5]])
 
-        # actions = np.array([[3, 2, 3]])
+            # elif self.mac.comms_value == 1.0:
+            #     # left
+            #     actions = np.array([[3, 3, 3]])
 
-        # right
-        # actions = np.array([[4, 4, 4]])
+            # if self.t in [2, 6]:
+            #     # grab
+            #     actions = np.array([[5, 5, 5]])
+            # else:
+            #     # right
+            #     actions = np.array([[4, 4, 4]])
 
-        # if self.t < 5:
-        #     actions = np.array([[4, 4, 4]])
-        # else:
-        #     actions = np.array([[3, 3, 3]])
+            # actions = np.array([[3, 2, 3]])
 
-        # cycle into the goals
-        # if self.t == 0:
-        #     actions = np.array([[4, 0, 4]])
-        # elif self.t == 1:
-        #     actions = np.array([[3, 4, 3]])
-        # elif self.t % 2 == 0:
-        #     actions = np.array([[4, 3, 4]])
-        # else:
-        #     actions = np.array([[3, 4, 3]])
+            # right
+            # actions = np.array([[4, 4, 4]])
 
-        # complete 1st task, fail on 2nd task
-        # if 0 < self.t <= 9:
-        #     # go right
-        #     actions["env_actions"] = np.array([[4, 4, 4]])
-        # else:
-        #     actions["env_actions"] = np.array([[0, 4, 4]])
+            # if self.t < 5:
+            #     actions = np.array([[4, 4, 4]])
+            # else:
+            #     actions = np.array([[3, 3, 3]])
 
-        # go right
-        # actions["env_actions"] = np.array([[4, 4, 4]])
+            # cycle into the goals
+            # if self.t == 0:
+            #     actions = np.array([[4, 0, 4]])
+            # elif self.t == 1:
+            #     actions = np.array([[3, 4, 3]])
+            # elif self.t % 2 == 0:
+            #     actions = np.array([[4, 3, 4]])
+            # else:
+            #     actions = np.array([[3, 4, 3]])
+
+
         return actions
 
-    def run(self, test_mode: bool = False, return_log_stats: bool = True):
+    def run(
+        self,
+        test_mode: bool = False,
+        return_log_stats: bool = True,
+        reset_options: dict | None = None,
+    ):
         """
         Run an episode.
 
@@ -245,7 +263,7 @@ class EpisodeRunner:
         test_mode : bool
             Whether to run in test mode (no learning)
         """
-        self.reset()
+        self.reset(options=reset_options)
 
         terminated = False
         if self.args.common_reward:
@@ -263,6 +281,7 @@ class EpisodeRunner:
             actions = self._select_actions(test_mode=test_mode)
 
             # render a frame of the env with the current HL actions chosen
+            #TODO should be moved inside the hierarchical env's step method
             if isinstance(self.env, RecordVideoExtended):
                 self.env.env.render_actions = actions
                 self.env._capture_frame()
@@ -311,6 +330,7 @@ class EpisodeRunner:
         actions = self._select_actions(test_mode=test_mode)
 
         # render a frame of the env with the current HL actions chosen
+        #TODO should be moved inside the hierarchical env's step method
         if isinstance(self.env, RecordVideoExtended):
             self.env.env.render_actions = actions
             self.env._capture_frame()

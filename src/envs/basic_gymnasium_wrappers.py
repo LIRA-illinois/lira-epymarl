@@ -58,6 +58,7 @@ class BasicGymnasiumWrapper(gym.Wrapper):
     """
     Basic wrapper that supports Gymnasium and non-gymnasium envs to ensure they conform to the Gymnasium API standards. Designed for the join1 env from MAIC, but may be extended to support other envs too.
     """
+
     def __init__(self, env_args: dict):
         self.env_name: str = env_args.pop("key")
         self.seed: int = env_args.pop("seed")
@@ -191,8 +192,10 @@ class HLMDPEnvWrapper(gym.Wrapper):
             self.task_type: Literal["atomic", "composed"] = hl_env_args.pop("task_type")
 
         self.num_rooms: int = env_args.pop("num_rooms", 2)
-        self.num_comms_values: int = env_args.pop("num_comms_values", 1)
-
+        comms_values: float = env_args.pop("comms_values", [0.0])
+        # optional behavior: end episode when low-level reports task_completed
+        # (useful during evaluation). Default False to preserve training behavior.
+        self.terminate_on_task_completed: bool = env_args.pop("terminate_on_task_completed", False)
         self.env_args: dict = env_args
 
         # low-level environment
@@ -203,16 +206,30 @@ class HLMDPEnvWrapper(gym.Wrapper):
         self.hlmdp = ProjectMDP(
             num_rooms=self.num_rooms,
             task_type=self.task_type,
-            num_comms_values=self.num_comms_values,
+            comms_values=comms_values,
         )
 
         # this thing's action space should be a Cartesian product of the low-level env's and the MDP action space
         # you can use a dict to represent that since they're factored and different structure
         # similar for the obs space
 
-    def reset(self, seed: Optional[int] = None, options: dict = None):
-        _, hl_info = self.hlmdp.reset(seed=seed, options=options)
-        ll_obs, ll_info = self.env.reset(seed=seed, options=options)
+    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
+        if options is None:
+            options = {}
+
+        hl_options = {}
+        ll_options = {}
+
+        if "hl_start_state" in options:
+            hl_options["hl_start_state"] = options["hl_start_state"]
+            if "ll_start_room" not in options:
+                ll_options["start_room"] = options["hl_start_state"]
+
+        if "ll_start_room" in options:
+            ll_options["start_room"] = options["ll_start_room"]
+
+        _, hl_info = self.hlmdp.reset(seed=seed, options=hl_options)
+        ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)
 
         # only used for rendering HLMDP actions
         self.render_actions = None
@@ -246,6 +263,9 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # stop showing the action since the agent just reached a new state the HLMDP
         if ll_info["task_completed"]:
             self.render_actions = None
+            # may want to end the episode at task completion, like during evaluation
+            if self.terminate_on_task_completed:
+                ll_terminated = True
 
         # other envs may have other ways to fail the overall project,
         # but in LBF running out of time is the only way to do it
@@ -255,9 +275,6 @@ class HLMDPEnvWrapper(gym.Wrapper):
         hl_obs, hl_reward, hl_terminated, hl_truncated, hl_info = self.hlmdp.step(
             hl_actions, ll_info["task_completed"], project_failed
         )
-
-        # the HL step needs to happen here based on the success or failure of the low-level agents
-        # or it just stays still :P
 
         # Combine rewards: HL rewards for goal transitions + LL rewards
         total_reward = hl_reward + ll_reward

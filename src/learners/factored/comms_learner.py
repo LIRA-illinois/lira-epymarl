@@ -171,3 +171,8 @@ class CommsLearner:
 
     def save_models(self, path: str) -> None:
         self.env_learner.save_models(path)
+
+    def optimize_hl_agent(self, data_table, success_rate_spec: float):
+        self.mac.comms_agent.optimize_policy(data_table, success_rate_spec)
+
+

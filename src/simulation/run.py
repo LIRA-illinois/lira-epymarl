@@ -63,9 +63,9 @@ class Simulation:
         else:
             self.train_flat()
 
-    def train_flat(self, get_success_rates: bool = False) -> None:
+    def train_flat(self) -> None:
         """
-        original EPYMARL training for non-hierarchical policies
+        original EPYMARL training for non-hierarchical policies for a project with a single task
         """
         self.logger.info("Training Policy", log_header=True)
 
@@ -116,7 +116,6 @@ class Simulation:
                 last_test_t = self.runner.t_env
                 self.evaluate(n_eval_eps=self.n_eval_eps)
 
-            # why different logic for the timing of saving models vs evaluating?
             # save model to disk
             if (
                 self.args.save_model
@@ -146,28 +145,43 @@ class Simulation:
         Two-stage training: first train low-level policy, then use its success rates
         in the high-level agent that interfaces with the HLMDP.
         """
-        # Stage 1: Train low-level policy for a single subtask
+
+        # Stage 1: Train low-level policy for a single task
         self.logger.info("Training Low-Level Policy", log_header=True)
-        self.train_flat(get_success_rates=True)
 
-        # evaluate the final low-level policy w/ more samples than you did during training (or whatever)
-        # Stage 2: Evaluate low-level policy and build success rate model
-        self.logger.info("Evaluating Low-Level Policy", log_header=True)
+        # self.train_flat()
 
-        ll_task_success_rates = self._evaluate_low_level_policy()
-        self.logger.info(f"Low-level success rates: {ll_task_success_rates}")
+        # may need to eval here for more samples than during training to get good statistical estimates of init state dists
+        # don't worry about that yet, only needed for the dependent tasks
+        # ll_task_success_rates = self._evaluate_low_level_policy()
+        # self.logger.info(f"Low-level success rates: {ll_task_success_rates}")
 
         # Stage 3: Train high-level policy with learned success rates
         self.logger.info("Optimizing High-Level Policy", log_header=True)
+        self._train_high_level_policy(self.runner.env.hlmdp)
 
-        self._train_high_level_policy(ll_task_success_rates)
+        print(self.runner.mac.comms_agent.policy.task_policy)
+        print(self.runner.mac.comms_agent.policy.comms_policy)
+        print('\n breakpoint ')
+        __import__('ipdb').set_trace(context=3)
+
+
+        # evaluate Hl policy (only relevant for dependent tasks)
 
         self.runner.close_env()
         self.logger.info("Finished Hierarchical Training")
 
+    def _train_high_level_policy(self, data_table: wandb.Table) -> None:
+        self.learner.optimize_hl_agent(data_table, self.args.success_rate_spec)
+
     def evaluate(self, n_eval_eps: int) -> None:
         """evaluation of low-level policy for hierarchical training, or normal evaluation if not using hierarchical training"""
-        if hasattr(self.args, "comms_values_eval"):
+        if hasattr(self.runner.env, "hlmdp"):
+            self._evaluate_tasks(
+                self.runner.env.hlmdp,
+                n_eval_eps,
+            )
+        elif hasattr(self.args, "comms_values_eval"):
             self._evaluate_multi_comms(
                 self.args.comms_values_eval,
                 n_eval_eps,
@@ -185,6 +199,67 @@ class Simulation:
             runner=self.runner,
             n_eval_eps=n_eval_eps,
         )
+
+    def _evaluate_tasks(
+        self,
+        hlmdp,
+        n_eval_eps: int,
+    ) -> None:
+        """
+        Evaluate the policy starting from every non-terminating HLMDP state.
+
+        Parameters
+        ----------
+        hlmdp : ProjectMDP
+            High-level MDP instance used by the hierarchical environment.
+        """
+        # gather all normal-state outgoing actions (tuples)
+        df_actions = hlmdp.transition_probs.copy()
+        df_actions = df_actions.loc[df_actions.state_type == "normal"]
+
+        # unique action tuples like (chosen_next_state, comms_val)
+        hl_actions = df_actions.action.drop_duplicates().tolist()
+
+        self.logger.info(f"Evaluating Policy Across Tasks", log_header=True)
+
+        eval_data: list[dict] = []
+
+        # For each unique HL action, run evals from each state that has this action available
+        for action in hl_actions:
+            # action is expected to be a tuple (chosen_next_state, comms_val)
+            state = df_actions.loc[df_actions.action == action, "state"].unique().item()
+            chosen_next_state, comms_val = action
+            reset_options = {"hl_start_state": int(state)}
+
+            # set comms value if provided
+            result = run_eval_episodes(
+                args=self.args,
+                runner=self.runner,
+                n_eval_eps=n_eval_eps,
+                t_env=self.runner.t_env,
+                comms_value=comms_val,
+                reset_options=reset_options,
+            )
+
+            eval_data.append(result["log_stats"])
+
+            # update transition probs in hlmdp, 2 possible outcomes of task success or failure
+            df = hlmdp.transition_probs
+            success_rate = result["log_stats"].get("test_task_completed_mean")
+            df.loc[
+                (df.action == action) & (df.next_state == chosen_next_state), "prob"
+            ] = success_rate
+            df.loc[
+                (df.action == action) & (df.next_state != chosen_next_state), "prob"
+            ] = (1.0 - success_rate)
+
+        df_eval = pd.DataFrame.from_records(eval_data)
+        self.logger.log_table(df_eval, t=self.runner.t_env)
+
+        #TODO it may make sense to log each tasks's success rate to wandb too
+
+        # if comms_values is not None:
+        #     self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
 
     def _evaluate_multi_comms(
         self, comms_values: list[float], n_eval_eps: int, parallel_eval: bool = True
@@ -244,7 +319,7 @@ class Simulation:
             eval_data = [res["log_stats"] for res in results]
 
         else:
-            # Serial evaluation using shared helper
+            # Serial evaluation
             for comms_value in comms_values:
                 self.logger.info(f"Evaluating with comms_value = {comms_value}")
 
@@ -261,7 +336,7 @@ class Simulation:
         # Convert to DataFrame and log
         df_eval = pd.DataFrame.from_records(eval_data)
 
-        self.logger.log_stat_table(df_eval, t=self.runner.t_env)
+        self.logger.log_table(df_eval, t=self.runner.t_env)
         self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
 
     def _make_comms_eval_plots(self, data_table: wandb.Table, t: int) -> None:
@@ -334,7 +409,7 @@ class Simulation:
         # use appropriate filenames to do critics, optimizer states
         self.learner.save_models(save_path)
 
-        if self.args.use_wandb and self.args.wandb_save_model:
+        if self.args.use_wandb:
             self.logger.log_agent(
                 save_path=save_path,
                 t=self.runner.t_env,

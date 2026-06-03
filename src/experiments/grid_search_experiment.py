@@ -48,9 +48,7 @@ class GridSearch(object):
             "save_model",
             "save_model_interval",
             "save_test_replays",
-            "wandb_save_model",
             "use_sacred",
-            "wandb_save_test_replays",
             "use_wandb",
             "save_replay_buffer",
         ]

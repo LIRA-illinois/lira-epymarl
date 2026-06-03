@@ -12,27 +12,38 @@ def run_eval_episodes(
     video_prefix: str = "replay",
     t_env: Optional[int] = None,
     comms_value: Optional[float] = None,
+    reset_options: Optional[dict] = None,
 ):
     """Run n_eval_eps evaluation episodes, optionally recording, and return last result."""
-
-    replay_subdir = ""
+    # derive identifiers
+    task_state = None if reset_options is None else reset_options.get("hl_start_state")
     if comms_value is not None:
+        print(f"Setting MAC comms value to {comms_value}")
         runner.mac.update_comms_value(comms_value)
-        if args.save_test_replays:
-            replay_subdir = f"comms_{comms_value:.2f}"
-            # gives each video a unique wandb key using its comms value
-            video_prefix = replay_subdir
+
+    # filename prefix includes task state and comms value when available
+    prefix_parts = [video_prefix]
+    if task_state is not None:
+        prefix_parts.append(f"task_{int(task_state)}")
+    if comms_value is not None:
+        prefix_parts.append(f"comms_{comms_value:.2f}")
+    file_name_prefix = "-".join(prefix_parts)
+
+    # If the runner's env supports terminating on task completion, enable it for evaluation
+    if hasattr(runner.env, "terminate_on_task_completed"):
+        runner.env.terminate_on_task_completed = True
 
     if args.save_test_replays:
         runner.start_recording(
             n_test_replays_save=args.n_test_replays_save,
-            video_prefix=video_prefix,
+            video_prefix=file_name_prefix,
             t_env=t_env,
-            replay_subdir=replay_subdir,
         )
+
 
     last_result = None
     for i in range(n_eval_eps):
+        print(i)
         if i % 50 == 0:
             runner.logger.info(
                 f"Test Episode: {i} / {n_eval_eps}"
@@ -40,16 +51,23 @@ def run_eval_episodes(
 
         return_stats = i == n_eval_eps - 1
         # last_result only has "log_stats" in it after all eps have run
-        last_result = runner.run(test_mode=True, return_log_stats=return_stats)
+
+        last_result = runner.run(
+            test_mode=True,
+            return_log_stats=return_stats,
+            reset_options=reset_options,
+        )
 
         # Stop recording after some episodes
         # -1 b/c i 0 indexed
-        if args.save_test_replays and i >= args.n_test_replays_save - 1:
-            runner.stop_recording(t_env=t_env, video_prefix=replay_subdir)
+        if args.save_test_replays and i == args.n_test_replays_save - 1:
+            runner.stop_recording(t_env=t_env, video_prefix=file_name_prefix)
 
-    if comms_value is not None:
-        last_result["log_stats"]["t_env"] = t_env
-        last_result["log_stats"]["comms_value"] = comms_value
+    last_result["log_stats"]["t_env"] = t_env
+
+    # restore terminate_on_task_completed to False after evaluation
+    if hasattr(runner.env, "terminate_on_task_completed"):
+        runner.env.terminate_on_task_completed = False
 
     return last_result
 

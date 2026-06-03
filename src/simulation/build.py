@@ -71,6 +71,10 @@ def build_sim(
             device=device,
         )
 
+    # update env args with comms values to be used in HLMDP model
+    if hasattr(args, "comms_values_eval") and args.env_args.get("hierarchical") is not None:
+        args.env_args["comms_values"] = args.comms_values_eval
+
     args, runner, env_info, scheme, groups, preprocess = _build_env_spec(args, logger)
 
     buffer = _build_replay_buffer(

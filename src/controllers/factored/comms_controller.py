@@ -26,8 +26,9 @@ class CommsMAC:
         # self.agent_output_type = args.agent_output_type
 
     def _build_agents(self, input_shape):
-        # you would add your model-based ILP agent as an agent in teh registry to be grabbed here
-        self.comms_agent = agent_REGISTRY[self.args.comms_agent](input_shape, self.args)
+        # you would add your model-based ILP agent as an agent in the registry to be grabbed here
+        self.comms_agent = agent_REGISTRY[self.args.comms_agent](self.args)
+        #TODO instead of working wtih the env agent here as an object, always just reference the env's mac's agent so we can be sure we're working with the right one
         self.env_agent = self.env_mac.agent
 
     def init_hidden(self, batch_size):
@@ -59,7 +60,9 @@ class CommsMAC:
         # get the model of the env + optimize
         # update comms allocation to low-level agents + choose next task to complete (if relevant)
         high_level_actions = self.comms_agent.select_actions(ep_batch, t_ep, t_env, test_mode=test_mode)
-        self.env_mac.update_comms_value(high_level_actions["comms_allocation"])
+
+        # TODO assume this happens in an external control loop for now, we only change comms when doing different evaluation subtasks
+        # self.update_comms_value(high_level_actions["comms_allocation"])
 
         # NDArray or Tensor of size (1, n_env_agents)
         env_actions = self.env_mac.select_actions(ep_batch, t_ep, t_env, bs, test_mode)
@@ -74,6 +77,9 @@ class CommsMAC:
         }
 
         return actions
+
+    def update_comms_value(self, comms_value: float):
+        self.env_mac.update_comms_value(comms_value)
 
     def forward(self, ep_batch: EpisodeBatch, t, test_mode=False, **kwargs):
         return 1
@@ -116,3 +122,7 @@ class CommsMAC:
 
     def save_models(self, path: str):
         self.env_mac.save_models(path)
+
+    @property
+    def comms_value(self):
+        return self.env_mac.comms_value

@@ -33,6 +33,8 @@ class MainLogger:
         # self.stats = defaultdict(lambda: [])
         self.dir: str
         self.header = "=" * 25
+        self.data_table: Optional[wandb.Table] = None
+        self.step_metric = "t_env"
 
     def info(self, log_str: str, log_header: bool = False):
         if log_header:
@@ -61,7 +63,6 @@ class MainLogger:
         ], f"Invalid value for `wandb_mode`. Received {mode} but only 'online' and 'offline' are supported."
 
         self.use_wandb = True
-        self.data_table: Optional[wandb.Table] = None
 
         self.log_suffix = ""
         # load wandb run from server for evaluation
@@ -107,7 +108,6 @@ class MainLogger:
 
         # extra setup to support "shared" mode for parallel subprocesses that
         # log to the same wandb run id
-        self.step_metric = "t_env"
         self.wandb.define_metric("*", step_metric=self.step_metric)
 
         # save run files here
@@ -148,10 +148,8 @@ class MainLogger:
             self._run_obj.log_scalar(key, value, t)
         """
 
-    def log_stat_table(self, df_data: pd.DataFrame, t: int):
+    def log_table(self, df_data: pd.DataFrame, t: int):
         """Log accumulated evaluation statistics as a wandb table."""
-        data = _log_setup(self.step_metric, t)
-
         if self.data_table is None:
             self.data_table = wandb.Table(dataframe=df_data, log_mode="MUTABLE")
         else:
@@ -159,14 +157,17 @@ class MainLogger:
             for _, row in df_data.iterrows():
                 self.data_table.add_data(*row.tolist())
 
-        data[f"eval_stats{self.log_suffix}"] = self.data_table
-        self.wandb.log(data)
+        if self.use_wandb:
+            data = _log_setup(self.step_metric, t)
+            data[f"eval_stats{self.log_suffix}"] = self.data_table
+            self.wandb.log(data)
 
     def log_image(self, column_name: str, image_path: str, t: int):
-        data = _log_setup(self.step_metric, t)
-        data[f"comms_eval/{column_name}{self.log_suffix}"] = wandb.Image(image_path)
+        if self.use_wandb:
+            data = _log_setup(self.step_metric, t)
+            data[f"comms_eval/{column_name}{self.log_suffix}"] = wandb.Image(image_path)
 
-        self.wandb.log(data=data)
+            self.wandb.log(data=data)
 
     def log_replays(
         self,
@@ -174,37 +175,39 @@ class MainLogger:
         t: int,
         video_prefix: str = "replay",
     ):
-        # log all replays in a directory to a wandb run as a table for easier visualization
-        data = _log_setup(self.step_metric, t)
-        # log all replays in a directory to a wandb run
-        video_list = []
-        for _, _, videos in os.walk(video_dir):
-            for video in videos:
-                video_path = join(video_dir, video)
-                video_name, extension = (
-                    os.path.splitext(video)[0],
-                    os.path.splitext(video)[1][1:],
-                )
-                video_list.append(wandb.Video(video_path, format=extension))
+        if self.use_wandb:
+            # log all replays in a directory to a wandb run as a table for easier visualization
+            data = _log_setup(self.step_metric, t)
+            # log all replays in a directory to a wandb run
+            video_list = []
+            for _, _, videos in os.walk(video_dir):
+                for video in videos:
+                    video_path = join(video_dir, video)
+                    video_name, extension = (
+                        os.path.splitext(video)[0],
+                        os.path.splitext(video)[1][1:],
+                    )
+                    video_list.append(wandb.Video(video_path, format=extension))
 
-        data[f"{video_prefix}{self.log_suffix}"] = video_list
-        self.wandb.log(data=data)
+            data[f"{video_prefix}{self.log_suffix}"] = video_list
+            self.wandb.log(data=data)
 
     def log_agent(self, save_path: str, t: int):
-        # include environment timestep as metadata for the logged agent files
-        artifact_name = "agent"
-        metadata = {"t_env": t}
+        if self.use_wandb:
+            # include environment timestep as metadata for the logged agent files
+            artifact_name = "agent"
+            metadata = {"t_env": t}
 
-        # log agent models as a wandb artifact so we can attach metadata
-        artifact = wandb.Artifact(
-            name=artifact_name, type=artifact_name, metadata=metadata
-        )
-        # add the model files
-        for root, _, files in os.walk(save_path):
-            for f in files:
-                artifact.add_file(join(root, f), name=f)
+            # log agent models as a wandb artifact so we can attach metadata
+            artifact = wandb.Artifact(
+                name=artifact_name, type=artifact_name, metadata=metadata
+            )
+            # add the model files
+            for root, _, files in os.walk(save_path):
+                for f in files:
+                    artifact.add_file(join(root, f), name=f)
 
-        self.wandb.log_artifact(artifact)
+            self.wandb.log_artifact(artifact)
 
     def print_recent_stats(self):
         log_str = "Recent Stats | t_env: {:>10} | Episode: {:>8}\n".format(

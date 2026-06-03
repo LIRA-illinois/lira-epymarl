@@ -25,69 +25,75 @@ parameters:
   ##################
   wandb_project:
     values: [comm_experiments]
-  use_sacred:
-    values: [False]
 
-  # everything on except Sacred cuz it suuucks
-  use_wandb:
-    values: [True]
-  save_model:
-    values: [True]
-  wandb_save_model:
-    values: [True]
-  delete_local_models:
-    values: [True]
-  save_test_replays:
-    values: [True]
-  wandb_save_test_replays:
-    values: [True]
+  # use_wandb:
+  #   values: [True]
+  # save_test_replays:
+  #   values: [True]
   # live_render:
     # values: [True]
+  # save_model:
+  #   values: [True]
+  # delete_local_models:
+  #   values: [True]
 
 
   # everything off
-  # use_wandb:
-  #   values: [False]
-  # save_model:
-  #   values: [False]
-  # wandb_save_model:
-  #   values: [False]
-  # save_test_replays:
-  #   values: [False]
-  # wandb_save_test_replays:
-  #   values: [False]
-  # live_render:
-  #   values: [False]
+  use_wandb:
+    values: [False]
+  save_test_replays:
+    values: [False]
+  live_render:
+    values: [False]
+  save_model:
+    values: [False]
 
   # live replays saved
   # live_render:
     # values: [True]
 
+
+  # Sacred always off cuz it suuucks
+  use_sacred:
+    values: [False]
+
   ##################
   # MARL alg config
   ##################
-  # config:
-  #   values: [maic_comm_opt]
-  # env_args.hierarchical:
-  #   values: [True]
   config:
-    values: [maic]
+    values: [maic_comm_opt]
   env_args.hierarchical:
-    values: [False]
+    values: [True]
+  # config:
+  #   values: [maic]
+  # env_args.hierarchical:
+  #   values: [False]
   lr:
     values: [0.00005]
   t_max:
-    values: [120]
-  test_interval:
-    values: [40]
-  save_model_interval:
-    values: [40]
-  runner_log_interval:
-    values: [40]
-  test_nepisode:
     values: [10]
+  test_interval:
+    values: [10]
+  save_model_interval:
+    values: [20]
+  runner_log_interval:
+    values: [20]
+  test_nepisode:
+    values: [2]
   n_test_replays_save:
-    values: [5]
+    values: [1]
+  # t_max:
+  #   values: [60]
+  # test_interval:
+  #   values: [40]
+  # save_model_interval:
+  #   values: [40]
+  # runner_log_interval:
+  #   values: [40]
+  # test_nepisode:
+  #   values: [3]
+  # n_test_replays_save:
+  #   values: [2]
 
   # evaluate:
   #   values: [True]
@@ -101,41 +107,44 @@ parameters:
   ##################
   env-config:
     values: [multigrid-lbf-v0]
-  # manual_policy:
-  #   values: [True]
-  #   values: [False]
+  manual_policy:
+    values: [True]
 
   # comms allocation params
   # all values in the space-delimited list will be evaluated in a single run
+  # only works for non-hierarchical version of the env, for hierarchical, these are considered "actions" in a high-level MDP
   comms_values_eval:
     values: [[0.0 1.0]]
-  #   values: [[0.0 0.0]]
     # values: [[0.0 0.5 0.6 0.7 0.8 1.0]]
   parallel_comms_eval:
     values: [False]
   #   values: [True]
 
-    # values: [[0.0 0.25 0.5 0.75 1.0]]
-    # values: [[0.0 0.5 0.8 0.85 0.9 0.95 1.0]]
+  # project-level success rate requirement
+  success_rate_spec:
+    values: [0.8]
+
+
 
 
   env_args.map_name:
-    values: [1r_small]
+    # values: [1r_small]
     # values: [1r_small_agents_fruit_placed]
-    # values: [3ga_2r_small_agents_placed]
+    values: [3ga_2r_small_agents_placed]
     # values: [3ga_2r_small]
   env_args.n_agents:
     values: [3]
   env_args.sight:
     values: [7]
   env_args.max_episode_steps:
-    values: [30]
+    # values: [30]
+    values: [10]
   # env_args.min_fruit_level:
   #   values: [2]
   # env_args.max_fruit_level:
   #   values: [4]
-  # env_args.max_num_fruit:
-    # values: [0]
+  env_args.max_num_fruit:
+    values: [0]
     # values: [3]
   env_args.state_type:
     values: [multigrid_flattened]
@@ -147,14 +156,10 @@ parameters:
   env_args.highlight_visible_cells:
     values: [True]
 
-  # env_args.reward_config.failed_load_penalty:
-  #   values: [-0.1]
-
-
 
   # hierarchical decision-making params for "project MDP"
-  # env_args.hl_env_args.task_type:
-  #   values: [composed]
+  env_args.hl_env_args.task_type:
+    values: [composed]
 
 
 
