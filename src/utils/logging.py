@@ -13,14 +13,15 @@ import numpy as np
 # 10 minute timeout to try to prevent crashes due to wandb
 # API upload limits
 os.environ["WANDB_HTTP_TIMEOUT"] = "600"
-WANDB_DIR = join("results", "wandb")
+RESULTS_DIR = "results"
+
 
 def _log_setup(step_metric: str, t: int) -> dict:
     return {step_metric: t}
 
 
 class MainLogger:
-    def __init__(self, console_logger):
+    def __init__(self, console_logger, config, args):
         self.console_logger = console_logger
 
         self.use_wandb = False
@@ -32,19 +33,40 @@ class MainLogger:
         self.stats = defaultdict(list)
         # self.stats = defaultdict(lambda: [])
         self.dir: str
+
         self.header = "=" * 25
         self.data_table: Optional[wandb.Table] = None
         self.step_metric = "t_env"
 
-    def info(self, log_str: str, log_header: bool = False):
-        if log_header:
-            self.console_logger.info(self.header)
-            self.console_logger.info(log_str)
-            self.console_logger.info(self.header)
-        else:
-            self.console_logger.info(log_str)
+        self._setup(config, args)
 
-    def setup_wandb(
+    def _setup(self, config, args):
+        if args.use_wandb:
+            if args.run_name != "":
+                run_name = args.run_name
+            else:
+                if args.wandb_group != "":
+                    run_name = args.wandb_group + f"_seed_{args.seed}"
+                elif args.time_id != "" and args.scenario != "":
+                    run_name = f"{args.time_id}_sc_{args.scenario}_seed_{args.seed}"
+                else:
+                    run_name = args.unique_token
+
+            self._setup_wandb(
+                config=config,
+                team_name=args.wandb_team,
+                project_name=args.wandb_project,
+                group_name=args.run_name,
+                run_name=run_name,
+                mode=args.wandb_mode,
+                eval_run_id=args.eval_run_id,
+            )
+
+        else:
+            self.dir: str = os.path.join(RESULTS_DIR, "data")
+            os.makedirs(self.dir, exist_ok=True)
+
+    def _setup_wandb(
         self,
         config,
         team_name,
@@ -98,7 +120,7 @@ class MainLogger:
             project=project_name,
             config=config,
             group=group_name,
-            dir=WANDB_DIR,
+            dir=RESULTS_DIR,
             settings=wandb.Settings(
                 x_label="main_proc",
                 mode="shared",
@@ -118,6 +140,14 @@ class MainLogger:
         # all data has been gathered
         self.wandb_current_t = -1
         self.wandb_current_data = {}
+
+    def info(self, log_str: str, log_header: bool = False):
+        if log_header:
+            self.console_logger.info(self.header)
+            self.console_logger.info(log_str)
+            self.console_logger.info(self.header)
+        else:
+            self.console_logger.info(log_str)
 
     def log_stat(self, key, value, t: int):
         """
@@ -289,7 +319,7 @@ class LocalLogger:
         # pick up the main wandb run in shared mode to log to the wandb website
         self.wandb = wandb.init(
             **wandb_config,
-            dir=WANDB_DIR,
+            dir=RESULTS_DIR,
             settings=wandb.Settings(
                 x_label=f"subproc_eval_{comms_value}",
                 x_primary=False,

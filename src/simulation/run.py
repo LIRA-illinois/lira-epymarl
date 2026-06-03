@@ -146,25 +146,22 @@ class Simulation:
         in the high-level agent that interfaces with the HLMDP.
         """
 
-        # Stage 1: Train low-level policy for a single task
+        # Train low-level policy for a single task
         self.logger.info("Training Low-Level Policy", log_header=True)
 
-        # self.train_flat()
+        self.train_flat()
 
         # may need to eval here for more samples than during training to get good statistical estimates of init state dists
-        # don't worry about that yet, only needed for the dependent tasks
-        # ll_task_success_rates = self._evaluate_low_level_policy()
-        # self.logger.info(f"Low-level success rates: {ll_task_success_rates}")
+        # only really needed for the dependent tasks
 
-        # Stage 3: Train high-level policy with learned success rates
+        # Train high-level policy with learned success rates
         self.logger.info("Optimizing High-Level Policy", log_header=True)
         self._train_high_level_policy(self.runner.env.hlmdp)
 
         print(self.runner.mac.comms_agent.policy.task_policy)
         print(self.runner.mac.comms_agent.policy.comms_policy)
-        print('\n breakpoint ')
-        __import__('ipdb').set_trace(context=3)
-
+        print("\n breakpoint ")
+        __import__("ipdb").set_trace(context=3)
 
         # evaluate Hl policy (only relevant for dependent tasks)
 
@@ -217,19 +214,22 @@ class Simulation:
         df_actions = hlmdp.transition_probs.copy()
         df_actions = df_actions.loc[df_actions.state_type == "normal"]
 
-        # unique action tuples like (chosen_next_state, comms_val)
+        # unique action tuples: (chosen_next_state, comms_val)
         hl_actions = df_actions.action.drop_duplicates().tolist()
 
         self.logger.info(f"Evaluating Policy Across Tasks", log_header=True)
 
         eval_data: list[dict] = []
 
-        # For each unique HL action, run evals from each state that has this action available
+        # For each unique HL action, run evals from the state it goes out of
         for action in hl_actions:
             # action is expected to be a tuple (chosen_next_state, comms_val)
             state = df_actions.loc[df_actions.action == action, "state"].unique().item()
             chosen_next_state, comms_val = action
-            reset_options = {"hl_start_state": int(state)}
+            reset_options = {
+                "hl_start_state": int(state),
+                "comms_value": comms_val,
+            }
 
             # set comms value if provided
             result = run_eval_episodes(
@@ -237,7 +237,6 @@ class Simulation:
                 runner=self.runner,
                 n_eval_eps=n_eval_eps,
                 t_env=self.runner.t_env,
-                comms_value=comms_val,
                 reset_options=reset_options,
             )
 
@@ -256,7 +255,7 @@ class Simulation:
         df_eval = pd.DataFrame.from_records(eval_data)
         self.logger.log_table(df_eval, t=self.runner.t_env)
 
-        #TODO it may make sense to log each tasks's success rate to wandb too
+        # TODO it may make sense to log each tasks's success rate to wandb too
 
         # if comms_values is not None:
         #     self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
@@ -299,16 +298,15 @@ class Simulation:
 
             inputs = []
             for comms_value in comms_values:
-
                 input_args = {
                     "function": eval_worker,
-                    "comms_value": comms_value,
                     "args": self.args,
                     "n_eval_eps": n_eval_eps,
                     "t_env": self.runner.t_env,
                     "agent_state_dict": agent_state_dict,
                     "logger_dir": self.logger.dir,
                     "wandb_config": wandb_config,
+                    "reset_options": {"comms_value": comms_value},
                 }
                 inputs.append(input_args)
 
@@ -328,7 +326,7 @@ class Simulation:
                     runner=self.runner,
                     n_eval_eps=n_eval_eps,
                     t_env=self.runner.t_env,
-                    comms_value=comms_value,
+                    reset_options={"comms_value": comms_value},
                 )
 
                 eval_data.append(result["log_stats"])
@@ -505,9 +503,7 @@ class Simulation:
         return config
 
     def _build_logger(self, args: SimpleNamespace, _run, _config, _log) -> None:
-        # setup logger
-        self.logger = MainLogger(_log)
-
+        # get unique token for this run
         if hasattr(_config["env_args"], "map_name"):
             map_name = _config["env_args"]["map_name"]
         else:
@@ -523,40 +519,8 @@ class Simulation:
 
         args.unique_token = unique_token
 
-        if args.use_wandb:
-            if args.run_name != "":
-                run_name = args.run_name
-            else:
-                if args.wandb_group != "":
-                    run_name = args.wandb_group + f"_seed_{args.seed}"
-                elif args.time_id != "" and args.scenario != "":
-                    run_name = f"{args.time_id}_sc_{args.scenario}_seed_{args.seed}"
-                else:
-                    run_name = unique_token
-
-            self.logger.setup_wandb(
-                config=_config,
-                team_name=args.wandb_team,
-                project_name=args.wandb_project,
-                group_name=args.run_name,
-                run_name=run_name,
-                mode=args.wandb_mode,
-                eval_run_id=args.eval_run_id,
-            )
-
-        # deprecated, use wandb
-        # sacred is on by default
-        # if args.use_sacred:
-        #     _log.info("Experiment Parameters:")
-        #     experiment_params = pprint.pformat(_config, indent=4, width=1)
-        #     _log.info("\n\n" + experiment_params + "\n")
-        #     self.logger.setup_sacred(_run)
-        # if args.use_tensorboard:
-        #     tb_logs_direc = join(
-        #         dirname(dirname(abspath(__file__))), "results", "tb_logs"
-        #     )
-        #     tb_exp_direc = join(tb_logs_direc, "{}").format(unique_token)
-        #     self.logger.setup_tb(tb_exp_direc)
+        # logger setup
+        self.logger = MainLogger(_log, config=_config, args=args)
 
     def finish(self) -> None:
         # Finish logging

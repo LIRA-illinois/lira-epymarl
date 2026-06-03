@@ -26,31 +26,27 @@ parameters:
   wandb_project:
     values: [comm_experiments]
 
-  # use_wandb:
-  #   values: [True]
-  # save_test_replays:
-  #   values: [True]
-  # live_render:
-    # values: [True]
+  use_wandb:
+    values: [True]
+  save_test_replays:
+    values: [True]
   # save_model:
   #   values: [True]
   # delete_local_models:
   #   values: [True]
+  # live_render:
+    # values: [True]
 
 
   # everything off
-  use_wandb:
-    values: [False]
-  save_test_replays:
-    values: [False]
-  live_render:
-    values: [False]
-  save_model:
-    values: [False]
-
-  # live replays saved
+  # use_wandb:
+  #   values: [False]
+  # save_test_replays:
+  #   values: [False]
+  # save_model:
+  #   values: [False]
   # live_render:
-    # values: [True]
+  #   values: [False]
 
 
   # Sacred always off cuz it suuucks
@@ -66,8 +62,6 @@ parameters:
     values: [True]
   # config:
   #   values: [maic]
-  # env_args.hierarchical:
-  #   values: [False]
   lr:
     values: [0.00005]
   t_max:
@@ -82,18 +76,6 @@ parameters:
     values: [2]
   n_test_replays_save:
     values: [1]
-  # t_max:
-  #   values: [60]
-  # test_interval:
-  #   values: [40]
-  # save_model_interval:
-  #   values: [40]
-  # runner_log_interval:
-  #   values: [40]
-  # test_nepisode:
-  #   values: [3]
-  # n_test_replays_save:
-  #   values: [2]
 
   # evaluate:
   #   values: [True]
@@ -122,10 +104,7 @@ parameters:
 
   # project-level success rate requirement
   success_rate_spec:
-    values: [0.8]
-
-
-
+    values: [0.0]
 
   env_args.map_name:
     # values: [1r_small]

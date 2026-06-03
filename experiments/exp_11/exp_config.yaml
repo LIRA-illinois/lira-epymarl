@@ -54,21 +54,19 @@ parameters:
   n_test_replays_save:
     values: [5]
   test_interval:
-    values: [100000]
+    values: [300000]
   # set test_interval = save_model_interval so you can load the model from any eval for further processing
   save_model_interval:
-    values: [100000]
-  t_max:
-    values: [3050000]
+    values: [300000]
 
   # all values in the space-delimited list will be evaluated in a single run
   comms_values_eval:
-    values: [[0.0 0.25 0.5 0.75 0.85 0.9 0.95 1.0]]
-  parallel_comms_eval:
-    values: [True]
+    values: [[0.0 0.25 0.5 0.75 0.9 1.0]]
+  # parallel_comms_eval:
+  #   values: [True]
   # set based on computer RAM, each process starts its own instance of CUDA which leads to large RAM usage per subprocess
-  max_parallel_eval_processes:
-    values: [4]
+  # max_parallel_eval_processes:
+  #   values: [3]
 
   ##################
   # Environment config
@@ -121,3 +119,16 @@ conditional_parameters:
     maic:
       mixer:
         values: [vdn]
+  env_args.n_agents:
+    3:
+      t_max:
+        values: [3050000]
+      env_args.max_fruit_level:
+        values: [2, 3]
+    4:
+      t_max:
+        values: [4050000]
+      env_args.max_fruit_level:
+        values: [3, 4]
+
+

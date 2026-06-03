@@ -62,7 +62,7 @@ class ILPModel(OptimizationProblem):
         # success_rate_task_0_comms_0 = 0.85
         # success_rate_task_0_comms_1 = 0.85
         # success_rate_task_1_comms_0 = 0.91
-        # success_rate_task_1_comms_1 = 0.98
+        # success_ratDe_task_1_comms_1 = 0.98
 
         # probs = [
         #     success_rate_task_0_comms_0, 1 - success_rate_task_0_comms_0,
