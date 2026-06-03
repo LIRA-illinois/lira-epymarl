@@ -76,17 +76,9 @@ class MainLogger:
         run_name: str = "",
         eval_run_id: Optional[str] = None,
     ):
-        assert (
-            team_name is not None and project_name is not None
-        ), "W&B logging requires specification of both `wandb_team` and `wandb_project`."
-        assert mode in [
-            "offline",
-            "online",
-        ], f"Invalid value for `wandb_mode`. Received {mode} but only 'online' and 'offline' are supported."
-
         self.use_wandb = True
-
         self.log_suffix = ""
+
         # load wandb run from server for evaluation
         if eval_run_id is not None:
             self.log_suffix = "_load"
@@ -123,7 +115,7 @@ class MainLogger:
             dir=RESULTS_DIR,
             settings=wandb.Settings(
                 x_label="main_proc",
-                mode="shared",
+                mode=mode,
                 x_primary=True,
             ),
         )

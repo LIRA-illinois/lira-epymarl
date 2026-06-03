@@ -25,6 +25,10 @@ parameters:
   ##################
   wandb_project:
     values: [comm_experiments]
+  # use offline mode to avoid wandb API rate limits for many parallel runs
+  # need to sync to wandb server after a run is finished
+  wandb_mode:
+    values: [offline]
   use_wandb:
     values: [True]
   save_model:
@@ -58,15 +62,9 @@ parameters:
   # set test_interval = save_model_interval so you can load the model from any eval for further processing
   save_model_interval:
     values: [300000]
-
   # all values in the space-delimited list will be evaluated in a single run
   comms_values_eval:
     values: [[0.0 0.25 0.5 0.75 0.9 1.0]]
-  # parallel_comms_eval:
-  #   values: [True]
-  # set based on computer RAM, each process starts its own instance of CUDA which leads to large RAM usage per subprocess
-  # max_parallel_eval_processes:
-  #   values: [3]
 
   ##################
   # Environment config
@@ -106,8 +104,6 @@ parameters:
   # experiment-specific env args
   env_args.max_num_fruit:
     values: [3]
-  env_args.max_fruit_level:
-    values: [2, 3]
 
 ##################
 # Conditional parameters

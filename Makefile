@@ -8,8 +8,8 @@ project_name=lira-epymarl
 nvidia:
 	watch -n 0.2 nvidia-smi
 
-sync_to_wandb:
-	bash src/experiments/sync_wandb.bash
+sync_results_wandb:
+	wandb sync --include-offline ./results/wandb/*-run-*
 
 tb:
 	screen -dmS tensorboard_${project_name} bash -c 'source .venv/bin/activate; tensorboard --bind_all --port=6009 --logdir "results/tb_logs/"'

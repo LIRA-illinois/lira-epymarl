@@ -46,7 +46,7 @@ class Simulation:
         self.n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
 
     def run_sim(self) -> None:
-        hierarchical: bool = hasattr(self.args, "factored_hierarchical_policy")
+        hierarchical: bool = getattr(self.args, "factored_hierarchical_policy", False)
 
         if self.args.evaluate:
             self._load_checkpoint()
@@ -481,6 +481,11 @@ class Simulation:
         assert test_alg_config_supports_reward(
             args
         ), "The specified algorithm does not support the general reward setup. Please choose a different algorithm or set `common_reward=True`."
+
+        # update for parallel comms eval, can't be done offline
+        # due to parallel logging to a single wandb run on a remote server
+        if args.parallel_comms_eval:
+            args.wandb_mode = "shared"
 
         return args
 
