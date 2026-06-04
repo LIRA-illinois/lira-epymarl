@@ -75,7 +75,7 @@ parameters:
   env_args.map_name:
     values: [1r_small]
   env_args.n_agents:
-    values: [3]
+    values: [3, 4]
   env_args.max_agent_level:
     values: [1]
   env_args.force_coop:
@@ -115,6 +115,7 @@ conditional_parameters:
     maic:
       mixer:
         values: [vdn]
+
   env_args.n_agents:
     3:
       t_max:

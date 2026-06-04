@@ -222,11 +222,8 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         if "hl_start_state" in options:
             hl_options["hl_start_state"] = options["hl_start_state"]
-            if "ll_start_room" not in options:
-                ll_options["start_room"] = options["hl_start_state"]
+            ll_options["start_room"] = options["hl_start_state"]
 
-        if "ll_start_room" in options:
-            ll_options["start_room"] = options["ll_start_room"]
 
         _, hl_info = self.hlmdp.reset(seed=seed, options=hl_options)
         ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)

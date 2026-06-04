@@ -2,6 +2,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+from typing import Callable
 from collections.abc import Mapping
 from copy import deepcopy
 from os.path import dirname, abspath, join
@@ -27,10 +28,10 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
 ex = Experiment("pymarl")
 
 
-def string_inputs_to_list(config: dict, key: str) -> dict:
-    """Converts space-delimited string list to list of floats for the given key in the config dictionary."""
+def string_inputs_to_list(config: dict, key: str, output_type: Callable)-> dict:
+    """Converts space-delimited string list to list of "type" for the given key in the config dictionary."""
     eval_str = config[key].split("=")[0][1:-1]
-    float_values: list[float] = [float(x) for x in eval_str.split(" ")]
+    float_values: list[float] = [output_type(x) for x in eval_str.split(" ")]
     config[key] = float_values
 
     return config
@@ -53,7 +54,9 @@ def my_main(_run, _config, _log):
     config["env_args"]["seed"] = config["seed"]
 
     if "comms_values_eval" in config:
-        config = string_inputs_to_list(config, "comms_values_eval")
+        config = string_inputs_to_list(config, "comms_values_eval", output_type=float)
+    if "hl_task" in config:
+        config = string_inputs_to_list(config, "hl_task", output_type=int)
 
     # run the framework
     sim = Simulation(_run, config, _log)

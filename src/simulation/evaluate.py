@@ -72,6 +72,10 @@ def run_eval_episodes(
     if hasattr(runner.env, "terminate_on_task_completed"):
         runner.env.terminate_on_task_completed = False
 
+    if comms_value is not None:
+        print("Evaluation done, setting MAC comms value to default of 1.0")
+        runner.mac.update_comms_value(1.0)
+
     return last_result
 
 

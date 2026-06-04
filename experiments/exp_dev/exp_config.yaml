@@ -25,11 +25,14 @@ parameters:
   ##################
   wandb_project:
     values: [comm_experiments]
+  wandb_mode:
+    values: [online]
+    # values: [offline]
 
   use_wandb:
     values: [True]
-  save_test_replays:
-    values: [True]
+  # save_test_replays:
+  #   values: [True]
   # save_model:
   #   values: [True]
   # delete_local_models:
@@ -84,6 +87,12 @@ parameters:
   # load_step:
   #   values: [60, 120]
 
+  load_hlmdp_data:
+    values: [True]
+  hlmdp_time_id:
+    values: [exp_dev_26-06-03_16-12-34]
+
+
   ##################
   # Environment config
   ##################
@@ -95,12 +104,12 @@ parameters:
   # comms allocation params
   # all values in the space-delimited list will be evaluated in a single run
   # only works for non-hierarchical version of the env, for hierarchical, these are considered "actions" in a high-level MDP
-  comms_values_eval:
-    values: [[0.0 1.0]]
-    # values: [[0.0 0.5 0.6 0.7 0.8 1.0]]
-  parallel_comms_eval:
-    values: [False]
-  #   values: [True]
+  # comms_values_eval:
+  #   values: [[0.0 1.0]]
+
+  # # not an ideal way to do this, but it's what you get
+  # hl_task:
+  #   values: [[0 1], [1 2]]
 
   # project-level success rate requirement
   success_rate_spec:
@@ -139,7 +148,4 @@ parameters:
   # hierarchical decision-making params for "project MDP"
   env_args.hl_env_args.task_type:
     values: [composed]
-
-
-
 

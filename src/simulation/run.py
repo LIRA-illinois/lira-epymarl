@@ -5,7 +5,7 @@ from os.path import join, isdir
 import shutil
 import time
 import threading
-from typing import Any
+from typing import Any, Optional
 import multiprocessing as mp
 
 import pandas as pd
@@ -46,7 +46,7 @@ class Simulation:
         self.n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
 
     def run_sim(self) -> None:
-        hierarchical: bool = getattr(self.args, "factored_hierarchical_policy", False)
+        # hierarchical: bool = getattr(self.args, "factored_hierarchical_policy", False)
 
         if self.args.evaluate:
             self._load_checkpoint()
@@ -56,14 +56,31 @@ class Simulation:
                 self.evaluate_loaded()
                 return
 
-        # run training
-        if hierarchical:
-            self.train_hierarchical()
+        elif self.args.load_hlmdp_data:
+            self._load_hlmdp_data()
 
-        else:
-            self.train_flat()
+            self.logger.info("Optimizing High-Level Policy", log_header=True)
+            self._train_high_level_policy(self.runner.env.hlmdp)
+            print(self.runner.mac.comms_agent.policy.task_policy)
+            print(self.runner.mac.comms_agent.policy.comms_policy)
+            print("\n breakpoint ")
+            __import__("ipdb").set_trace(context=3)
+            self.runner.close_env()
 
-    def train_flat(self) -> None:
+        # # run training
+        # if hierarchical:
+        #     self.train_hierarchical()
+
+        # else:
+
+        hl_task = getattr(self.args, "hl_task", None)
+        reset_options = None
+        if hl_task is not None:
+            reset_options = {"hl_start_state": hl_task[0], "hl_task": hl_task}
+
+        self.train_single_task(reset_options=reset_options)
+
+    def train_single_task(self, reset_options: Optional[dict] = None) -> None:
         """
         original EPYMARL training for non-hierarchical policies for a project with a single task
         """
@@ -83,7 +100,8 @@ class Simulation:
 
         while self.runner.t_env <= self.args.t_max:
             # Run for a whole episode at a time
-            result = self.runner.run(test_mode=False)
+            result = self.runner.run(test_mode=False, reset_options=reset_options)
+
             episode_batch = result["batch"] if isinstance(result, dict) else result
             self.buffer.insert_episode_batch(episode_batch)
 
@@ -114,7 +132,7 @@ class Simulation:
 
                 last_time = time.time()
                 last_test_t = self.runner.t_env
-                self.evaluate(n_eval_eps=self.n_eval_eps)
+                self.evaluate(n_eval_eps=self.n_eval_eps, reset_options=reset_options)
 
             # save model to disk
             if (
@@ -149,19 +167,14 @@ class Simulation:
         # Train low-level policy for a single task
         self.logger.info("Training Low-Level Policy", log_header=True)
 
-        self.train_flat()
+        self.train_single_task()
 
         # may need to eval here for more samples than during training to get good statistical estimates of init state dists
         # only really needed for the dependent tasks
 
-        # Train high-level policy with learned success rates
+        # # Train high-level policy with learned success rates
         self.logger.info("Optimizing High-Level Policy", log_header=True)
         self._train_high_level_policy(self.runner.env.hlmdp)
-
-        print(self.runner.mac.comms_agent.policy.task_policy)
-        print(self.runner.mac.comms_agent.policy.comms_policy)
-        print("\n breakpoint ")
-        __import__("ipdb").set_trace(context=3)
 
         # evaluate Hl policy (only relevant for dependent tasks)
 
@@ -171,33 +184,139 @@ class Simulation:
     def _train_high_level_policy(self, data_table: wandb.Table) -> None:
         self.learner.optimize_hl_agent(data_table, self.args.success_rate_spec)
 
-    def evaluate(self, n_eval_eps: int) -> None:
-        """evaluation of low-level policy for hierarchical training, or normal evaluation if not using hierarchical training"""
-        if hasattr(self.runner.env, "hlmdp"):
-            self._evaluate_tasks(
-                self.runner.env.hlmdp,
-                n_eval_eps,
+    def evaluate(self, n_eval_eps: int, reset_options: Optional[dict] = None) -> None:
+        """Evaluation entry point."""
+
+        # always comms sweep if hierarchical or not
+        if hasattr(self.args, "comms_values_eval"):
+            comms_values = self.args.comms_values_eval
+            self.logger.info(
+                f"Evaluating Policy Across Comms Values: {comms_values}",
+                log_header=True,
             )
-        elif hasattr(self.args, "comms_values_eval"):
-            self._evaluate_multi_comms(
-                self.args.comms_values_eval,
-                n_eval_eps,
-                parallel_eval=self.args.parallel_comms_eval,
-            )
+
+            eval_data: list[dict] = []
+
+            for comms_value in comms_values:
+                self.logger.info(f"Evaluating with comms_value = {comms_value}")
+
+                if reset_options is None:
+                    reset_options = {"comms_value": comms_value}
+                else:
+                    reset_options["comms_value"] = comms_value
+
+                result = run_eval_episodes(
+                    args=self.args,
+                    runner=self.runner,
+                    n_eval_eps=n_eval_eps,
+                    t_env=self.runner.t_env,
+                    reset_options=reset_options,
+                )
+                eval_data.append(result["log_stats"])
+
+            df_eval = pd.DataFrame.from_records(eval_data)
+
+            self.logger.log_table(df_eval, t=self.runner.t_env)
+            self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
+
+            """
+            if self.args.parallel_comms_eval:
+                agent_state_dict = {k: v.cpu() for k, v in self.runner.mac.agent.state_dict().items()}
+                wandb_attrs = ["entity", "project", "id", "name"]
+                wandb_config = {attr: getattr(self.logger.wandb, attr) for attr in wandb_attrs}
+
+                n_procs = getattr(self.args, "max_parallel_eval_processes", min(len(comms_values), max(1, (cpu_count() or 1) - 1)))
+
+                inputs = []
+                for comms_value in comms_values:
+                    input_args = {
+                        "function": eval_worker,
+                        "args": self.args,
+                        "n_eval_eps": n_eval_eps,
+                        "t_env": self.runner.t_env,
+                        "agent_state_dict": agent_state_dict,
+                        "logger_dir": self.logger.dir,
+                        "wandb_config": wandb_config,
+                        "reset_options": {"comms_value": comms_value},
+                    }
+                    inputs.append(input_args)
+
+                with mp.Pool(processes=n_procs, maxtasksperchild=2) as pool:
+                    results: list[dict] = list(pool.map(mp_kwargs_wrapper, inputs))
+
+                eval_data = [res["log_stats"] for res in results]
+
+            else:
+            """
+
+        # non-hierarchical evaluation w/ no comms sweep
         else:
-            self._evaluate_basic(n_eval_eps)
+            self.logger.info("Evaluating Policy", log_header=True)
+            run_eval_episodes(args=self.args, runner=self.runner, n_eval_eps=n_eval_eps)
 
-    def _evaluate_basic(self, n_eval_eps: int):
-        """evaluate a single, non-hierarchical trained policy"""
-        self.logger.info("Evaluating Policy", log_header=True)
+        """
+        # Hierarchical env handling
+        only needed if you want to eval multiple tasks in one process
+        if hasattr(self.runner.env, "hlmdp"):
+            hlmdp = self.runner.env.hlmdp
 
-        run_eval_episodes(
-            args=self.args,
-            runner=self.runner,
-            n_eval_eps=n_eval_eps,
-        )
+            # goal-conditioned approach, 1 policy for multiple tasks, not quite there yet
+            # # Full sweep across all HL actions
+            # if reset_options is None:
+            #     df_actions = hlmdp.transition_probs.copy()
+            #     df_actions = df_actions.loc[df_actions.state_type == "normal"]
+            #     hl_actions = df_actions.action.drop_duplicates().tolist()
 
-    def _evaluate_tasks(
+            #     self.logger.info(f"Evaluating Policy Across Tasks", log_header=True)
+
+            #     eval_data: list[dict] = []
+            #     for action in hl_actions:
+            #         state = df_actions.loc[df_actions.action == action, "state"].unique().item()
+            #         chosen_next_state, comms_val = action
+            #         ro = {"hl_start_state": int(state), "comms_value": comms_val}
+
+            #         result = run_eval_episodes(
+            #             args=self.args,
+            #             runner=self.runner,
+            #             n_eval_eps=n_eval_eps,
+            #             t_env=self.runner.t_env,
+            #             reset_options=ro,
+            #         )
+
+            #         eval_data.append(result["log_stats"])
+
+            #         # update transition probs
+            #         success_rate = result["log_stats"].get("test_task_completed_mean")
+            #         df = hlmdp.transition_probs
+            #         df.loc[(df.action == action) & (df.next_state == chosen_next_state), "prob"] = success_rate
+            #         df.loc[(df.action == action) & (df.next_state != chosen_next_state), "prob"] = (1.0 - success_rate)
+
+            #     df_eval = pd.DataFrame.from_records(eval_data)
+            #     self.logger.log_table(df_eval, t=self.runner.t_env)
+
+            # Single-task evaluation
+            result = run_eval_episodes(
+                args=self.args,
+                runner=self.runner,
+                n_eval_eps=n_eval_eps,
+                t_env=self.runner.t_env,
+                reset_options=reset_options,
+            )
+
+            df_data = pd.DataFrame.from_records([result["log_stats"]])
+            self.logger.log_table(df_data, t=self.runner.t_env)
+
+            # Optionally update HLMDP if caller provided the exact action tuple
+            action = reset_options.get("action") if reset_options is not None else None
+            if action is not None:
+                success_rate = result["log_stats"].get("test_task_completed_mean")
+                df = hlmdp.transition_probs
+                chosen_next_state, _ = action
+                df.loc[(df.action == action) & (df.next_state == chosen_next_state), "prob"] = success_rate
+                df.loc[(df.action == action) & (df.next_state != chosen_next_state), "prob"] = (1.0 - success_rate)
+        """
+
+    def _evaluate_all_tasks(
         self,
         hlmdp,
         n_eval_eps: int,
@@ -277,7 +396,22 @@ class Simulation:
 
         eval_data: list[dict] = []
 
-        if parallel_eval:
+        # Serial evaluation
+        if not parallel_eval:
+            for comms_value in comms_values:
+                self.logger.info(f"Evaluating with comms_value = {comms_value}")
+
+                result = run_eval_episodes(
+                    args=self.args,
+                    runner=self.runner,
+                    n_eval_eps=n_eval_eps,
+                    t_env=self.runner.t_env,
+                    reset_options={"comms_value": comms_value},
+                )
+
+                eval_data.append(result["log_stats"])
+
+        else:
             # move to CPU so tensors can be serialized for multiprocessing
             agent_state_dict = {
                 k: v.cpu() for k, v in self.runner.mac.agent.state_dict().items()
@@ -315,21 +449,6 @@ class Simulation:
                 results: list[dict] = list(pool.map(mp_kwargs_wrapper, inputs))
 
             eval_data = [res["log_stats"] for res in results]
-
-        else:
-            # Serial evaluation
-            for comms_value in comms_values:
-                self.logger.info(f"Evaluating with comms_value = {comms_value}")
-
-                result = run_eval_episodes(
-                    args=self.args,
-                    runner=self.runner,
-                    n_eval_eps=n_eval_eps,
-                    t_env=self.runner.t_env,
-                    reset_options={"comms_value": comms_value},
-                )
-
-                eval_data.append(result["log_stats"])
 
         # Convert to DataFrame and log
         df_eval = pd.DataFrame.from_records(eval_data)
@@ -418,6 +537,86 @@ class Simulation:
         if self.args.delete_local_models:
             shutil.rmtree(model_dir, ignore_errors=True)
 
+    def _load_hlmdp_data(self):
+        api = wandb.Api()
+
+        # load all runs w/ the given time_id and get eval stats tables
+        runs = []
+        proj = getattr(self.logger.wandb, "project", None)
+        runs = api.runs(proj, filters={"config.time_id": self.args.hlmdp_time_id})
+
+        if len(runs) == 0:
+            self.logger.info(f"No wandb runs found for time_id={self.args.hlmdp_time_id}")
+            return
+
+        self.logger.info(f"Loading runs with ids: ")
+        for run in runs:
+            self.logger.info(run.id)
+
+        dfs = []
+        for wandb_run in runs:
+            artifacts = list(wandb_run.logged_artifacts())
+            for art in artifacts:
+                if art.type == "run_table":
+                    dfs.append(art.get("eval_stats").get_dataframe())
+
+        print('\n breakpoint loaded run tables')
+        __import__('ipdb').set_trace(context=3)
+
+        # merge the tables into a single df
+
+        # fill out the runner env's hlmdp transition_probs
+
+
+        # df_all = pd.concat(tables, ignore_index=True, sort=False)
+
+        # # Ensure columns expected for HLMDP update exist
+        # expected_cols = ["state", "action", "next_state", "test_task_completed_mean"]
+        # missing = [c for c in expected_cols if c not in df_all.columns]
+        # if missing:
+        #     self.logger.info(f"Eval tables missing expected columns: {missing}")
+        #     # still log the combined table to wandb for inspection
+        #     self.logger.log_table(df_all, t=self.runner.t_env)
+        #     return
+
+        # # normalize action column if it's stored as string; try eval if necessary
+        # if df_all["action"].dtype == object:
+        #     try:
+        #         df_all["action"] = df_all["action"].apply(
+        #             lambda x: eval(x) if isinstance(x, str) else x
+        #         )
+        #     except Exception:
+        #         pass
+
+        # # aggregate success rates across runs / comms values
+        # grouped = (
+        #     df_all.groupby(["state", "action", "next_state"])[
+        #         "test_task_completed_mean"
+        #     ]
+        #     .mean()
+        #     .reset_index()
+        # )
+
+        # # update hlmdp.transition_probs where matches found
+        # try:
+        #     df_probs = self.runner.env.hlmdp.transition_probs
+        #     for _, row in grouped.iterrows():
+        #         mask = (
+        #             (df_probs.state == row["state"])
+        #             & (df_probs.action == row["action"])
+        #             & (df_probs.next_state == row["next_state"])
+        #         )
+        #         if mask.any():
+        #             df_probs.loc[mask, "prob"] = float(row["test_task_completed_mean"])
+
+        #     # write back
+        #     self.runner.env.hlmdp.transition_probs = df_probs
+        #     self.logger.info("Updated hlmdp.transition_probs from wandb eval tables")
+        #     self.logger.log_table(df_all, t=self.runner.t_env)
+        # except Exception as e:
+        #     self.logger.info(f"Failed to update hlmdp.transition_probs: {e}")
+        #     return
+
     def _load_checkpoint(self) -> None:
         # get load time step for both cases
         timesteps = []
@@ -433,6 +632,7 @@ class Simulation:
                 if artifact.type == "agent":
                     agent_artifacts.append(artifact)
                     timesteps.append(artifact.metadata["t_env"])
+
         else:
             if not isdir(self.args.checkpoint_path):
                 self.logger.info(
