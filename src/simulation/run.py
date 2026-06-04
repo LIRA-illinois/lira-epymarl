@@ -56,7 +56,7 @@ class Simulation:
                 self.evaluate_loaded()
                 return
 
-        elif self.args.load_hlmdp_data:
+        elif getattr(self.args, "load_hlmdp_data", False):
             self._load_hlmdp_data()
 
             self.logger.info("Optimizing High-Level Policy", log_header=True)
@@ -204,6 +204,7 @@ class Simulation:
                     reset_options = {"comms_value": comms_value}
                 else:
                     reset_options["comms_value"] = comms_value
+
 
                 result = run_eval_episodes(
                     args=self.args,

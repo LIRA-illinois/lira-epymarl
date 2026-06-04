@@ -31,8 +31,8 @@ parameters:
 
   use_wandb:
     values: [True]
-  # save_test_replays:
-  #   values: [True]
+  save_test_replays:
+    values: [True]
   # save_model:
   #   values: [True]
   # delete_local_models:
@@ -87,11 +87,10 @@ parameters:
   # load_step:
   #   values: [60, 120]
 
-  load_hlmdp_data:
-    values: [True]
-  hlmdp_time_id:
-    values: [exp_dev_26-06-03_16-12-34]
-
+  # load_hlmdp_data:
+  #   values: [True]
+  # hlmdp_time_id:
+  #   values: [exp_dev_26-06-03_16-12-34]
 
   ##################
   # Environment config
@@ -104,12 +103,12 @@ parameters:
   # comms allocation params
   # all values in the space-delimited list will be evaluated in a single run
   # only works for non-hierarchical version of the env, for hierarchical, these are considered "actions" in a high-level MDP
-  # comms_values_eval:
-  #   values: [[0.0 1.0]]
+  comms_values_eval:
+    values: [[0.0 1.0]]
 
-  # # not an ideal way to do this, but it's what you get
-  # hl_task:
-  #   values: [[0 1], [1 2]]
+  # # not an ideal way to do this, but you get what you pay for :P
+  hl_task:
+    values: [[0 1], [1 2]]
 
   # project-level success rate requirement
   success_rate_spec:
@@ -132,7 +131,7 @@ parameters:
   # env_args.max_fruit_level:
   #   values: [4]
   env_args.max_num_fruit:
-    values: [0]
+    values: [2]
     # values: [3]
   env_args.state_type:
     values: [multigrid_flattened]
