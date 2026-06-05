@@ -51,9 +51,11 @@ parameters:
   ##################
   # use hierarchical policy so we can load this data in post-processing for HL agent policy
   config:
-    values: [maic_comm_opt]
-  env_args.hierarchical:
-    values: [True]
+    values: [maic]
+  # config:
+  #   values: [maic_comm_opt]
+  # env_args.hierarchical:
+  #   values: [True]
   lr:
     values: [0.00005]
   test_nepisode:
