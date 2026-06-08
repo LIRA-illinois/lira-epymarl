@@ -1,4 +1,3 @@
-import copy
 from typing import Any, Optional, Literal
 import numpy as np
 from numpy.typing import NDArray
@@ -27,14 +26,17 @@ class GymnasiumEnvWrapper(gym.Env):
 
         return info
 
-    def get_state(self) -> NDArray:
-        return self.env.get_state()
+    @property
+    def state(self) -> NDArray:
+        return self.env.state
 
-    def get_avail_actions(self) -> NDArray:
-        return self.env.get_avail_actions()
+    @property
+    def avail_actions(self) -> NDArray:
+        return self.env.avail_actions
 
-    def get_obs(self) -> NDArray:
-        return self.env.get_obs()
+    @property
+    def obs(self) -> NDArray:
+        return self.env.obs
 
     def step(self, actions: NDArray) -> tuple[NDArray, float, bool, bool, dict]:
         """
@@ -144,29 +146,35 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         info["episode_limit"] = self.episode_limit
         return info
 
-    def get_state(self) -> NDArray:
+    @property
+    def state(self) -> NDArray:
         """
         Returns
         -------
         NDArray
             system state with shape (n_samples=1, n_state_features)
         """
-        state = self.env.unwrapped.get_state()
+        # you can't call self.get_wrapper_attr since that will cause an infinite loop, you have to call get_wrapper_attr for the next level in the wrapped env
+        state = self.env.get_wrapper_attr("state")
 
         # expand 0th dimension to be size (n_samples=1, n_state_features)
         return np.expand_dims(state, 0)
 
-    def get_avail_actions(self) -> list:
-        return self.env.unwrapped.get_avail_actions()
+    @property
+    def avail_actions(self) -> list:
+        return self.env.get_wrapper_attr("avail_actions")
+        # return self.env.unwrapped.get_avail_actions()
 
-    def get_obs(self) -> NDArray:
+    @property
+    def obs(self) -> NDArray:
         """
         Returns
         -------
         NDArray
             team obs with shape (n_samples=1, n_agents, n_obs_features)
         """
-        obs = self.env.unwrapped.get_obs()
+        obs = self.env.get_wrapper_attr("obs")
+        # obs = self.env.unwrapped.get_obs()
 
         # expand 0th dimension to be size (n_samples=1, n_agents, n_obs_features)
         return np.expand_dims(obs, 0)
@@ -195,7 +203,9 @@ class HLMDPEnvWrapper(gym.Wrapper):
         comms_values: float = env_args.pop("comms_values", [0.0])
         # optional behavior: end episode when low-level reports task_completed
         # (useful during evaluation). Default False to preserve training behavior.
-        self.terminate_on_task_completed: bool = env_args.pop("terminate_on_task_completed", False)
+        self.terminate_on_task_completed: bool = env_args.pop(
+            "terminate_on_task_completed", False
+        )
         self.env_args: dict = env_args
 
         # low-level environment
@@ -224,12 +234,11 @@ class HLMDPEnvWrapper(gym.Wrapper):
             hl_options["hl_start_state"] = options["hl_start_state"]
             ll_options["start_room"] = options["hl_start_state"]
 
-
         _, hl_info = self.hlmdp.reset(seed=seed, options=hl_options)
         ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)
 
         # only used for rendering HLMDP actions
-        self.render_actions = None
+        self.pre_step_hl_actions = None
 
         ll_info.update(hl_info)
         return ll_obs, ll_info
@@ -259,7 +268,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         # stop showing the action since the agent just reached a new state the HLMDP
         if ll_info["task_completed"]:
-            self.render_actions = None
+            self.pre_step_hl_actions = None
             # may want to end the episode at task completion, like during evaluation
             if self.terminate_on_task_completed:
                 ll_terminated = True
@@ -283,7 +292,8 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         return ll_obs, total_reward, terminated, truncated, info
 
-    def get_state(self) -> dict:
+    @property
+    def state(self) -> dict:
         """
         Returns combined low-level and high-level state.
 
@@ -292,11 +302,12 @@ class HLMDPEnvWrapper(gym.Wrapper):
         NDArray
             Joint state including LL and HL components
         """
-        state = {"ll_state": self.env.get_state(), "hl_state": self.hlmdp.get_state()}
+        state = {"ll_state": self.env.state, "hl_state": self.hlmdp.state}
 
         return state
 
-    def get_obs(self) -> NDArray:
+    @property
+    def obs(self) -> NDArray:
         """
         Returns low-level obs since high-level obs not used in our alg.
 
@@ -305,12 +316,11 @@ class HLMDPEnvWrapper(gym.Wrapper):
         NDArray
             shape (n_samples=1, n_agents, n_obs_features)
         """
-        ll_obs = self.env.get_obs()
+        return self.env.obs
 
-        return ll_obs
-
-    def get_avail_actions(self) -> list:
-        return self.env.get_avail_actions()
+    @property
+    def avail_actions(self) -> list:
+        return self.env.avail_actions
 
     @property
     def episode_limit(self):
@@ -330,20 +340,16 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
     def render(self):
         ll_img = self.env.render()
-        ll_h, ll_w = ll_img.shape[:2]
-
-        if self.render_actions is None:
-            hl_img = self.hlmdp.render()
-        else:
-            hl_img = self.hlmdp.render(self.render_actions["hl_actions"])
+        _, ll_width = ll_img.shape[:2]
+        hl_img = self.hlmdp.render(self.pre_step_hl_actions)
 
         # Get dimensions
-        hl_h, hl_w = hl_img.shape[:2]
-        max_width = max(ll_w, hl_w)
+        _, hl_width = hl_img.shape[:2]
+        max_width = max(ll_width, hl_width)
 
         # pad the smaller image so it is centered
-        if ll_w < max_width:
-            pad_total = max_width - ll_w
+        if ll_width < max_width:
+            pad_total = max_width - ll_width
             pad_left = pad_total // 2
             pad_right = pad_total - pad_left
             ll_img = np.pad(
@@ -352,8 +358,8 @@ class HLMDPEnvWrapper(gym.Wrapper):
                 mode="constant",
                 constant_values=0,
             )
-        if hl_w < max_width:
-            pad_total = max_width - hl_w
+        if hl_width < max_width:
+            pad_total = max_width - hl_width
             pad_left = pad_total // 2
             pad_right = pad_total - pad_left
             hl_img = np.pad(

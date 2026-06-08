@@ -106,19 +106,240 @@ class EpisodeRunner:
                 video_dir=self.env.video_folder, t=t_env, video_prefix=video_prefix
             )
 
+            # remove the video recorder wrapper
             self.env = self.env.env
-        else:
-            pass
+
 
     def close_env(self):
         self.env.close()
 
-    def reset(self, options: dict | None = None):
+    def run(
+        self,
+        test_mode: bool = False,
+        return_log_stats: bool = True,
+        reset_options: dict | None = None,
+    ):
+        """
+        Run an episode.
+
+        Parameters
+        ----------
+        test_mode : bool
+            Whether to run in test mode (no learning)
+        """
+        self._reset(options=reset_options)
+
+        terminated = False
+        if self.args.common_reward:
+            episode_return = 0
+        else:
+            episode_return = np.zeros(self.args.n_agents)
+        self.mac.init_hidden(batch_size=self.batch_size)
+
+        while not terminated:
+            self.batch.update(self._get_pre_transition_data(), ts=self.t)
+
+            # Pass the entire batch of experiences up till now to the agents
+            # Receive the actions for each agent at this timestep in a batch of size 1
+            actions = self._select_actions(test_mode=test_mode)
+
+            _, reward, terminated, truncated, env_info = self._step(actions)
+            terminated = terminated or truncated
+            episode_return += reward
+
+            # self.print_data(post_transition_data)
+            self.batch.update(
+                self._get_post_transition_data(terminated, env_info, actions, reward),
+                ts=self.t,
+            )
+
+            self.t += 1
+
+        if self.args.live_render:
+            self._live_render(file_name="final_state")
+
+        # update batch with final step data
+        if test_mode and self.args.render:
+            print(f"Episode return: {episode_return}")
+        self.batch.update(self._get_pre_transition_data(), ts=self.t)
+        # self.print_data(self.pre_transition_data)
+
+        # Select actions in the last stored state
+        actions = self._select_actions(test_mode=test_mode)
+        last_actions: dict = {}
+        if isinstance(actions, dict):
+            last_actions["actions"] = actions["env_actions"]
+        else:
+            last_actions["actions"] = actions
+
+        self.batch.update(last_actions, ts=self.t)
+
+        # Determine which stats/returns to update
+        if not test_mode:
+            cur_stats = self.train_stats
+            cur_returns = self.train_returns
+        else:
+            cur_stats = self.test_stats
+            cur_returns = self.test_returns
+
+        log_prefix = "test_" if test_mode else ""
+        cur_stats.update(
+            {
+                k: cur_stats.get(k, 0) + env_info.get(k, 0)
+                for k in set(cur_stats) | set(env_info)
+            }
+        )
+        cur_stats["n_episodes"] = 1 + cur_stats.get("n_episodes", 0)
+        cur_stats["ep_length"] = self.t + cur_stats.get("ep_length", 0)
+
+        if not test_mode:
+            self.t_env += self.t
+
+        cur_returns.append(episode_return)
+
+        # log stats
+        out = {}
+
+        if test_mode:
+            if len(self.test_returns) == self.args.test_nepisode:
+                log_stats = self._get_log_stats(cur_returns, cur_stats, log_prefix)
+                if return_log_stats:
+                    # return data in cur_returns and cur_stats for processing outside of episode runner
+                    out["log_stats"] = log_stats
+                else:
+                    self._log(log_stats)
+        else:
+            if self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
+                # Training mode logging
+                log_stats = self._get_log_stats(cur_returns, cur_stats, log_prefix)
+                self._log(log_stats)
+
+                if hasattr(self.mac.action_selector, "epsilon"):
+                    self.logger.log_stat(
+                        "epsilon", self.mac.action_selector.epsilon, self.t_env
+                    )
+                self.log_train_stats_t = self.t_env
+
+        out["batch"] = self.batch
+        return out
+
+    def _reset(self, options: dict | None = None):
         self.batch = self.new_batch()
         self.env.reset(options=options)
         self.t = 0
 
-    def print_data(self, data: dict):
+    def _select_actions(self, test_mode: bool) -> NDArray | tuple:
+        """
+        choose actions with option to use action space sampler
+
+        Returns
+        -------
+        NDArray
+            array of actions, shape (1, n_agents)
+        """
+        if self.args.action_selector == "action_space":
+            actions = np.expand_dims(np.array(self.env.action_space.sample()), 0)
+
+        else:
+            actions = self.mac.select_actions(
+                self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
+            )
+
+            if hasattr(self.args, "manual_policy"):
+                actions = self._manual_policy(actions)
+
+            # following the format from the parallel episode runner
+            if isinstance(actions, Tensor):
+                actions = actions.cpu().numpy()
+
+        return actions
+
+    def _step(self, actions):
+        if self.args.live_render:
+            self._live_render(file_name="pre_step")
+
+        if isinstance(actions, dict):
+            obs, reward, terminated, truncated, env_info = self.env.step(actions)
+        else:
+            obs, reward, terminated, truncated, env_info = self.env.step(actions[0])
+
+        return obs, reward, terminated, truncated, env_info
+
+    def _get_pre_transition_data(self) -> dict:
+        data = defaultdict(list)
+
+        state = self.env.state
+        if isinstance(state, dict):
+            data["hl_state"].append(state["hl_state"])
+            data["state"].append(state["ll_state"])
+        else:
+            data["state"].append(state)
+
+        data["avail_actions"].append(self.env.avail_actions)
+        data["obs"].append(self.env.obs)
+
+        return data
+
+    def _get_post_transition_data(
+        self, terminated: bool, env_info: dict, actions, reward
+    ) -> dict:
+        data = {
+            "terminated": [(terminated != env_info.get("episode_limit", False),)],
+        }
+
+        if isinstance(actions, dict):
+            data["actions"] = actions["env_actions"]
+        else:
+            data["actions"] = actions
+
+        if self.args.common_reward:
+            data["reward"] = [(reward,)]
+        else:
+            data["reward"] = [tuple(reward)]
+
+        return data
+
+    def _get_log_stats(self, returns, stats, prefix) -> dict:
+        # populates a dict with all the stats you want to log with appropriate keys
+        log_stats = {}
+        # returns
+        if self.args.common_reward:
+            log_stats["return_mean"] = np.mean(returns)
+            log_stats["return_std"] = np.std(returns)
+        else:
+            for i in range(self.args.n_agents):
+                log_stats[f"agent_{i}_return_mean"] = np.array(returns)[:, i].mean()
+                log_stats[f"agent_{i}_return_std"] = np.array(returns)[:, i].std()
+
+            total_returns = np.array(returns).sum(axis=-1)
+            log_stats["total_return_mean"] = total_returns.mean()
+            log_stats["total_return_std"] = total_returns.std()
+
+        # other stats
+        for k, v in stats.items():
+            if k != "n_episodes":
+                log_stats[f"{k}_mean"] = v / stats["n_episodes"]
+            else:
+                log_stats[f"{k}"] = stats["n_episodes"]
+
+        # add prefix to all the keys in log_stats
+        log_stats_out = {}
+        for k in log_stats:
+            log_stats_out[f"{prefix}{k}"] = log_stats[k]
+
+        self._clear_stats(returns, stats)
+        return log_stats_out
+
+    def _log(self, log_stats: dict) -> None:
+        for k, v in log_stats.items():
+            self.logger.log_stat(k, v, self.t_env)
+
+    def _clear_stats(self, returns, stats):
+        returns.clear()
+        stats.clear()
+
+    # helpers
+    def _print_data(self, data: dict):
         print(f"t_ep: {self.t}, hl_state: {data.get('hl_state', None)}")
         # for k, v in data.items():
         #     val = v[0]
@@ -133,33 +354,17 @@ class EpisodeRunner:
         #     print(val)
         #     print()
 
-    def _select_actions(self, test_mode: bool) -> NDArray | tuple:
-        """
-        choose actions with option to use action space sampler
+    def _live_render(self, file_name: str, actions: Optional[dict] = None):
+        render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
+        makedirs(render_save_dir, exist_ok=True)
+        mpl_img.imsave(
+            join(render_save_dir, f"{self.t}_{file_name}.png"), self.env.render()
+        )
+        # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
+        # print("pre transition state")
+        # print(state)
 
-        Returns
-        -------
-        NDArray
-            array of actions, shape (1, n_agents)
-        """
-
-        if self.args.action_selector == "action_space":
-            actions = np.expand_dims(np.array(self.env.action_space.sample()), 0)
-        else:
-            actions = self.mac.select_actions(
-                self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
-            )
-
-            if hasattr(self.args, "manual_policy"):
-                actions = self.manual_policy(actions)
-
-            # following the format from the parallel episode runner
-            if isinstance(actions, Tensor):
-                actions = actions.cpu().numpy()
-
-        return actions
-
-    def manual_policy(self, actions):
+    def _manual_policy(self, actions):
         # class LBFActions(enum.IntEnum):
         #     # matches the order from original LBF action set
         #     STAY = 0
@@ -185,13 +390,11 @@ class EpisodeRunner:
                 # go right
                 actions["env_actions"] = np.array([[4, 4, 4]])
 
-
             # # go right
             # actions["env_actions"] = np.array([[4, 4, 4]])
 
         else:
             actions = np.array([[5, 5, 5]])
-
 
             # if self.t == 0:
             #     # all load, see if the fruit goes away
@@ -246,242 +449,4 @@ class EpisodeRunner:
             # else:
             #     actions = np.array([[3, 4, 3]])
 
-
         return actions
-
-    def run(
-        self,
-        test_mode: bool = False,
-        return_log_stats: bool = True,
-        reset_options: dict | None = None,
-    ):
-        """
-        Run an episode.
-
-        Parameters
-        ----------
-        test_mode : bool
-            Whether to run in test mode (no learning)
-        """
-        self.reset(options=reset_options)
-
-        terminated = False
-        if self.args.common_reward:
-            episode_return = 0
-        else:
-            episode_return = np.zeros(self.args.n_agents)
-        self.mac.init_hidden(batch_size=self.batch_size)
-
-        while not terminated:
-            pre_transition_data = self._get_pre_transition_data()
-            self.batch.update(pre_transition_data, ts=self.t)
-
-            # Pass the entire batch of experiences up till now to the agents
-            # Receive the actions for each agent at this timestep in a batch of size 1
-            actions = self._select_actions(test_mode=test_mode)
-
-            # render a frame of the env with the current HL actions chosen
-            #TODO should be moved inside the hierarchical env's step method
-            if isinstance(self.env, RecordVideoExtended):
-                self.env.env.render_actions = actions
-                self.env._capture_frame()
-
-            if self.args.live_render:
-                self._live_render(file_name="pre_step")
-
-            _, reward, terminated, truncated, env_info = self._step(actions)
-
-            terminated = terminated or truncated
-
-            # if self.args.live_render:
-            #     self._live_render(file_name="post_step")
-            episode_return += reward
-
-            post_transition_data = {
-                "terminated": [(terminated != env_info.get("episode_limit", False),)],
-            }
-            if isinstance(actions, dict):
-                post_transition_data["actions"] = actions["env_actions"]
-            else:
-                post_transition_data["actions"] = actions
-
-            if self.args.common_reward:
-                post_transition_data["reward"] = [(reward,)]
-            else:
-                post_transition_data["reward"] = [tuple(reward)]
-
-            # self.print_data(post_transition_data)
-            self.batch.update(post_transition_data, ts=self.t)
-            self.t += 1
-
-        last_data = self._get_pre_transition_data()
-        # self.print_data(last_data)
-
-        if self.args.live_render:
-            self._live_render(file_name="final_state")
-
-        # print("done with ep")
-
-        if test_mode and self.args.render:
-            print(f"Episode return: {episode_return}")
-        self.batch.update(last_data, ts=self.t)
-
-        # Select actions in the last stored state
-        actions = self._select_actions(test_mode=test_mode)
-
-        # render a frame of the env with the current HL actions chosen
-        #TODO should be moved inside the hierarchical env's step method
-        if isinstance(self.env, RecordVideoExtended):
-            self.env.env.render_actions = actions
-            self.env._capture_frame()
-
-        last_actions: dict = {}
-        if isinstance(actions, dict):
-            last_actions["actions"] = actions["env_actions"]
-        else:
-            last_actions["actions"] = actions
-
-        self.batch.update(last_actions, ts=self.t)
-
-        # Determine which stats/returns to update
-        if not test_mode:
-            cur_stats = self.train_stats
-            cur_returns = self.train_returns
-        else:
-            cur_stats = self.test_stats
-            cur_returns = self.test_returns
-
-        log_prefix = "test_" if test_mode else ""
-        cur_stats.update(
-            {
-                k: cur_stats.get(k, 0) + env_info.get(k, 0)
-                for k in set(cur_stats) | set(env_info)
-            }
-        )
-        cur_stats["n_episodes"] = 1 + cur_stats.get("n_episodes", 0)
-        cur_stats["ep_length"] = self.t + cur_stats.get("ep_length", 0)
-
-        if not test_mode:
-            self.t_env += self.t
-
-        cur_returns.append(episode_return)
-
-        # log stats
-        out = {}
-
-        if test_mode:
-            if len(self.test_returns) == self.args.test_nepisode:
-                log_stats = self.get_log_stats(cur_returns, cur_stats, log_prefix)
-                if return_log_stats:
-                    # return data in cur_returns and cur_stats for processing outside of episode runner
-                    out["log_stats"] = log_stats
-                else:
-                    self._log(log_stats)
-        else:
-            if self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
-                # Training mode logging
-                log_stats = self.get_log_stats(cur_returns, cur_stats, log_prefix)
-                self._log(log_stats)
-
-                if hasattr(self.mac.action_selector, "epsilon"):
-                    self.logger.log_stat(
-                        "epsilon", self.mac.action_selector.epsilon, self.t_env
-                    )
-                self.log_train_stats_t = self.t_env
-
-        out["batch"] = self.batch
-        return out
-
-    def _live_render(self, file_name: str, actions: Optional[dict] = None):
-        render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
-        makedirs(render_save_dir, exist_ok=True)
-        mpl_img.imsave(
-            join(render_save_dir, f"{self.t}_{file_name}.png"), self.env.render()
-        )
-        # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
-        # print("pre transition state")
-        # print(state)
-
-    def _step(self, actions):
-        if isinstance(actions, dict):
-            obs, reward, terminated, truncated, env_info = self.env.step(actions)
-        else:
-            obs, reward, terminated, truncated, env_info = self.env.step(actions[0])
-
-        return obs, reward, terminated, truncated, env_info
-
-    def _get_pre_transition_data(self) -> dict:
-        pre_transition_data = defaultdict(list)
-
-        state = self._get_state()
-        avail_actions = self._get_avail_actions()
-        obs = self._get_obs()
-
-        if isinstance(state, dict):
-            pre_transition_data["hl_state"].append(state["hl_state"])
-            pre_transition_data["state"].append(state["ll_state"])
-        else:
-            pre_transition_data["state"].append(state)
-
-        # simliar for these too if applicable
-        pre_transition_data["avail_actions"].append(avail_actions)
-        pre_transition_data["obs"].append(obs)
-
-        return pre_transition_data
-
-    def _get_state(self):
-        if isinstance(self.env, RecordVideoExtended):
-            return self.env.env.get_state()
-        else:
-            return self.env.get_state()
-
-    def _get_obs(self):
-        if isinstance(self.env, RecordVideoExtended):
-            return self.env.env.get_obs()
-        else:
-            return self.env.get_obs()
-
-    def _get_avail_actions(self):
-        if isinstance(self.env, RecordVideoExtended):
-            return self.env.env.get_avail_actions()
-        else:
-            return self.env.get_avail_actions()
-
-    def get_log_stats(self, returns, stats, prefix) -> dict:
-        # populates a dict with all the stats you want to log with appropriate keys
-        log_stats = {}
-        # returns
-        if self.args.common_reward:
-            log_stats["return_mean"] = np.mean(returns)
-            log_stats["return_std"] = np.std(returns)
-        else:
-            for i in range(self.args.n_agents):
-                log_stats[f"agent_{i}_return_mean"] = np.array(returns)[:, i].mean()
-                log_stats[f"agent_{i}_return_std"] = np.array(returns)[:, i].std()
-
-            total_returns = np.array(returns).sum(axis=-1)
-            log_stats["total_return_mean"] = total_returns.mean()
-            log_stats["total_return_std"] = total_returns.std()
-
-        # other stats
-        for k, v in stats.items():
-            if k != "n_episodes":
-                log_stats[f"{k}_mean"] = v / stats["n_episodes"]
-            else:
-                log_stats[f"{k}"] = stats["n_episodes"]
-
-        # add prefix to all the keys in log_stats
-        log_stats_out = {}
-        for k in log_stats:
-            log_stats_out[f"{prefix}{k}"] = log_stats[k]
-
-        self._clear_stats(returns, stats)
-        return log_stats_out
-
-    def _log(self, log_stats: dict) -> None:
-        for k, v in log_stats.items():
-            self.logger.log_stat(k, v, self.t_env)
-
-    def _clear_stats(self, returns, stats):
-        returns.clear()
-        stats.clear()

@@ -1,12 +1,14 @@
+from gymnasium.core import ActType
 import os
 from gymnasium import logger
 from gymnasium.wrappers import RecordVideo
 
 
 class RecordVideoExtended(RecordVideo):
-    """Supports choosing output format and codecs.
-    Extends gymnasium's RecordVideo to allow saving videos in WebM and gif formats
-    instead of just MP4. WebM is a more efficient format for web distribution.
+    """Subclass that adds:
+        Support for choosing multiple output format and codecs. Allows videos in WebM and gif formats instead of just MP4. WebM is a more efficient format for web distribution.
+        State, obs, and avail_actions "getter" methods to interface with the "pre_transition_data" object in the PYMARL training loop.
+        Supports hierarchical env in the step() method by rending the high-level action before transitioning the env to the next state
     """
 
     ALLOWED_MIME_TYPES = {
@@ -110,3 +112,24 @@ class RecordVideoExtended(RecordVideo):
             import gc
 
             gc.collect()
+
+    def step(self, action: ActType):
+        # render a frame of the env with the chosen HL action
+        if action.get("hl_actions", False):
+            self.env.set_wrapper_attr("pre_step_hl_actions", action["hl_actions"])
+            self._capture_frame()
+
+        obs, rew, terminated, truncated, info = super().step(action)
+        return obs, rew, terminated, truncated, info
+
+    @property
+    def state(self):
+        return self.env.get_wrapper_attr("state")
+
+    @property
+    def obs(self):
+        return self.env.get_wrapper_attr("obs")
+
+    @property
+    def avail_actions(self):
+        return self.env.get_wrapper_attr("avail_actions")
