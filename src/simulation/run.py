@@ -150,11 +150,6 @@ class Simulation:
                 self.logger.print_recent_stats()
                 last_log_t = self.runner.t_env
 
-        # save replay buffer for other post-processing
-        # if self.args.save_replay_buffer:
-        #     run_id = f"{self.args.time_id}_{self.args.seed}_{self.args.scenario}"
-        #     self.buffer.save(run_id)
-
         self.runner.close_env()
         self.logger.info("Finished Training")
 

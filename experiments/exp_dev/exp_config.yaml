@@ -37,8 +37,8 @@ parameters:
   #   values: [True]
   # delete_local_models:
   #   values: [True]
-  # live_render:
-    # values: [True]
+  live_render:
+    values: [True]
 
 
   # everything off
@@ -68,17 +68,21 @@ parameters:
   lr:
     values: [0.00005]
   t_max:
-    values: [10]
+    values: [100]
   test_interval:
-    values: [10]
+    values: [100]
   save_model_interval:
     values: [20]
   runner_log_interval:
     values: [20]
   test_nepisode:
-    values: [2]
+    values: [1]
   n_test_replays_save:
     values: [1]
+  batch_size:
+    values: [1]
+  # target_update_interval:
+  #   values: [1]
 
   # evaluate:
   #   values: [True]
@@ -106,7 +110,6 @@ parameters:
   comms_values_eval:
     values: [[0.0 1.0]]
 
-  # # not an ideal way to do this, but you get what you pay for :P
   hl_task:
     values: [[0 1], [1 2]]
 
@@ -117,7 +120,9 @@ parameters:
   env_args.map_name:
     # values: [1r_small]
     # values: [1r_small_agents_fruit_placed]
+    # values: [3ga_2r_small]
     values: [3ga_2r_small_agents_placed]
+    # values: [3ga_2r_small_agents_fruit_placed]
     # values: [3ga_2r_small]
   env_args.n_agents:
     values: [3]
@@ -128,10 +133,15 @@ parameters:
     values: [10]
   # env_args.min_fruit_level:
   #   values: [2]
-  # env_args.max_fruit_level:
-  #   values: [4]
-  env_args.max_num_fruit:
-    values: [2]
+  env_args.force_coop:
+    values: [True]
+  env_args.max_fruit_level:
+    values: [3]
+  env_args.max_num_fruit_per_room:
+    values: [3]
+
+  # env_args.max_num_fruit:
+  #   values: [2]
     # values: [3]
   env_args.state_type:
     values: [multigrid_flattened]

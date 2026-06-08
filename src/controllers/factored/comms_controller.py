@@ -1,5 +1,4 @@
 from torch import Tensor
-from numpy.typing import NDArray
 from components.episode_buffer import EpisodeBatch
 
 from controllers import REGISTRY as mac_REGISTRY
