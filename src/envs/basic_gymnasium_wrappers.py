@@ -196,8 +196,8 @@ class BasicGymnasiumWrapper(gym.Wrapper):
 
 class HLMDPEnvWrapper(gym.Wrapper):
     def __init__(self, env_args: dict, hl_env_args: Optional[dict] = None):
-        if hl_env_args is not None:
-            self.task_type: Literal["atomic", "composed"] = hl_env_args.pop("task_type")
+        # if hl_env_args is not None:
+        #     self.task_type: Literal["atomic", "composed"] = hl_env_args.pop("task_type")
 
         self.num_rooms: int = env_args.pop("num_rooms", 2)
         comms_values: float = env_args.pop("comms_values", [0.0])
@@ -215,8 +215,8 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # high-level MDP tracks valid goal transitions
         self.hlmdp = ProjectMDP(
             num_rooms=self.num_rooms,
-            task_type=self.task_type,
             comms_values=comms_values,
+            # task_type=self.task_type,
         )
 
         # this thing's action space should be a Cartesian product of the low-level env's and the MDP action space

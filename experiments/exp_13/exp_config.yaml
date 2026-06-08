@@ -50,9 +50,13 @@ parameters:
   # MARL alg config
   ##################
   config:
-    values: [maic]
+    values: [maic_comm_opt]
+  env_args.hierarchical:
+    values: [True]
   lr:
     values: [0.00005]
+  t_max:
+    values: [3050000]
   test_nepisode:
     values: [300]
   n_test_replays_save:
@@ -65,6 +69,8 @@ parameters:
   # all values in the space-delimited list will be evaluated in a single run
   comms_values_eval:
     values: [[0.0 0.05 0.1 0.25 0.5 1.0]]
+  hl_task:
+    values: [[0 1], [1 2]]
 
   ##################
   # Environment config
@@ -73,7 +79,7 @@ parameters:
   env-config:
     values: [multigrid-lbf-v0]
   env_args.map_name:
-    values: [1r_small]
+    values: [3ga_2r_small]
   env_args.n_agents:
     values: [3]
   env_args.max_agent_level:
@@ -102,8 +108,11 @@ parameters:
     values: [True]
 
   # experiment-specific env args
-  env_args.max_num_fruit:
+  env_args.max_num_fruit_per_room:
     values: [1, 2]
+  env_args.max_fruit_level:
+    values: [3]
+
 
 ##################
 # Conditional parameters
@@ -112,13 +121,7 @@ parameters:
 ##################
 conditional_parameters:
   config:
-    maic:
+    maic_comm_opt:
       mixer:
         values: [vdn]
 
-  env_args.n_agents:
-    3:
-      t_max:
-        values: [3050000]
-      env_args.max_fruit_level:
-        values: [2, 3]
