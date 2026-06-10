@@ -8,8 +8,10 @@ project_name=lira-epymarl
 nvidia:
 	watch -n 0.2 nvidia-smi
 
+# parallel syncing, very fast but can't set n too high due to API upload limits
+# 	wandb sync --include-offline ./results/wandb/*-run-*
 sync_results_wandb:
-	wandb sync --include-offline ./results/wandb/*-run-*
+	wandb beta sync -n 5 ./results/wandb/*-run-*
 
 tb:
 	screen -dmS tensorboard_${project_name} bash -c 'source .venv/bin/activate; tensorboard --bind_all --port=6009 --logdir "results/tb_logs/"'
@@ -18,7 +20,8 @@ tb:
 # pass in gpus as a space-delimited string like g="0 1 2"
 g ?= 0
 c ?= delta
-m ?= 30
+# at ~4 GB per run, 24 runs per job is about 100 GB, which works well for requested RAM of 128 GB while leaving some headroom
+m ?= 24
 r ?= 2
 d ?= False
 # debugging
@@ -48,8 +51,9 @@ campus-int-gpu:
 	srun --time=00:30:00 --account=huytran1-ic --partition=IllinoisComputes-GPU,eng-research-gpu,csl --nodes=1 --mem=64G --ntasks=64 --gpus-per-node=1 --pty /bin/bash
 
 # get RAM usage by user
+# 	watch "mpstat; echo; bash src/utils/get_ram_usage.bash; nvidia-smi"
 compute-usage:
-	watch "echo CPU Usage; mpstat; echo; bash src/utils/get_ram_usage.bash; nvidia-smi"
+	nvidia-smi; bash src/utils/get_cpu_usage.bash; echo; bash src/utils/get_ram_usage.bash
 
 # define formatting for outputs
 job_fmt=-O JobID:9,Name:20,Username:10,State:12,TimeUsed:15,TimeLimit:15,NumNodes:7,tres-per-node:20,ReasonList:20,Partition:60
