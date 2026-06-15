@@ -54,26 +54,19 @@ parameters:
   lr:
     values: [0.00005]
   t_max:
-    values: [50]
-    # values: [3050000]
-
+    values: [3050000]
   test_nepisode:
-    values: [5]
-    # values: [300]
-
+    values: [300]
   n_test_replays_save:
     values: [5]
   test_interval:
-    values: [100]
-    # values: [300000]
-
+    values: [300000]
   # set test_interval = save_model_interval so you can load the model from any eval for further processing
   save_model_interval:
     values: [300000]
   # all values in the space-delimited list will be evaluated in a single run
   comms_values_eval:
-    values: [[0.0 1.0]]
-    # values: [[0.0 0.1 0.25 0.5 0.75 1.0]]
+    values: [[0.0 0.1 0.25 0.5 0.75 1.0]]
 
   ##################
   # Environment config

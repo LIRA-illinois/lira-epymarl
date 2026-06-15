@@ -372,8 +372,4 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # Stack vertically with LL on bottom
         combined_img = np.vstack([hl_img, ll_img])
 
-        # from PIL import Image
-        # img = Image.fromarray(combined_img)
-        # img.save("total_env.png")
-
         return combined_img
