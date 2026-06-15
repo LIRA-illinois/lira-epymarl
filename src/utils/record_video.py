@@ -123,9 +123,6 @@ class RecordVideoExtended(RecordVideo):
         else:
             self.env.set_wrapper_attr("_pre_step_actions", action)
 
-        if self.env.has_wrapper_attr("_t_render"):
-            self.env.set_wrapper_attr("_t_render", self.step_id + 1)
-
         if capture_before_step:
             if self.recording:
                 self._capture_frame()
@@ -133,7 +130,7 @@ class RecordVideoExtended(RecordVideo):
                 if len(self.recorded_frames) > self.video_length:
                     self.stop_recording()
 
-        # code below taken from parent
+        # code below taken from parent class
         obs, rew, terminated, truncated, info = self.env.step(action)
         self.step_id += 1
 

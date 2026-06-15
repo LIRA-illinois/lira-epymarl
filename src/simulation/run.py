@@ -568,7 +568,9 @@ class Simulation:
                 & (df_hlmdp.action == (row.hl_task[1], row.comms_value))
                 & (df_hlmdp.next_state == row.hl_task[1]),
                 "prob",
-            ] = 1.0 - row.test_project_failed_mean
+            ] = (
+                1.0 - row.test_project_failed_mean
+            )
 
             # fail rate
             df_hlmdp.loc[
@@ -580,8 +582,6 @@ class Simulation:
         # print(df_hlmdp)
         # print('\n breakpoint ')
         # __import__('ipdb').set_trace(context=3)
-
-
 
     def _load_checkpoint(self) -> None:
         # get load time step for both cases

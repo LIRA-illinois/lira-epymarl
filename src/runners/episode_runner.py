@@ -36,7 +36,7 @@ class EpisodeRunner:
         )
 
         self.episode_limit = self.env.episode_limit
-        self.t = 0
+        self._t = 0
 
         self.t_env = 0
 
@@ -109,7 +109,6 @@ class EpisodeRunner:
             # remove the video recorder wrapper
             self.env = self.env.env
 
-
     def close_env(self):
         self.env.close()
 
@@ -137,7 +136,7 @@ class EpisodeRunner:
         self.mac.init_hidden(batch_size=self.batch_size)
 
         while not terminated:
-            self.batch.update(self._get_pre_transition_data(), ts=self.t)
+            self.batch.update(self._get_pre_transition_data(), ts=self._t)
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
@@ -150,10 +149,10 @@ class EpisodeRunner:
             # self.print_data(post_transition_data)
             self.batch.update(
                 self._get_post_transition_data(terminated, env_info, actions, reward),
-                ts=self.t,
+                ts=self._t,
             )
 
-            self.t += 1
+            self._t += 1
 
         if self.args.live_render:
             self._live_render(file_name="final_state")
@@ -161,7 +160,7 @@ class EpisodeRunner:
         # update batch with final step data
         if test_mode and self.args.render:
             print(f"Episode return: {episode_return}")
-        self.batch.update(self._get_pre_transition_data(), ts=self.t)
+        self.batch.update(self._get_pre_transition_data(), ts=self._t)
         # self.print_data(self.pre_transition_data)
 
         # Select actions in the last stored state
@@ -172,7 +171,7 @@ class EpisodeRunner:
         else:
             last_actions["actions"] = actions
 
-        self.batch.update(last_actions, ts=self.t)
+        self.batch.update(last_actions, ts=self._t)
 
         # Determine which stats/returns to update
         if not test_mode:
@@ -190,10 +189,10 @@ class EpisodeRunner:
             }
         )
         cur_stats["n_episodes"] = 1 + cur_stats.get("n_episodes", 0)
-        cur_stats["ep_length"] = self.t + cur_stats.get("ep_length", 0)
+        cur_stats["ep_length"] = self._t + cur_stats.get("ep_length", 0)
 
         if not test_mode:
-            self.t_env += self.t
+            self.t_env += self._t
 
         cur_returns.append(episode_return)
 
@@ -226,7 +225,7 @@ class EpisodeRunner:
     def _reset(self, options: dict | None = None):
         self.batch = self.new_batch()
         self.env.reset(options=options)
-        self.t = 0
+        self._t = 0
 
     def _select_actions(self, test_mode: bool) -> NDArray | tuple:
         """
@@ -242,7 +241,7 @@ class EpisodeRunner:
 
         else:
             actions = self.mac.select_actions(
-                self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
+                self.batch, t_ep=self._t, t_env=self.t_env, test_mode=test_mode
             )
 
             if hasattr(self.args, "manual_policy"):
@@ -254,9 +253,16 @@ class EpisodeRunner:
 
         return actions
 
+    @property
+    def t(self):
+        return self._t
+
     def _step(self, actions):
         if self.args.live_render:
             self._live_render(file_name="pre_step")
+
+        if self.env.has_wrapper_attr("t_render"):
+            self.env.set_wrapper_attr("t_render", self.t)
 
         if isinstance(actions, dict):
             obs, reward, terminated, truncated, env_info = self.env.step(actions)
@@ -340,7 +346,7 @@ class EpisodeRunner:
 
     # helpers
     def _print_data(self, data: dict):
-        print(f"t_ep: {self.t}, hl_state: {data.get('hl_state', None)}")
+        print(f"t_ep: {self._t}, hl_state: {data.get('hl_state', None)}")
         # for k, v in data.items():
         #     val = v[0]
         #     if isinstance(val, np.ndarray):
@@ -358,7 +364,7 @@ class EpisodeRunner:
         render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
         makedirs(render_save_dir, exist_ok=True)
         mpl_img.imsave(
-            join(render_save_dir, f"{self.t}_{file_name}.png"), self.env.render()
+            join(render_save_dir, f"{self._t}_{file_name}.png"), self.env.render()
         )
         # state = np.transpose(self.env.unwrapped.grid.encode()[:, :, 0])
         # print("pre transition state")
@@ -374,12 +380,12 @@ class EpisodeRunner:
         #     RIGHT = 4
         #     LOAD = 5
 
-        print(f"self.t: {self.t}")
+        print(f"self.t: {self._t}")
 
         if isinstance(actions, dict):
             if self.mac.comms_value == 0.0:
                 # succeed 1st subtask, fail 2nd one
-                if 0 < self.t <= 3:
+                if 0 < self._t <= 3:
                     # go right
                     actions["env_actions"] = np.array([[4, 4, 4]])
                 else:
@@ -394,7 +400,7 @@ class EpisodeRunner:
             # actions["env_actions"] = np.array([[4, 4, 4]])
 
         else:
-            if self.t in [0, 1, 2]:
+            if self._t in [0, 1, 2]:
                 actions = np.array([[5, 3, 5]])
             else:
                 actions = np.array([[4, 0, 0]])
