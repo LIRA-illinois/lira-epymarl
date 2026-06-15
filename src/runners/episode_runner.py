@@ -394,7 +394,10 @@ class EpisodeRunner:
             # actions["env_actions"] = np.array([[4, 4, 4]])
 
         else:
-            actions = np.array([[5, 5, 5]])
+            if self.t in [0, 1, 2]:
+                actions = np.array([[5, 3, 5]])
+            else:
+                actions = np.array([[4, 0, 0]])
 
             # if self.t == 0:
             #     # all load, see if the fruit goes away

@@ -88,11 +88,9 @@ class ILPModel(OptimizationProblem):
 
             sys.exit("Exiting")
 
-        print(self.hlmdp.transition_probs)
-        print(self.policy.task_policy)
-        print(self.policy.comms_policy)
-        print('\n breakpoint ')
-        __import__('ipdb').set_trace(context=3)
+        # print(self.hlmdp.transition_probs)
+        # print(self.policy.task_policy)
+        # print(self.policy.comms_policy)
 
         return policy
 

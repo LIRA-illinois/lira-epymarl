@@ -3,16 +3,14 @@
 .DS_Store
 3rdparty/
 results/
-wandb/
-sacred/
-output/
-plotting/
 poetry.lock
 jobs/
 job*.slurm
-tmp/
-zzz_run_commands.txt
+
+# wandb data
+wandb/
 wandb_api_key.yaml
+artifacts/
 
 # Environments
 .env

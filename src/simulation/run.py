@@ -63,9 +63,8 @@ class Simulation:
             self._train_high_level_policy(self.runner.env.hlmdp)
             print(self.runner.mac.comms_agent.policy.task_policy)
             print(self.runner.mac.comms_agent.policy.comms_policy)
-            print("\n breakpoint ")
-            __import__("ipdb").set_trace(context=3)
             self.runner.close_env()
+            return
 
         # # run training
         # if hierarchical:
@@ -199,7 +198,6 @@ class Simulation:
                     reset_options = {"comms_value": comms_value}
                 else:
                     reset_options["comms_value"] = comms_value
-
 
                 result = run_eval_episodes(
                     args=self.args,
@@ -542,76 +540,48 @@ class Simulation:
         runs = api.runs(proj, filters={"config.time_id": self.args.hlmdp_time_id})
 
         if len(runs) == 0:
-            self.logger.info(f"No wandb runs found for time_id={self.args.hlmdp_time_id}")
+            self.logger.info(
+                f"No wandb runs found for time_id={self.args.hlmdp_time_id}"
+            )
             return
 
         self.logger.info(f"Loading runs with ids: ")
         for run in runs:
             self.logger.info(run.id)
 
+        # merge the tables into a single df
         dfs = []
         for wandb_run in runs:
             artifacts = list(wandb_run.logged_artifacts())
             for art in artifacts:
                 if art.type == "run_table":
                     dfs.append(art.get("eval_stats").get_dataframe())
-
-        print('\n breakpoint loaded run tables')
-        __import__('ipdb').set_trace(context=3)
-
-        # merge the tables into a single df
+        df_data = pd.concat(dfs)
 
         # fill out the runner env's hlmdp transition_probs
+        # self.runner.env.hlmdp.transition_probs
+        df_hlmdp = self.runner.env.hlmdp.transition_probs
+        for _, row in df_data.iterrows():
+            # task success rate
+            df_hlmdp.loc[
+                (df_hlmdp.state == row.hl_start_state)
+                & (df_hlmdp.action == (row.hl_task[1], row.comms_value))
+                & (df_hlmdp.next_state == row.hl_task[1]),
+                "prob",
+            ] = 1.0 - row.test_project_failed_mean
+
+            # fail rate
+            df_hlmdp.loc[
+                (df_hlmdp.state == row.hl_start_state)
+                & (df_hlmdp.action == (row.hl_task[1], row.comms_value))
+                & (df_hlmdp.next_state != row.hl_task[1]),
+                "prob",
+            ] = row.test_project_failed_mean
+        # print(df_hlmdp)
+        # print('\n breakpoint ')
+        # __import__('ipdb').set_trace(context=3)
 
 
-        # df_all = pd.concat(tables, ignore_index=True, sort=False)
-
-        # # Ensure columns expected for HLMDP update exist
-        # expected_cols = ["state", "action", "next_state", "test_task_completed_mean"]
-        # missing = [c for c in expected_cols if c not in df_all.columns]
-        # if missing:
-        #     self.logger.info(f"Eval tables missing expected columns: {missing}")
-        #     # still log the combined table to wandb for inspection
-        #     self.logger.log_table(df_all, t=self.runner.t_env)
-        #     return
-
-        # # normalize action column if it's stored as string; try eval if necessary
-        # if df_all["action"].dtype == object:
-        #     try:
-        #         df_all["action"] = df_all["action"].apply(
-        #             lambda x: eval(x) if isinstance(x, str) else x
-        #         )
-        #     except Exception:
-        #         pass
-
-        # # aggregate success rates across runs / comms values
-        # grouped = (
-        #     df_all.groupby(["state", "action", "next_state"])[
-        #         "test_task_completed_mean"
-        #     ]
-        #     .mean()
-        #     .reset_index()
-        # )
-
-        # # update hlmdp.transition_probs where matches found
-        # try:
-        #     df_probs = self.runner.env.hlmdp.transition_probs
-        #     for _, row in grouped.iterrows():
-        #         mask = (
-        #             (df_probs.state == row["state"])
-        #             & (df_probs.action == row["action"])
-        #             & (df_probs.next_state == row["next_state"])
-        #         )
-        #         if mask.any():
-        #             df_probs.loc[mask, "prob"] = float(row["test_task_completed_mean"])
-
-        #     # write back
-        #     self.runner.env.hlmdp.transition_probs = df_probs
-        #     self.logger.info("Updated hlmdp.transition_probs from wandb eval tables")
-        #     self.logger.log_table(df_all, t=self.runner.t_env)
-        # except Exception as e:
-        #     self.logger.info(f"Failed to update hlmdp.transition_probs: {e}")
-        #     return
 
     def _load_checkpoint(self) -> None:
         # get load time step for both cases

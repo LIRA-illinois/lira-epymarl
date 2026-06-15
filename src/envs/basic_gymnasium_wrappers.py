@@ -238,7 +238,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
         ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)
 
         # only used for rendering HLMDP actions
-        self.pre_step_hl_actions = None
+        self._pre_step_hl_actions = None
 
         ll_info.update(hl_info)
         return ll_obs, ll_info
@@ -268,7 +268,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         # stop showing the action since the agent just reached a new state the HLMDP
         if ll_info["task_completed"]:
-            self.pre_step_hl_actions = None
+            self._pre_step_hl_actions = None
             # may want to end the episode at task completion, like during evaluation
             if self.terminate_on_task_completed:
                 ll_terminated = True
@@ -341,7 +341,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
     def render(self):
         ll_img = self.env.render()
         _, ll_width = ll_img.shape[:2]
-        hl_img = self.hlmdp.render(self.pre_step_hl_actions)
+        hl_img = self.hlmdp.render(self._pre_step_hl_actions)
 
         # Get dimensions
         _, hl_width = hl_img.shape[:2]

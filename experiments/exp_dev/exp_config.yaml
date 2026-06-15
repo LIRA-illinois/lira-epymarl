@@ -37,8 +37,8 @@ parameters:
   #   values: [True]
   # delete_local_models:
   #   values: [True]
-  live_render:
-    values: [True]
+  # live_render:
+  #   values: [True]
 
 
   # everything off
@@ -59,18 +59,18 @@ parameters:
   ##################
   # MARL alg config
   ##################
-  config:
-    values: [maic_comm_opt]
-  env_args.hierarchical:
-    values: [True]
   # config:
-  #   values: [maic]
+  #   values: [maic_comm_opt]
+  # env_args.hierarchical:
+  #   values: [True]
+  config:
+    values: [maic]
   lr:
     values: [0.00005]
   t_max:
-    values: [100]
+    values: [20]
   test_interval:
-    values: [100]
+    values: [25]
   save_model_interval:
     values: [20]
   runner_log_interval:
@@ -94,7 +94,7 @@ parameters:
   # load_hlmdp_data:
   #   values: [True]
   # hlmdp_time_id:
-  #   values: [exp_dev_26-06-03_16-12-34]
+  #   values: [exp_dev_26-06-10_16-25-32]
 
   ##################
   # Environment config
@@ -110,8 +110,8 @@ parameters:
   comms_values_eval:
     values: [[0.0 1.0]]
 
-  hl_task:
-    values: [[0 1], [1 2]]
+  # hl_task:
+  #   values: [[0 1], [1 2]]
 
   # project-level success rate requirement
   success_rate_spec:
@@ -121,8 +121,8 @@ parameters:
     # values: [1r_small]
     # values: [1r_small_agents_fruit_placed]
     # values: [3ga_2r_small]
-    values: [3ga_2r_small_agents_placed]
-    # values: [3ga_2r_small_agents_fruit_placed]
+    # values: [3ga_2r_small_agents_placed]
+    values: [3ga_2r_small_agents_fruit_placed]
     # values: [3ga_2r_small]
   env_args.n_agents:
     values: [3]

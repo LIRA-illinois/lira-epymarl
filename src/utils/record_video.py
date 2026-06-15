@@ -6,9 +6,9 @@ from gymnasium.wrappers import RecordVideo
 
 class RecordVideoExtended(RecordVideo):
     """Subclass that adds:
-        Support for choosing multiple output format and codecs. Allows videos in WebM and gif formats instead of just MP4. WebM is a more efficient format for web distribution.
-        State, obs, and avail_actions "getter" methods to interface with the "pre_transition_data" object in the PYMARL training loop.
-        Supports hierarchical env in the step() method by rending the high-level action before transitioning the env to the next state
+    Support for choosing multiple output format and codecs. Allows videos in WebM and gif formats instead of just MP4. WebM is a more efficient format for web distribution.
+    State, obs, and avail_actions "getter" methods to interface with the "pre_transition_data" object in the PYMARL training loop.
+    Supports hierarchical env in the step() method by rending the high-level action before transitioning the env to the next state
     """
 
     ALLOWED_MIME_TYPES = {
@@ -24,7 +24,7 @@ class RecordVideoExtended(RecordVideo):
         episode_trigger,
         name_prefix="rl-video",
         disable_logger=True,
-        output_formats: list[str]=["mp4"],
+        output_formats: list[str] = ["mp4"],
     ):
         """Initialize RecordWebmVideo wrapper.
 
@@ -113,13 +113,40 @@ class RecordVideoExtended(RecordVideo):
 
             gc.collect()
 
-    def step(self, action: ActType):
-        # render a frame of the env with the chosen HL action
-        if action.get("hl_actions", False):
-            self.env.set_wrapper_attr("pre_step_hl_actions", action["hl_actions"])
-            self._capture_frame()
+    def step(self, action: ActType, capture_before_step: bool=True):
+        """overrides parent's step(), gives option to capture the frame with the chosen action before the transition occurs
+        """
+        # render a frame of the env with the chosen action before stepping
+        if isinstance(action, dict) and action.get("hl_actions", False):
+            self.env.set_wrapper_attr("_pre_step_hl_actions", action["hl_actions"])
+            self.env.set_wrapper_attr("_pre_step_actions", action["env_actions"])
+        else:
+            self.env.set_wrapper_attr("_pre_step_actions", action)
 
-        obs, rew, terminated, truncated, info = super().step(action)
+        if self.env.has_wrapper_attr("_t_render"):
+            self.env.set_wrapper_attr("_t_render", self.step_id + 1)
+
+        if capture_before_step:
+            if self.recording:
+                self._capture_frame()
+
+                if len(self.recorded_frames) > self.video_length:
+                    self.stop_recording()
+
+        # code below taken from parent
+        obs, rew, terminated, truncated, info = self.env.step(action)
+        self.step_id += 1
+
+        if self.step_trigger and self.step_trigger(self.step_id):
+            self.start_recording(f"{self.name_prefix}-step-{self.step_id}")
+
+        if not capture_before_step:
+            if self.recording:
+                self._capture_frame()
+
+                if len(self.recorded_frames) > self.video_length:
+                    self.stop_recording()
+
         return obs, rew, terminated, truncated, info
 
     @property
