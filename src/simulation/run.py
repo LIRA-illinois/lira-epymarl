@@ -1,15 +1,17 @@
 from types import SimpleNamespace, SimpleNamespace as SN
 import datetime
 from os import makedirs, listdir, cpu_count
-from os.path import join, isdir
-import shutil
+from os.path import join, isdir, abspath
+from shutil import rmtree
 import time
 import threading
 from typing import Any, Optional
 import multiprocessing as mp
+import numpy as np
 
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.stats import binomtest
 
 # use agg backend to support multiprocessing
 plt.switch_backend("agg")
@@ -191,7 +193,16 @@ class Simulation:
 
             eval_data: list[dict] = []
 
+            # update the env's rng state and set it to the same value at the start of each comms value
+            # used to generate the exact same initial env layouts so comms is the only variable that changes
+            # this only works if np_random is not used in env.step() since the generator's state changes
+            # every time it generates a random number
+            env_rng = self.runner.env.get_wrapper_attr("np_random")
+            init_rng_state = env_rng.bit_generator.state
+
             for comms_value in comms_values:
+                env_rng.bit_generator.state = init_rng_state
+
                 self.logger.info(f"Evaluating with comms_value = {comms_value}")
 
                 if reset_options is None:
@@ -446,8 +457,8 @@ class Simulation:
 
         # Convert to DataFrame and log
         df_eval = pd.DataFrame.from_records(eval_data)
-
         self.logger.log_table(df_eval, t=self.runner.t_env)
+
         self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
 
     def _make_comms_eval_plots(self, data_table: wandb.Table, t: int) -> None:
@@ -457,6 +468,8 @@ class Simulation:
         (or provided in `comms_values`) and logs images to wandb if enabled.
         """
         df = data_table.get_dataframe()
+        save_dir = abspath(join(self.logger.dir, "images", f"t_{t}"))
+        makedirs(save_dir, exist_ok=True)
 
         # Columns to plot (exclude t_env as it's the x axis)
         cols = [
@@ -469,26 +482,85 @@ class Simulation:
 
         for col in cols:
             plt.figure()
-            for comms_value in comms_values:
-                df_plot = df[df.get("comms_value") == comms_value]
+            n_comms_values = len(comms_values)
+            for idx, comms_value in enumerate(comms_values):
+                df_plot = df[df.get("comms_value") == comms_value].copy()
                 label = f"Comms: {comms_value}"
-                plt.plot(df_plot["t_env"], df_plot[col], marker="o", label=label)
+
+                # compute small horizontal offsets so multiple comms plots don't overlap
+                # base_offset is a small fraction of typical t_env spacing (fallback to 1)
+                t_vals = df_plot["t_env"].values
+                if len(t_vals) > 1:
+                    median_dt = float(np.median(np.diff(np.sort(t_vals))))
+                else:
+                    median_dt = 1.0
+                base_offset = median_dt * 0.1
+                offset = (idx - (n_comms_values - 1) / 2.0) * base_offset
+
+                # plot the confidence interval of the data based on number of test episodes
+                # use binom test b/c episode success is binary, binom test cannot be used for other values
+                if col in ["test_task_completed_mean"]:
+                    # compute interval per-row and add columns to df_plot
+                    ci_lows = []
+                    ci_highs = []
+                    n_samples_series = df_plot["test_n_episodes"].astype(int)
+                    for k_val, n_val in zip(
+                        (df_plot[col] * n_samples_series).astype(int), n_samples_series
+                    ):
+                        res = binomtest(k=int(k_val), n=int(n_val))
+                        interval = res.proportion_ci(confidence_level=0.95)
+                        ci_lows.append(interval.low)
+                        ci_highs.append(interval.high)
+
+                    df_plot["ci_low"] = ci_lows
+                    df_plot["ci_high"] = ci_highs
+                    df_plot["ci_width"] = df_plot["ci_high"] - df_plot["ci_low"]
+
+                    # use per-row half-width as yerr
+                    yerr = df_plot["ci_width"].values / 2.0
+
+                    # plot the sampled values with horizontal offset applied
+                    plt.errorbar(
+                        df_plot["t_env"].values + offset,
+                        df_plot[col].values,
+                        yerr=yerr,
+                        marker="o",
+                        alpha=1.0,
+                        capsize=5,
+                        label=label,
+                    )
+                    # show N in legend title using first row's n
+                    n_samples = (
+                        int(n_samples_series.iloc[0])
+                        if len(n_samples_series) > 0
+                        else 0
+                    )
+                    legend_title = f"Conf. Int. ($\\alpha=0.05, N={n_samples}$)"
+
+                else:
+                    plt.plot(
+                        df_plot["t_env"],
+                        df_plot[col],
+                        marker="o",
+                        alpha=1.0,
+                        label=label,
+                    )
+                    legend_title = ""
 
             plt.xlabel("t_env")
             plt.ylabel(col)
             plt.title(f"{col}")
-            plt.legend()
+
+            plt.legend(title=legend_title)
             plt.grid(True)
 
-            save_dir = join(self.logger.dir, "figures", f"t_{t}")
-            makedirs(save_dir, exist_ok=True)
             save_path = join(save_dir, f"comms_eval_{col}.png")
             plt.tight_layout()
             plt.savefig(save_path)
             plt.close()
-            self.logger.log_image(
-                column_name=col, image_path=save_path, t=int(self.runner.t_env)
-            )
+
+        # log all images in the image dir
+        self.logger.log_images(save_dir, t=self.runner.t_env, group="comms_eval/")
 
     def evaluate_loaded(self) -> None:
         """probably doesn't work given new eval functions"""
@@ -529,7 +601,7 @@ class Simulation:
         # models are saved locally and on the wandb server
         # as wandb artifacts and can be accessed with the wandb API
         if self.args.delete_local_models:
-            shutil.rmtree(model_dir, ignore_errors=True)
+            rmtree(model_dir, ignore_errors=True)
 
     def _load_hlmdp_data(self):
         api = wandb.Api()
@@ -579,9 +651,6 @@ class Simulation:
                 & (df_hlmdp.next_state != row.hl_task[1]),
                 "prob",
             ] = row.test_project_failed_mean
-        # print(df_hlmdp)
-        # print('\n breakpoint ')
-        # __import__('ipdb').set_trace(context=3)
 
     def _load_checkpoint(self) -> None:
         # get load time step for both cases
@@ -637,7 +706,7 @@ class Simulation:
 
         if self.args.eval_run_id is not None:
             # clean up local files that have been loaded into memory
-            shutil.rmtree("artifacts", ignore_errors=True)
+            rmtree("artifacts", ignore_errors=True)
 
     def _parse_config(self, _config, _log) -> SimpleNamespace:
         _config = self._args_sanity_check(_config, _log)

@@ -26,8 +26,8 @@ parameters:
   wandb_project:
     values: [comm_experiments]
   wandb_mode:
-    values: [online]
-    # values: [offline]
+    # values: [online]
+    values: [offline]
 
   use_wandb:
     values: [True]
@@ -70,13 +70,13 @@ parameters:
   t_max:
     values: [20]
   test_interval:
-    values: [25]
+    values: [10]
   save_model_interval:
     values: [20]
   runner_log_interval:
     values: [20]
   test_nepisode:
-    values: [1]
+    values: [5]
   n_test_replays_save:
     values: [1]
   batch_size:
@@ -108,6 +108,7 @@ parameters:
   # all values in the space-delimited list will be evaluated in a single run
   # only works for non-hierarchical version of the env, for hierarchical, these are considered "actions" in a high-level MDP
   comms_values_eval:
+    # values: [[0.0 1.0]]
     values: [[0.0 1.0]]
 
   # hl_task:
@@ -120,9 +121,9 @@ parameters:
   env_args.map_name:
     # values: [1r_small]
     # values: [1r_small_agents_fruit_placed]
-    # values: [3ga_2r_small]
+    values: [3ga_2r_small]
     # values: [3ga_2r_small_agents_placed]
-    values: [3ga_2r_small_agents_fruit_placed]
+    # values: [3ga_2r_small_agents_fruit_placed]
     # values: [3ga_2r_small]
   env_args.n_agents:
     values: [3]

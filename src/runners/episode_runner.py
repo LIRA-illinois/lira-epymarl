@@ -98,12 +98,12 @@ class EpisodeRunner:
             t_env = self.t_env
 
         if isinstance(self.env, RecordVideoExtended):
-            # save final episode
+            # save final episode (other eps saved when env.reset() is called after they finish)
             self.env.stop_recording()
 
             # log videos to wandb
-            self.logger.log_replays(
-                video_dir=self.env.video_folder, t=t_env, video_prefix=video_prefix
+            self.logger.log_videos(
+                dir=self.env.video_folder, t=t_env, video_prefix=video_prefix
             )
 
             # remove the video recorder wrapper
@@ -380,7 +380,7 @@ class EpisodeRunner:
         #     RIGHT = 4
         #     LOAD = 5
 
-        print(f"self.t: {self._t}")
+        # print(f"self.t: {self._t}")
 
         if isinstance(actions, dict):
             if self.mac.comms_value == 0.0:

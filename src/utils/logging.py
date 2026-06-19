@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 import logging
 import pandas as pd
+from shutil import rmtree
 
 import wandb
 import numpy as np
@@ -171,7 +172,7 @@ class MainLogger:
         """
 
     def log_table(self, df_data: pd.DataFrame, t: int):
-        """Log accumulated evaluation statistics as a wandb table."""
+        """Log accumulated evaluation statistics as a wandb table"""
         if self.data_table is None:
             self.data_table = wandb.Table(dataframe=df_data, log_mode="MUTABLE")
         else:
@@ -184,27 +185,56 @@ class MainLogger:
             data[f"eval_stats{self.log_suffix}"] = self.data_table
             self.wandb.log(data)
 
-    def log_image(self, column_name: str, image_path: str, t: int):
+    def log_image(self, image_path: str, t: int, key: str = ""):
         if self.use_wandb:
             data = _log_setup(self.step_metric, t)
-            data[f"comms_eval/{column_name}{self.log_suffix}"] = wandb.Image(image_path)
+            data[f"{key}{self.log_suffix}"] = wandb.Image(image_path)
 
             self.wandb.log(data=data)
 
-    def log_replays(
+    def log_images(self, dir: str, t: int, key: str = "", group: str = ""):
+        """logs all images in a given directory to a wandb run, then removes the original directory to avoid replicated data on disk"""
+        if self.use_wandb:
+            # log each image separately
+            for _, _, files in os.walk(dir):
+                for file in files:
+                    data = _log_setup(self.step_metric, t)
+                    path = join(dir, file)
+                    fn, extension = (
+                        os.path.splitext(file)[0],
+                        os.path.splitext(file)[1][1:],
+                    )
+
+                    data[f"{group}{key}{fn}{self.log_suffix}"] = wandb.Image(path)
+                    self.wandb.log(data=data)
+
+            # remove image dir to avoid double-logging
+            path = dir.split("/")
+
+            if path[-1] == "images":
+                path_delete = dir
+            else:
+                # cd up a dir since video_dir has the time in its name
+                path_delete = join("/", *path[:-1])
+
+            # needs an absolute path to work correctly
+            rmtree(path_delete)
+
+    def log_videos(
         self,
-        video_dir: str,
+        dir: str,
         t: int,
         video_prefix: str = "replay",
     ):
+        """logs all videos in a given directory to a wandb run, then removes the original directory to avoid replicated data on disk"""
         if self.use_wandb:
-            # log all replays in a directory to a wandb run as a table for easier visualization
+            # log all replays in a directory to a wandb run, concat videos
+            # to a list then log the list for better visualization on the website
             data = _log_setup(self.step_metric, t)
-            # log all replays in a directory to a wandb run
             video_list = []
-            for _, _, videos in os.walk(video_dir):
+            for _, _, videos in os.walk(dir):
                 for video in videos:
-                    video_path = join(video_dir, video)
+                    video_path = join(dir, video)
                     video_name, extension = (
                         os.path.splitext(video)[0],
                         os.path.splitext(video)[1][1:],
@@ -214,7 +244,19 @@ class MainLogger:
             data[f"{video_prefix}{self.log_suffix}"] = video_list
             self.wandb.log(data=data)
 
+            # remove video_dir to avoid double-logging replays
+            path = dir.split("/")
+            if path[-1] == "replays":
+                path_delete = dir
+            else:
+                # cd up a dir since video_dir has the time in its name
+                path_delete = join("/", *path[:-1])
+
+            # needs an absolute path to work correctly
+            rmtree(path_delete)
+
     def log_agent(self, save_path: str, t: int):
+        """logs agent models to a wandb run as an artifact"""
         if self.use_wandb:
             # include environment timestep as metadata for the logged agent files
             artifact_name = "agent"
@@ -329,7 +371,7 @@ class LocalLogger:
         data[key] = value
         self.wandb.log(data)
 
-    def log_replays(
+    def log_videos(
         self,
         video_dir: str,
         t: int,

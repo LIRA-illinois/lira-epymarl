@@ -1,0 +1,122 @@
+# config for a grid search experiment based on wandb sweep config
+# meant to be used with grid_search_experiment.py
+# program: src/experiments/wandb_sweep_wrapper_single_seed.py
+method: random
+metric:
+  goal: maximize
+  name: test_return_mean
+
+# params to grid search over
+# all values assumed to be in lists
+parameters:
+  ##################
+  # Seeds
+  ##################
+  # seeds are grid-searched over and are handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
+  # use fixed seeds like this to enable reproducible results
+  # seed:
+  #   values: [180335, 259851, 409900, 105160, 371020]
+  # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
+  n_seeds:
+    values: [3]
+
+  ##################
+  # Project setup + logging
+  ##################
+  wandb_project:
+    values: [comm_experiments]
+  # use offline mode to avoid wandb API rate limits for many parallel runs
+  # need to sync to wandb server after a run is finished
+  wandb_mode:
+    values: [offline]
+  use_wandb:
+    values: [True]
+  save_model:
+    values: [True]
+  wandb_save_model:
+    values: [True]
+  delete_local_models:
+    values: [True]
+  save_test_replays:
+    values: [True]
+  wandb_save_test_replays:
+    values: [True]
+
+  # everything on except Sacred cuz it suuucks
+  use_sacred:
+    values: [False]
+
+  ##################
+  # MARL alg config
+  ##################
+  config:
+    values: [maic]
+  lr:
+    values: [0.00005]
+  t_max:
+    values: [3050000]
+  test_nepisode:
+    values: [300]
+  n_test_replays_save:
+    values: [5]
+  test_interval:
+    values: [300000]
+  # set test_interval = save_model_interval so you can load the model from any eval for further processing
+  save_model_interval:
+    values: [300000]
+  # all values in the space-delimited list will be evaluated in a single run
+  comms_values_eval:
+    values: [[0.0 0.05 0.1 1.0]]
+
+  ##################
+  # Environment config
+  ##################
+  # basic env config
+  env-config:
+    values: [multigrid-lbf-v0]
+  env_args.map_name:
+    values: [1r_small, 3ga_1r_small]
+  env_args.n_agents:
+    values: [3]
+  env_args.max_fruit_level:
+    values: [3]
+  env_args.max_agent_level:
+    values: [1]
+  env_args.force_coop:
+    values: [True]
+  env_args.max_episode_steps:
+    values: [50]
+
+  # obs config
+  env_args.state_type:
+    values: [multigrid_flattened]
+  env_args.sight:
+    values: [7]
+  env_args.obs_type:
+    values: [multigrid_flattened]
+  env_args.observe_other_agents:
+    values: [False]
+
+  # reward config
+  # this value worked well for 3 agents in exp 13
+  env_args.reward_config.failed_load_penalty:
+    values: [-0.0005]
+
+  # rendering
+  env_args.highlight_visible_cells:
+    values: [True]
+
+  # experiment-specific env args
+  env_args.max_num_fruit:
+    values: [1, 2]
+
+##################
+# Conditional parameters
+# use conditional params to specify single values to use for a given setup specified in "parameters" above
+# don't make these too complex or nest these deeper, it'll probably break something
+##################
+conditional_parameters:
+  config:
+    maic:
+      mixer:
+        values: [vdn]

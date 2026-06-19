@@ -23,6 +23,7 @@ dependencies = [
     "sacred==0.8.7",
     "setuptools==81.0.0", # setuptools 81.0.0 is required for sacred to work
     "s2clientprotocol>=4.10.1.75800.0",
+    "statsmodels",
     "tensorboard>=2.20.0",
     "tensorboard-logger",
     "torch==2.6.0",
