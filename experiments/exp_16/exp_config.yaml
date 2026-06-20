@@ -66,7 +66,10 @@ parameters:
     values: [300000]
   # all values in the space-delimited list will be evaluated in a single run
   comms_values:
-    values: [[0.0 0.1 0.25 0.5 0.75 1.0]]
+    values: [[0.0 0.05 0.1 1.0]]
+
+  unique_policy_per_comms_value:
+    values: [True, False]
 
   ##################
   # Environment config
@@ -108,7 +111,7 @@ parameters:
 
   # experiment-specific env args
   env_args.max_num_fruit:
-    values: [1, 2]
+    values: [2]
 
 ##################
 # Conditional parameters
