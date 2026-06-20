@@ -27,8 +27,10 @@ class CommsMAC:
     def _build_agents(self, input_shape):
         # you would add your model-based ILP agent as an agent in the registry to be grabbed here
         self.comms_agent = agent_REGISTRY[self.args.comms_agent](self.args)
-        #TODO instead of working wtih the env agent here as an object, always just reference the env's mac's agent so we can be sure we're working with the right one
-        self.env_agent = self.env_mac.agent
+
+    @property
+    def env_agent(self):
+        return self.env_mac.agent
 
     def init_hidden(self, batch_size):
         self.env_mac.init_hidden(batch_size=batch_size)
@@ -77,8 +79,13 @@ class CommsMAC:
 
         return actions
 
-    def update_comms_value(self, comms_value: float):
-        self.env_mac.update_comms_value(comms_value)
+    @property
+    def comms_value(self):
+        return self.env_mac.comms_value
+
+    @comms_value.setter
+    def comms_value(self, value):
+        self.comms_value = value
 
     def forward(self, ep_batch: EpisodeBatch, t, test_mode=False, **kwargs):
         return 1

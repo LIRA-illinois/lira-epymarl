@@ -51,7 +51,6 @@ parameters:
   # live_render:
   #   values: [False]
 
-
   # Sacred always off cuz it suuucks
   use_sacred:
     values: [False]
@@ -106,10 +105,15 @@ parameters:
 
   # comms allocation params
   # all values in the space-delimited list will be evaluated in a single run
-  # only works for non-hierarchical version of the env, for hierarchical, these are considered "actions" in a high-level MDP
-  comms_values_eval:
+  comms_values:
     # values: [[0.0 1.0]]
-    values: [[0.0 1.0]]
+    # values: [[0.0 0.5 1.0]]
+    # values: [[0.5 1.0]]
+    values: [[0.5 0.75]]
+
+  unique_policy_per_comms_value:
+    # values: [True, False]
+    values: [True]
 
   # hl_task:
   #   values: [[0 1], [1 2]]

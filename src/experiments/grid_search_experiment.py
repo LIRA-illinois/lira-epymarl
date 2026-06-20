@@ -8,7 +8,7 @@ to allow greater control over running jobs compared to wandb which only allows r
 be stopped 1 at a time.
 """
 
-from typing import Literal
+from typing import Literal, Callable
 from os import environ, makedirs, getcwd, walk
 from os.path import join
 import math
@@ -21,7 +21,138 @@ import yaml
 import pandas as pd
 import numpy as np
 
-from slurm_args import SlurmArgs
+
+def string_inputs_to_list(config: dict, key: str, output_type: Callable) -> dict:
+    """Converts space-delimited string list to list of "type" for the given key in the config dictionary."""
+    if isinstance(config[key][0], output_type):
+        return config
+
+    if isinstance(config[key], str):
+        # config[key] takes this form in main.py after the run command is formatted in grid_search_experiment
+        eval_str = config[key].split("=")[0][1:-1]
+    elif isinstance(config[key], list):
+        # in grid_search_experiment, this is a list with a single space-delimited string with the parameter values
+        eval_str = config[key][0]
+
+    param_values: list[float] = [output_type(x) for x in eval_str.split(" ")]
+    config[key] = param_values
+
+    return config
+
+
+class SlurmArgs:
+    """configure the computational resources to be used for an experiment on the NCSA Delta AI Cluster"""
+
+    def __init__(
+        self,
+        experiment: str,
+        delta_config: dict,
+        campus_config: dict,
+        cluster: Literal["delta", "campus"],
+        job_idx: int = 1,
+        time: str = "2-00:00:00",
+        memory_gb: int = 128,
+        nodes: int = 1,
+        n_tasks_per_node: int = 1,
+        cpus_per_task: int = 64,
+        log_dir: str = "",
+    ) -> None:
+        """
+        Notes on Delta system specs: https://docs.ncsa.illinois.edu/systems/delta/en/latest/user_guide/architecture.html
+
+        Parameters
+        ----------
+        experiment : str
+            name of the experiment
+        account : str, optional
+            account name, by default "bfke-delta-gpu"
+        time : str, optional
+            max run time of the experiment in d-hh:mm:ss format, by default "2-00:00:00"
+        nodes : int, optional
+            number of compute nodes to use for this job, by default 1
+            Don't mess with multi-node stuff. You'll run separate jobs rather than having a single big job you need to parallelize across nodes.
+        memory_gb : int, optional
+            requested memory in GB, by default 128. 256 GB available on 4-GPU nodes, 2 TB on 8-GPU nodes.
+        n_tasks_per_node : int, optional
+            something to do with parallel processing. Just keep at the default value of 1.
+        cpus_per_task : int, optional
+            number of CPU cores to use for your task, by default 64.
+            64 CPU cores available on the 4-GPU nodes, 128 cores on the 8-GPU A100 node, and 96 cores on the 8-GPU H200 node.
+        gpus_per_node : int, optional
+            number of GPUs to use in your job, by default 1
+        gpu_bind : Literal["closest"], optional
+            chose the GPU and CPU that are physically closest to speed things up, by default "closest"
+        """
+
+        # put vars in a dict b/c some vars in the config have
+        # dashes in their names and you can't do that with python vars
+        self.config: dict = {
+            "job-name": f"{experiment}_job_{job_idx}",
+            "time": time,
+        }
+
+        match cluster:
+            case "delta":
+                # partition of the cluster, by default "gpuA40x4"
+                # A40 has 48 GB VRAM per GPU, A100 has 80 GB VRAM per GPU, H200 has 141 GB VRAM per GPU
+                # The H200 costs a lot in terms of my credits to use, and is a monster GPU in general. Very unnecessary for my purposes lol
+                # Any combination of these strings is valid too, so "gpuA40x4,gpuA100x4,gpuA100x8" is a valid partition
+                partition_delta: Literal["gpuA40x4", "gpuA100x4", "gpuA100x8", "H200x8"]
+                self.config["partition"] = delta_config["partition"]
+
+                if campus_config["exclude"] != "":
+                    self.config["exclude"] = delta_config["exclude"]
+
+                self.config["account"] = "bfke-delta-gpu"
+                self.config["nodes"] = nodes
+                self.config["gpus-per-node"] = delta_config["gpus_per_node"]
+                self.config["cpus-per-task"] = cpus_per_task
+                self.config["ntasks-per-node"] = n_tasks_per_node
+                self.config["gpu-bind"] = "closest"
+
+            case "campus":
+                # partition of the cluster to use
+                # IllinoisComputes-GPU has 5 nodes
+                ## 4 with 4, 80 GB A100 GPUs, 512 GB RAM, and 128 CPU cores
+                ## 1 with 8, 141GB H200 GPUs, 1.5 TB RAM, and 64 CPU cores
+                # eng-research-gpu has 5 nodes, each with 8, 24 GB A10 GPUs, 512 GB RAM, and 64 CPU cores
+                # csl has 2 nodes, each with 8, 48 GB L40S GPUs, 1 TB RAM, and 128 CPU cores
+                # Any combination of these strings is valid too, so ""IllinoisComputes-GPU,eng-research-gpu"" is a valid partition
+                partition_campus: Literal[
+                    "IllinoisComputes-GPU", "eng-research-gpu", "csl"
+                ]
+                self.config["partition"] = campus_config["partition"]
+
+                if campus_config["exclude"] != "":
+                    self.config["exclude"] = campus_config["exclude"]
+
+                self.config["account"] = "huytran1-ic"
+                self.config["nodes"] = nodes
+
+                # ‑‑ntasks=p  Total number of cores for the batch job. p is how many cores (ntasks) per job or per node (ntasks-per-node) to use (1 through 40) [default: 1 core].
+                # https://docs.ncsa.illinois.edu/systems/icc/en/latest/user_guide/running_jobs.html
+                self.config["ntasks"] = cpus_per_task
+
+                # this cluster can also take a "gres" (GPU resources) argument instead of gpus-per-node. gres takes the format "gpu:{gpu_type}:{n_gpus}"
+                # EX: gpu:A100:2 requests 2 Nvidia A100 GPUs on whatever partition you're submitting your job to
+                # this is different from Delta where choosing the partition also chooses
+                # the types of GPUs that are available for use
+                self.config["gpus-per-node"] = campus_config["gpus_per_node"]
+            case _:
+                raise NotImplementedError
+
+        self.config["mem"] = f"{memory_gb}G"
+        self.config["output"] = join(log_dir, f"job_{job_idx}_log.out")
+        self.config["error"] = join(log_dir, f"job_{job_idx}_log.err")
+
+    def get_config_lines(self) -> list[str]:
+        """get list of strings to be put in the sbatch file"""
+        output_strs: list[str] = ["#!/bin/bash"]
+
+        for k, v in self.config.items():
+            output_strs.append(f"#SBATCH --{k}={v}")
+
+        return output_strs
 
 
 class GridSearch(object):
@@ -115,7 +246,9 @@ class GridSearch(object):
             self.print_info(scenarios, run_setups)
 
             if self.args.computer in ["campus", "delta"]:
-                job_paths = self.build_sbatch_files(run_setups, cluster=self.args.computer, time_id=time_id)
+                job_paths = self.build_sbatch_files(
+                    run_setups, cluster=self.args.computer, time_id=time_id
+                )
 
             # check if user wants to run the experiment
             user_input = input("Run experiment now? (y/n) ").lower()
@@ -149,9 +282,30 @@ class GridSearch(object):
             print("done")
             exit()
 
-
     def get_scenarios(self, exp_config: dict) -> tuple[list[dict], list[str]]:
         scenarios: list[dict] = [*self.gen_dict_combinations(exp_config["parameters"])]
+
+        # handle comms_values when a unique policy per comms value is requested
+        # expand scenarios so each comms value becomes its own scenario
+        updated_scenarios = []
+        for scenario in scenarios:
+            if scenario.get("comms_values", False) and scenario.get(
+                "unique_policy_per_comms_value", False
+            ):
+                # convert space-delimited string to list of floats
+                scenario = string_inputs_to_list(
+                    scenario, "comms_values", output_type=float
+                )
+                comms_list = scenario.pop("comms_values")
+                for cv in comms_list:
+                    new_s = scenario.copy()
+                    # format as a string in a list to work with parsing in main.py
+                    new_s["comms_values"] = [f"{cv}"]
+                    updated_scenarios.append(new_s)
+            else:
+                updated_scenarios.append(scenario)
+
+        scenarios = updated_scenarios
 
         # get scenario configs based on conditional params
         if "conditional_parameters" in exp_config:
@@ -197,7 +351,13 @@ class GridSearch(object):
 
         run_setups: list[dict] = []
         for scenario_idx, params in enumerate(scenarios):
-            _params = params.copy()
+            _params: dict = params.copy()
+
+            grid_search_params = {"seed": seeds}
+            # produce cartesian product of any grid_search_params (seed, ...)
+            grid_keys = list(grid_search_params.keys())
+            grid_values = list(grid_search_params.values())
+
             # unique wandb group name for each experimental scenario + runtime, used to group runs on the wandb website for post-processing
             scenario_params = {
                 "experiment": self.args.experiment,
@@ -218,11 +378,14 @@ class GridSearch(object):
                 else:
                     updates.append(f"{k}={v}")
 
-            # define the command to be run
-            for seed in seeds:
-                # unique name for each wandb run using seed
+            # define the command to be run for each combination of grid params
+            # seeds have the same scenario number, but unique_policy_per_comms_value should generate different scenarios
+            for combo in product(*grid_values):
+                combo_dict = dict(zip(grid_keys, combo))
+
+                # for each seed/comms_value combo, build a run
                 run_params = scenario_params.copy()
-                run_params["seed"] = seed
+                run_params.update(combo_dict)
                 run_updates = [f"{k}={v}" for k, v in run_params.items()]
 
                 # needed for debugging while using Sacred
@@ -269,7 +432,6 @@ class GridSearch(object):
                 runner_cmds,
             ]
 
-
             proc = subprocess.Popen(
                 run_cmd,
                 env=env,
@@ -283,7 +445,10 @@ class GridSearch(object):
                 p.wait()
 
     def build_sbatch_files(
-        self, run_setups: pd.DataFrame, cluster: Literal["campus", "delta"], time_id: str
+        self,
+        run_setups: pd.DataFrame,
+        cluster: Literal["campus", "delta"],
+        time_id: str,
     ) -> list[str]:
         # assign commands to each job and run them all in parallel within that job
         max_runs_per_job = self.args.max_runs_per_job
@@ -436,7 +601,7 @@ class GridSearch(object):
             )
             byte_to_gb = 1024**3
             for device in self.args.gpus:
-                (avail_vram, total_vram) = mem_get_info(device)
+                avail_vram, total_vram = mem_get_info(device)
                 # convert from bytes to gigabtyes
                 avail_vram, total_vram = round(avail_vram / byte_to_gb, 1), round(
                     total_vram / byte_to_gb, 1
@@ -550,8 +715,7 @@ class GridSearch(object):
         df_tmp = run_setups.loc[run_setups.seed == seed]
 
         run_dirs = [
-            f"{row.time_id}_{row.seed}_{row.scenario}"
-            for _, row in df_tmp.iterrows()
+            f"{row.time_id}_{row.seed}_{row.scenario}" for _, row in df_tmp.iterrows()
         ]
 
         print(f"Comparing env outputs for {run_dirs}")

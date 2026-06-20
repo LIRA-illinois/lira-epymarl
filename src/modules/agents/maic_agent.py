@@ -1,10 +1,28 @@
+from collections import defaultdict
+
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.types import Tensor
-
 import torch.distributions as D
 from torch.distributions import kl_divergence
+
+
+class STEFunction(th.autograd.Function):
+    @staticmethod
+    def forward(ctx, x: Tensor, thres: float):
+        # Binary threshold: 1 if x > 0, else 0
+        return (x > thres).float()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # straight-through estimation of gradients: Pass the gradient through unchanged
+        # one way of estimating gradients thru a binary threshold
+        # grad_output corresponds to gradient wrt the output; need to return a tuple
+        # with gradients for each forward input (x, thres). We pass the gradient
+        # through to `x` and return None for `thres` (non-differentiable / constant).
+        return grad_output, None
+
 
 
 # updated implementation w/ better encapsulation of functions and an explicit comms value parameter
@@ -14,18 +32,12 @@ class MAICAgent(nn.Module):
     """class for a team of agents that communicate using MAIC"""
 
     def __init__(self, input_shape, args):
-        """
-        # args.comms_val \in (0, 1], larger comms_val means "more" communication between agents
-        # = 0 means no comms between agents, attention weights for all messages are set to 0, equivalent to not using the MAIC module
-        # = 1 means unrestricted comms between agents, no attention weights are filtered out
-        """
         super(MAICAgent, self).__init__()
         self.args = args
         self.n_agents = args.n_agents
         self.latent_dim = args.latent_dim
         self.n_actions = args.n_actions
-
-        self.comms_value: float = 1.0
+        self._comms_value: float = 1.0
 
         activation_func = nn.LeakyReLU()
 
@@ -56,11 +68,52 @@ class MAICAgent(nn.Module):
         self.w_query = nn.Linear(args.hidden_dim, args.attention_dim)
         self.w_key = nn.Linear(args.latent_dim, args.attention_dim)
 
+    def _approx_threshold(
+        self, x: Tensor, steepness: float = 50.0, bias: float = 0.5
+    ) -> Tensor:
+        """uses a steep sigmoid to approximate a hard threshold set at "bias",
+        using the sigmoid allows gradients to pass through the thresholding operation
+        Setting steepness to 50 means values < 0.4 are set to 0 and > 0.6 are set to 1, which is probably good enough for this use case. Setting it steeper may lead to gradient issues.
+
+        Parameters
+        ----------
+        x : Tensor
+            data to be thresholded
+        steepness : float, optional
+            by default 50.
+        bias : float, optional
+            location of the threshold, by default 0.5
+
+        Returns
+        -------
+        Tensor
+            tensor with approximately binary values
+        """
+        return th.sigmoid(steepness * (x - bias))
+
     def init_hidden(self):
         return self.fc1.weight.new(1, self.args.hidden_dim).zero_()
 
-    def update_comms_value(self, new_comms_value: float):
-        self.comms_value = new_comms_value
+    @property
+    def comms_value(self) -> float:
+        """_summary_
+        comms_value \in [0, 1], larger comms_value means "more" communication between agents
+        = 0 means no comms between agents, attention weights for all messages are set to 0, equivalent to not using the MAIC module
+        = 1 means unrestricted comms between agents, no attention weights are filtered out
+        """
+        return self._comms_value
+
+    @comms_value.setter
+    def comms_value(self, value):
+        self._comms_value = value
+
+    @property
+    def msg_filter_thres(self) -> float:
+        """based on definition of comms_value,
+        if comms = 1.0, that means no restriction on communication, so the threshold should be set to 0
+        if comms = 0.0, that means all communication is restricted, so the threshold should be set to 1.0
+        """
+        return 1.0 - self.comms_value
 
     def forward(
         self,
@@ -70,8 +123,8 @@ class MAICAgent(nn.Module):
         test_mode: bool = False,
         **kwargs,
     ):
-        # auxiliary losses
-        aux_losses: dict = {}
+        # aux losses and any other info to be logged
+        agent_info: dict = defaultdict(dict)
 
         q_local, hidden_state = self._get_local_q_value(
             inputs=inputs, hidden_state=hidden_state
@@ -82,18 +135,22 @@ class MAICAgent(nn.Module):
                 hidden_state=hidden_state, bs=bs, test_mode=test_mode
             )
 
-            gated_msg = self._get_messages(
+            gated_msg, msg_weights = self._get_messages(
                 hidden_state=hidden_state, bs=bs, latent=latent, test_mode=test_mode
             )
 
-            # update estimated Q-value using incentive messsages from other agents
+            agent_info["logs"]["msg_weights"] = msg_weights.detach().to(device="cpu")
+
+            # update estimated Q-value using incentive messages from other agents
             msg_tot = th.sum(gated_msg, dim=1).view(bs * self.n_agents, self.n_actions)
             q_out: Tensor = q_local + msg_tot
 
-
             if "train_mode" in kwargs and kwargs["train_mode"]:
-                if hasattr(self.args, "mi_loss_weight") and self.args.mi_loss_weight > 0:
-                    aux_losses["mi_loss"] = self._get_action_mi_loss(
+                if (
+                    hasattr(self.args, "mi_loss_weight")
+                    and self.args.mi_loss_weight > 0
+                ):
+                    agent_info["losses"]["mi_loss"] = self._get_action_mi_loss(
                         hidden_state, bs, latent_embed, q_out
                     )
 
@@ -102,9 +159,12 @@ class MAICAgent(nn.Module):
                     and self.args.entropy_loss_weight > 0
                 ):
                     alpha = self._get_attention_weights(
-                        hidden_state=hidden_state, latent=latent, bs=bs, compute_loss=True
+                        hidden_state=hidden_state,
+                        latent=latent,
+                        bs=bs,
+                        compute_loss=True,
                     )
-                    aux_losses["entropy_loss"] = self._get_entropy_loss(alpha)
+                    agent_info["losses"]["entropy_loss"] = self._get_entropy_loss(alpha)
 
         else:
             # same as VDN, QMIX, or whatever mixer you're using
@@ -112,13 +172,13 @@ class MAICAgent(nn.Module):
 
         # verify that changing comms value affects q_out
         # if test_mode:
-        #     print("msg_filter_thres\n", 1.0 - self.comms_value)
+        #     print("msg_filter_thres\n", 1.0 - self._comms_value)
         #     print("comms_value\n", self.args.comms_value)
         #     print("msg_tot\n", msg_tot)
         #     print("q_local\n", q_local)
         #     print("q_out\n", q_out)
 
-        return q_out, hidden_state, aux_losses
+        return q_out, hidden_state, agent_info
 
     def _get_local_q_value(
         self, inputs: Tensor, hidden_state: Tensor
@@ -168,7 +228,7 @@ class MAICAgent(nn.Module):
 
     def _get_messages(
         self, hidden_state: Tensor, bs: int, latent: Tensor, test_mode: bool
-    ) -> Tensor:
+    ) -> tuple[Tensor, Tensor]:
         """generate each agent's incentive messages it sends to its teammates"""
         # get base incentive messages
         h_repeat = (
@@ -185,19 +245,30 @@ class MAICAgent(nn.Module):
             hidden_state=hidden_state, latent=latent, bs=bs
         )
 
-        # filter out messages with attention weights below a pre-defined threshold
-        if test_mode:
-            # slightly different from the paper, if we let \delta = msg_filter_thres, then we do not scale \delta by n_agents when filtering out the messages
-            # This gives more control over the sparsity of messages. It feels like there was not a good reason to scale by the number of agents in the original implementation.
-            msg_filter_thres = 1.0 - self.comms_value
-            alpha[alpha < msg_filter_thres] = 0
+        # TODO change this condition so you can filter messages during training mode too
+        # to filter messages during training and have the message sender get appropriate gradients, need to use a torch activation function to approximate a hard threshold
+        # we need a real activation function so the gradients will be computed properly if we want to do this filtering during training
+        # our approach: STE function
+        if getattr(self.args, "unique_policy_per_comms_value", False):
+            # msg_filter = self._approx_threshold(alpha, bias=self.msg_filter_thres)
+            msg_filter = STEFunction.apply(alpha, self.msg_filter_thres)
+            alpha = msg_filter * alpha
+
+        elif test_mode:
+            # original approach, only filters messages during evaluation where they aren't part of any gradient calculation for learning
+            # set attention weights to 0 if they are below a pre-defined threshold
+            # slightly different from the paper, if we let \delta = msg_filter_thres, then we do not scale
+            # \delta by n_agents when filtering out the messages
+            # This gives more control over the sparsity of messages. In the original implementation, it did
+            # not feel like there was a good reason to scale by the number of agents.
+            # this is your current "activation function" for the messages
+            alpha[alpha < self.msg_filter_thres] = 0
 
             # original implementation
             # alpha[alpha < (0.25 * 1 / self.n_agents)] = 0
 
         gated_msg: Tensor = alpha * msg
-
-        return gated_msg
+        return gated_msg, alpha
 
     def _get_attention_weights(
         self, hidden_state: Tensor, latent: Tensor, bs: int, compute_loss: bool = False

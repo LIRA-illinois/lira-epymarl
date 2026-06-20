@@ -7,6 +7,7 @@ from components.episode_buffer import EpisodeBatch
 from modules.mixers.vdn import VDNMixer
 from modules.mixers.qmix import QMixer
 
+
 @th.compile
 class MAICLearner:
     def __init__(self, mac, scheme, logger, args):
@@ -62,7 +63,7 @@ class MAICLearner:
         self.mac.init_hidden(batch.batch_size)
 
         for t in range(batch.max_seq_length):
-            agent_outs, returns_ = self.mac.forward(
+            agent_outs, agent_info = self.mac.forward(
                 batch,
                 t=t,
                 prepare_for_logging=prepare_for_logging,
@@ -70,10 +71,9 @@ class MAICLearner:
                 mixer=self.target_mixer,
             )
             mac_out.append(agent_outs)
-            if prepare_for_logging and "logs" in returns_:
-                logs.append(returns_["logs"])
-                del returns_["logs"]
-            losses.append(returns_)
+
+            if prepare_for_logging and agent_info.get("logs", False):
+                logs.append(agent_info["logs"])
 
         mac_out = th.stack(mac_out, dim=1)  # Concat over time
 

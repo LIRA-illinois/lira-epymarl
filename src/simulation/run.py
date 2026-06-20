@@ -99,6 +99,9 @@ class Simulation:
         # training loop
         self.logger.info("Beginning training for {} timesteps".format(self.args.t_max))
 
+        if getattr(self.args, "unique_policy_per_comms_value", False):
+            self.runner.mac.comms_value = self.args.comms_values[0]
+
         while self.runner.t_env <= self.args.t_max:
             # Run for a whole episode at a time
             result = self.runner.run(test_mode=False, reset_options=reset_options)
@@ -184,8 +187,8 @@ class Simulation:
         """Evaluation entry point."""
 
         # always comms sweep if hierarchical or not
-        if hasattr(self.args, "comms_values_eval"):
-            comms_values = self.args.comms_values_eval
+        if hasattr(self.args, "comms_values"):
+            comms_values = self.args.comms_values
             self.logger.info(
                 f"Evaluating Policy Across Comms Values: {comms_values}",
                 log_header=True,

@@ -19,7 +19,7 @@ tb:
 # default values for these params
 # pass in gpus as a space-delimited string like g="0 1 2"
 g ?= 0
-c ?= delta
+c ?= lab
 # at ~4 GB per run, 24 runs per job is about 100 GB, which works well for requested RAM of 128 GB while leaving some headroom
 m ?= 24
 r ?= 2
@@ -31,7 +31,7 @@ else
     debug =
 endif
 run_experiment:
-	@bash -c 'source .venv/bin/activate; python src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${debug}'
+	@bash -c 'source .venv/bin/activate; python3 src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${debug}'
 
 activate_venv:
 	bash -c 'source .venv/bin/activate; /bin/bash'

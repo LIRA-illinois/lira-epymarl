@@ -14,15 +14,19 @@ def run_eval_episodes(
     reset_options: Optional[dict] = None,
 ):
     """Run n_eval_eps evaluation episodes, optionally recording, and return last result."""
-    # derive identifiers
     task_state, comms_value = None, None
     if reset_options is not None:
         task_state = reset_options.get("hl_start_state", None)
         comms_value = reset_options.get("comms_value", None)
 
-    if comms_value is not None:
+    set_comms_value_for_eval = (
+        comms_value is not None
+        and getattr(args, "unique_policy_per_comms_value", False) is False
+    )
+
+    if set_comms_value_for_eval:
         print(f"Setting MAC comms value to {comms_value}")
-        runner.mac.update_comms_value(comms_value)
+        runner.mac.comms_value = comms_value
 
     # filename prefix includes task state and comms value when available
     prefix_parts = [video_prefix]
@@ -49,8 +53,8 @@ def run_eval_episodes(
             runner.logger.info(f"Test Episode: {i} / {n_eval_eps}")
 
         return_stats = i == n_eval_eps - 1
-        # last_result only has "log_stats" in it after all eps have run
 
+        # last_result only has "log_stats" in it after all eps have run
         last_result = runner.run(
             test_mode=True,
             return_log_stats=return_stats,
@@ -58,7 +62,7 @@ def run_eval_episodes(
         )
 
         # Stop recording after some episodes
-        # -1 b/c i 0 indexed
+        # -1 b/c i is 0 indexed
         if args.save_test_replays and i == args.n_test_replays_save - 1:
             runner.stop_recording(t_env=t_env, video_prefix=file_name_prefix)
 
@@ -72,9 +76,9 @@ def run_eval_episodes(
     if hasattr(runner.env, "terminate_on_task_completed"):
         runner.env.terminate_on_task_completed = False
 
-    if comms_value is not None:
+    if set_comms_value_for_eval:
         print("Evaluation done, setting MAC comms value to default of 1.0")
-        runner.mac.update_comms_value(1.0)
+        runner.mac.comms_value = 1.0
 
     return last_result
 

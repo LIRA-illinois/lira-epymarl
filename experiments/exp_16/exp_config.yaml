@@ -56,7 +56,7 @@ parameters:
   t_max:
     values: [3050000]
   test_nepisode:
-    values: [300]
+    values: [800]
   n_test_replays_save:
     values: [5]
   test_interval:
@@ -65,8 +65,8 @@ parameters:
   save_model_interval:
     values: [300000]
   # all values in the space-delimited list will be evaluated in a single run
-  comms_values_eval:
-    values: [[0.0 0.05 0.1 1.0]]
+  comms_values:
+    values: [[0.0 0.1 0.25 0.5 0.75 1.0]]
 
   ##################
   # Environment config

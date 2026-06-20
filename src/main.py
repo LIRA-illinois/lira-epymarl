@@ -1,8 +1,8 @@
 import warnings
+
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-from typing import Callable
 from collections.abc import Mapping
 from copy import deepcopy
 from os.path import dirname, abspath, join
@@ -21,20 +21,12 @@ logging.getLogger("urllib3.connectionpool").setLevel(logging.CRITICAL)
 
 
 from utils.logging import get_logger
+from experiments.grid_search_experiment import string_inputs_to_list
 from simulation.run import Simulation
 
 # ensure to make sure the `protobuf` package works (only used for tensorboard, may not be needed?)
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
 ex = Experiment("pymarl")
-
-
-def string_inputs_to_list(config: dict, key: str, output_type: Callable)-> dict:
-    """Converts space-delimited string list to list of "type" for the given key in the config dictionary."""
-    eval_str = config[key].split("=")[0][1:-1]
-    float_values: list[float] = [output_type(x) for x in eval_str.split(" ")]
-    config[key] = float_values
-
-    return config
 
 
 @ex.main
@@ -53,8 +45,8 @@ def my_main(_run, _config, _log):
     th.manual_seed(config["seed"])
     config["env_args"]["seed"] = config["seed"]
 
-    if "comms_values_eval" in config:
-        config = string_inputs_to_list(config, "comms_values_eval", output_type=float)
+    if "comms_values" in config:
+        config = string_inputs_to_list(config, "comms_values", output_type=float)
     if "hl_task" in config:
         config = string_inputs_to_list(config, "hl_task", output_type=int)
 

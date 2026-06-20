@@ -29,10 +29,10 @@ class MAICMAC:
         )
         return chosen_actions
 
-    def forward(self, ep_batch, t, test_mode=False, **kwargs):
+    def forward(self, ep_batch, t, test_mode=False, **kwargs) -> tuple[th.Tensor, dict]:
         agent_inputs = self._build_inputs(ep_batch, t)
         avail_actions = ep_batch["avail_actions"][:, t]
-        agent_outs, self.hidden_states, losses = self.agent.forward(
+        agent_outs, self.hidden_states, agent_info = self.agent.forward(
             agent_inputs,
             self.hidden_states,
             ep_batch.batch_size,
@@ -70,7 +70,10 @@ class MAICMAC:
                     # Zero out the unavailable actions
                     agent_outs[reshaped_avail_actions == 0] = 0.0
 
-        return agent_outs.view(ep_batch.batch_size, self.n_agents, -1), losses
+        # resize agent outputs (Q value or action probability tensor)
+        agent_outs = agent_outs.view(ep_batch.batch_size, self.n_agents, -1)
+
+        return agent_outs, agent_info
 
     def init_hidden(self, batch_size):
         self.hidden_states = (
@@ -137,9 +140,10 @@ class MAICMAC:
 
         return input_shape
 
-    def update_comms_value(self, new_comms_value: float):
-        self.agent.update_comms_value(new_comms_value)
-
     @property
     def comms_value(self):
         return self.agent.comms_value
+
+    @comms_value.setter
+    def comms_value(self, value: float):
+        self.agent.comms_value = value
