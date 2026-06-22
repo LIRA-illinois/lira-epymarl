@@ -9,20 +9,23 @@ from torch.distributions import kl_divergence
 
 
 class STEFunction(th.autograd.Function):
+    """_summary_
+    straight-through estimation of gradients: Pass the gradient through unchanged
+    one way of estimating gradients thru a binary threshold
+    grad_output corresponds to gradient wrt x
+    """
+
     @staticmethod
     def forward(ctx, x: Tensor, thres: float):
-        # Binary threshold: 1 if x > 0, else 0
-        return (x > thres).float()
+        # Binary threshold: 1 if x > thres, else 0
+        return (x >= thres).float()
 
     @staticmethod
     def backward(ctx, grad_output):
-        # straight-through estimation of gradients: Pass the gradient through unchanged
-        # one way of estimating gradients thru a binary threshold
-        # grad_output corresponds to gradient wrt the output; need to return a tuple
-        # with gradients for each forward input (x, thres). We pass the gradient
-        # through to `x` and return None for `thres` (non-differentiable / constant).
+        """
+        need to return a tuple with gradients for each forward input (x, thres). Pass the gradient through for `x` and return None for `thres since it is a constant
+        """
         return grad_output, None
-
 
 
 # updated implementation w/ better encapsulation of functions and an explicit comms value parameter
@@ -68,7 +71,7 @@ class MAICAgent(nn.Module):
         self.w_query = nn.Linear(args.hidden_dim, args.attention_dim)
         self.w_key = nn.Linear(args.latent_dim, args.attention_dim)
 
-    def _approx_threshold(
+    def _approx_threshold_sigmoid(
         self, x: Tensor, steepness: float = 50.0, bias: float = 0.5
     ) -> Tensor:
         """uses a steep sigmoid to approximate a hard threshold set at "bias",
@@ -139,13 +142,18 @@ class MAICAgent(nn.Module):
                 hidden_state=hidden_state, bs=bs, latent=latent, test_mode=test_mode
             )
 
-            agent_info["logs"]["msg_weights"] = msg_weights.detach().to(device="cpu")
+            # average over the incoming messages for each agent to get a measure of "importance" for that agent for a given episode
+            # log_data = th.sum(log_data, axis=0) / self.args.n_agents
+            msg_weights = msg_weights.detach().to(device="cpu")
+
+            agent_info["logs"]["msg_weights_in_mean"] = msg_weights.mean(axis=1)
+            agent_info["logs"]["msg_weights_out_mean"] = msg_weights.mean(axis=2)
 
             # update estimated Q-value using incentive messages from other agents
             msg_tot = th.sum(gated_msg, dim=1).view(bs * self.n_agents, self.n_actions)
             q_out: Tensor = q_local + msg_tot
 
-            if "train_mode" in kwargs and kwargs["train_mode"]:
+            if kwargs.get("train_mode", False):
                 if (
                     hasattr(self.args, "mi_loss_weight")
                     and self.args.mi_loss_weight > 0
@@ -242,43 +250,34 @@ class MAICAgent(nn.Module):
         )
 
         alpha = self._get_attention_weights(
-            hidden_state=hidden_state, latent=latent, bs=bs
+            hidden_state=hidden_state,
+            latent=latent,
+            bs=bs,
+            test_mode=test_mode,
         )
 
-        # TODO change this condition so you can filter messages during training mode too
-        # to filter messages during training and have the message sender get appropriate gradients, need to use a torch activation function to approximate a hard threshold
-        # we need a real activation function so the gradients will be computed properly if we want to do this filtering during training
-        # our approach: STE function
-        if getattr(self.args, "unique_policy_per_comms_value", False):
-            # msg_filter = self._approx_threshold(alpha, bias=self.msg_filter_thres)
-            msg_filter = STEFunction.apply(alpha, self.msg_filter_thres)
-            alpha = msg_filter * alpha
-
-        elif test_mode:
-            # original approach, only filters messages during evaluation where they aren't part of any gradient calculation for learning
-            # set attention weights to 0 if they are below a pre-defined threshold
-            # slightly different from the paper, if we let \delta = msg_filter_thres, then we do not scale
-            # \delta by n_agents when filtering out the messages
-            # This gives more control over the sparsity of messages. In the original implementation, it did
-            # not feel like there was a good reason to scale by the number of agents.
-            # this is your current "activation function" for the messages
-            alpha[alpha < self.msg_filter_thres] = 0
-
-            # original implementation
-            # alpha[alpha < (0.25 * 1 / self.n_agents)] = 0
-
+        # apply weighting to messages
         gated_msg: Tensor = alpha * msg
         return gated_msg, alpha
 
     def _get_attention_weights(
-        self, hidden_state: Tensor, latent: Tensor, bs: int, compute_loss: bool = False
+        self,
+        hidden_state: Tensor,
+        latent: Tensor,
+        bs: int,
+        compute_loss: bool = False,
+        test_mode: bool = False,
     ):
-        # compute attention weights for the messages
+        """
+        compute attention weights for the messages
+        """
+        # we only want this auxiliary loss to affect the params for the message-generator network, so
+        # detach to prevent backprop from from using this loss to change the
+        # teammate latent network or the agent's RNN
         if compute_loss:
             hidden_tmp = hidden_state.detach()
             latent_tmp = latent.detach()
             scaling = 1.0
-
         else:
             hidden_tmp = hidden_state
             latent_tmp = latent
@@ -300,6 +299,24 @@ class MAICAgent(nn.Module):
                 alpha[:, i, i] = -1e9
 
         alpha = F.softmax(alpha, dim=-1).reshape(bs, self.n_agents, self.n_agents, 1)
+
+        # new approach: filter message weights based on a threshold, can be used during training as part of gradient computations
+        if getattr(self.args, "unique_policy_per_comms_value", False):
+            msg_filter = STEFunction.apply(alpha, self.msg_filter_thres)
+            alpha = msg_filter * alpha
+            return alpha
+
+        # original approach: only filters messages during evaluation where they aren't part of any gradient calculation for learning
+        if test_mode:
+            # set attention weights to 0 if they are below a pre-defined threshold
+            # slightly different from the paper, if we let \delta = msg_filter_thres, then we do not scale
+            # \delta by n_agents when filtering out the messages
+            # This gives more control over the sparsity of messages. In the original implementation, it did
+            # not feel like there was a good reason to scale by the number of agents.
+            alpha[alpha < self.msg_filter_thres] = 0
+
+            # original implementation
+            # alpha[alpha < (0.25 * 1 / self.n_agents)] = 0
 
         return alpha
 

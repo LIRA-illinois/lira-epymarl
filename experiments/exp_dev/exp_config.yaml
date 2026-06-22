@@ -109,11 +109,12 @@ parameters:
     # values: [[0.0 1.0]]
     # values: [[0.0 0.5 1.0]]
     # values: [[0.5 1.0]]
-    values: [[0.5 0.75]]
+    values: [[1.0 1.0]]
 
   unique_policy_per_comms_value:
     # values: [True, False]
     values: [True]
+    # values: [False]
 
   # hl_task:
   #   values: [[0 1], [1 2]]

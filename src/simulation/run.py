@@ -224,8 +224,10 @@ class Simulation:
 
             df_eval = pd.DataFrame.from_records(eval_data)
 
-            self.logger.log_table(df_eval, t=self.runner.t_env)
-            self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
+            self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
+            self._make_comms_eval_plots(
+                self.logger.data_tables["eval_stats"], t=self.runner.t_env
+            )
 
             """
             if self.args.parallel_comms_eval:
@@ -380,7 +382,7 @@ class Simulation:
             ] = (1.0 - success_rate)
 
         df_eval = pd.DataFrame.from_records(eval_data)
-        self.logger.log_table(df_eval, t=self.runner.t_env)
+        self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
 
         # TODO it may make sense to log each tasks's success rate to wandb too
 
@@ -460,9 +462,10 @@ class Simulation:
 
         # Convert to DataFrame and log
         df_eval = pd.DataFrame.from_records(eval_data)
-        self.logger.log_table(df_eval, t=self.runner.t_env)
-
-        self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
+        self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
+        self._make_comms_eval_plots(
+            self.logger.data_tables["eval_stats"], t=self.runner.t_env
+        )
 
     def _make_comms_eval_plots(self, data_table: wandb.Table, t: int) -> None:
         """Make plots for comms evaluation.

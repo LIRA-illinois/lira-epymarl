@@ -36,7 +36,7 @@ class MainLogger:
         self.dir: str
 
         self.header = "=" * 25
-        self.data_table: Optional[wandb.Table] = None
+        self.data_tables: dict = {}
         self.step_metric = "t_env"
 
         self._setup(config, args)
@@ -142,9 +142,10 @@ class MainLogger:
         else:
             self.console_logger.info(log_str)
 
-    def log_stat(self, key, value, t: int):
+    def log_stat(self, key: str, value: float, t: int):
         """
         logging is delayed by period due to how finish() works
+        used for printing stats periodically
         """
         # used for printing stats periodically
         self.stats[key].append((t, value))
@@ -158,32 +159,21 @@ class MainLogger:
             self.wandb_current_t = t
             self.wandb_current_data[f"{key}{self.log_suffix}"] = value
 
-        """
-        # deprecated, use wandb instead
-        if self.use_sacred and to_sacred:
-            if key in self.sacred_info:
-                self.sacred_info["{}_T".format(key)].append(t)
-                self.sacred_info[key].append(value)
-            else:
-                self.sacred_info["{}_T".format(key)] = [t]
-                self.sacred_info[key] = [value]
-
-            self._run_obj.log_scalar(key, value, t)
-        """
-
-    def log_table(self, df_data: pd.DataFrame, t: int):
+    def log_table(self, key: str, value: pd.DataFrame, t: int):
         """Log accumulated evaluation statistics as a wandb table"""
-        if self.data_table is None:
-            self.data_table = wandb.Table(dataframe=df_data, log_mode="MUTABLE")
-        else:
-            # add rows to the table
-            for _, row in df_data.iterrows():
-                self.data_table.add_data(*row.tolist())
+        if isinstance(value, pd.DataFrame):
+            if not self.data_tables.get(key, False):
+                # make a new entry
+                self.data_tables[key] = wandb.Table(dataframe=value, log_mode="MUTABLE")
+            else:
+                # add rows to the existing table from the dataframe
+                for _, row in value.iterrows():
+                    self.data_tables[key].add_data(*row.tolist())
 
         if self.use_wandb:
-            data = _log_setup(self.step_metric, t)
-            data[f"eval_stats{self.log_suffix}"] = self.data_table
-            self.wandb.log(data)
+            value = _log_setup(self.step_metric, t)
+            value[f"{key}{self.log_suffix}"] = self.data_tables[key]
+            self.wandb.log(value)
 
     def log_image(self, image_path: str, t: int, key: str = ""):
         if self.use_wandb:
