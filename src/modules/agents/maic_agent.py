@@ -116,7 +116,7 @@ class MAICAgent(nn.Module):
         if comms = 1.0, that means no restriction on communication, so the threshold should be set to 0
         if comms = 0.0, that means all communication is restricted, so the threshold should be set to 1.0
         """
-        return 1.0 - self.comms_value
+        return 1.0 - self._comms_value
 
     def forward(
         self,

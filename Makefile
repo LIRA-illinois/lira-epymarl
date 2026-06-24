@@ -8,9 +8,11 @@ project_name=lira-epymarl
 nvidia:
 	watch -n 0.2 nvidia-smi
 
-# parallel syncing, very fast but can't set n too high due to API upload limits
-# 	wandb sync --include-offline ./results/wandb/*-run-*
+# regular sync, kinda slow but almost always works
+# wandb sync --include-offline ./results/wandb/*-run-*
 sync_results_wandb:
+# parallel syncing, very fast but can't set n too high due to API upload limits
+# throws errors sometimes
 	wandb beta sync -n 5 ./results/wandb/*-run-*
 
 tb:

@@ -14,11 +14,11 @@ parameters:
   ##################
   # seeds are grid-searched over and are handled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # use fixed seeds like this to enable reproducible results
-  # seed:
-  #   values: [180335, 259851, 409900, 105160, 371020]
+  seed:
+    values: [862810, 39552, 251010]
   # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
-  n_seeds:
-    values: [3]
+  # n_seeds:
+  #   values: [3]
 
   ##################
   # Project setup + logging
@@ -56,7 +56,8 @@ parameters:
   t_max:
     values: [3050000]
   test_nepisode:
-    values: [800]
+    values: [100]
+    # values: [800]
   n_test_replays_save:
     values: [5]
   test_interval:
@@ -69,7 +70,9 @@ parameters:
     values: [[0.0 0.05 0.1 1.0]]
 
   unique_policy_per_comms_value:
-    values: [True, False]
+    values: [False]
+    # values: [True]
+    # values: [True, False]
 
   ##################
   # Environment config
@@ -78,7 +81,8 @@ parameters:
   env-config:
     values: [multigrid-lbf-v0]
   env_args.map_name:
-    values: [1r_small, 3ga_1r_small]
+    values: [1r_small]
+    # values: [1r_small, 3ga_1r_small]
   env_args.n_agents:
     values: [3]
   env_args.max_fruit_level:
