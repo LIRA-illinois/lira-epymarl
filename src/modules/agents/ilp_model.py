@@ -4,8 +4,8 @@ from typing import Dict, Tuple
 
 from gym_multigrid.envs.mdp import ProjectMDP
 
-from components.episode_buffer import EpisodeBatch
-from modules.gurobi_opt import (
+from src.components.episode_buffer import EpisodeBatch
+from src.modules.gurobi_opt import (
     OptimizationProblem,
     VariablesBase,
     SolutionBase,
@@ -173,7 +173,9 @@ class ILPModel(OptimizationProblem):
         # for each edge wtih the same start and end states, sum over all the comms vals and set to 1
         for state, next_state in self.opt_vars.task_occupancy:
             # get the relevant comms values for this transition
-            actions = df_trans.loc[(df_trans.state == state) & (df_trans.next_state == next_state)].action
+            actions = df_trans.loc[
+                (df_trans.state == state) & (df_trans.next_state == next_state)
+            ].action
             comms_vals = [action[1] for action in actions]
 
             constraint = 0
@@ -192,7 +194,8 @@ class ILPModel(OptimizationProblem):
 
             # get set of successor states
             df_successor = df_trans.loc[
-                (df_trans.state == state) & (df_trans.next_state != self._hlmdp.fail_state)
+                (df_trans.state == state)
+                & (df_trans.next_state != self._hlmdp.fail_state)
             ]
 
             # define outgoing occupancy from state
@@ -262,7 +265,9 @@ class ILPModel(OptimizationProblem):
 
         for state, next_state in self.opt_vars.task_occupancy:
             # get the relevant comms values for this transition
-            actions = df_trans.loc[(df_trans.state == state) & (df_trans.next_state == next_state)].action
+            actions = df_trans.loc[
+                (df_trans.state == state) & (df_trans.next_state == next_state)
+            ].action
             comms_vals = [action[1] for action in actions]
 
             for comms_val in comms_vals:

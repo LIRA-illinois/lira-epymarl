@@ -22,10 +22,9 @@ from sacred.arg_parser import get_config_updates
 import numpy as np
 from torch import manual_seed as th_manual_seed, set_num_threads as th_set_num_threads
 
-from utils.utils import get_config_updates
-from utils.logging import get_logger
-from experiments.grid_search_experiment import string_inputs_to_list
-from simulation.run import Simulation
+from src.utils.utils import get_config_updates, string_inputs_to_list
+from src.utils.logging import get_logger
+from src.simulation.run import Simulation
 
 # ensure to make sure the `protobuf` package works (only used for tensorboard, may not be needed?)
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
@@ -117,18 +116,13 @@ def get_run_config(params) -> dict:
     return config_dict
 
 
-def main(argv: str | None = None):
+def main(params: str | None = None):
     # argv can be passed as a space-delimited string of args
     # if you do that, it's the same as getting sys.argv
-
-    print("\n breakpoint ")
-    __import__("ipdb").set_trace(context=3)
-
-    params = deepcopy(sys.argv)
-    print("\n breakpoint ")
-    __import__("ipdb").set_trace(context=3)
-
+    if params is None:
+        params = deepcopy(sys.argv)
     th_set_num_threads(1)
+
     config_dict = get_run_config(params)
     logger = get_logger()
 

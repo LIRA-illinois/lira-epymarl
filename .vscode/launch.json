@@ -1,0 +1,33 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Grid Search Experiment",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/experiments/grid_search_experiment.py",
+            "console": "internalConsole",
+            "cwd": "${workspaceFolder}",
+            "args": ["-e", "exp_dev",],
+            "justMyCode": true,
+            // disable warning about frozen modules
+            "env": {
+                "PYDEVD_DISABLE_FILE_VALIDATION": "1"
+            },
+        },
+        {
+            "name": "Python: General",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "internalConsole",
+            "cwd": "${workspaceFolder}",
+            "args": ["-e", "exp_dev",],
+            "justMyCode": true,
+            // disable warning about frozen modules
+            "env": {
+                "PYDEVD_DISABLE_FILE_VALIDATION": "1"
+            },
+        }
+    ]
+}

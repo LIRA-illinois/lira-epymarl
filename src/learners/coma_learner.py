@@ -3,9 +3,9 @@ import copy
 import torch as th
 from torch.optim import Adam
 
-from components.episode_buffer import EpisodeBatch
-from components.standarize_stream import RunningMeanStd
-from modules.critics import REGISTRY as critic_registry
+from src.components.episode_buffer import EpisodeBatch
+from src.components.standarize_stream import RunningMeanStd
+from src.modules.critics import REGISTRY as critic_registry
 
 
 class COMALearner:

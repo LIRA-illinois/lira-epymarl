@@ -1,6 +1,6 @@
-from learners import REGISTRY as le_REGISTRY
-from components.episode_buffer import EpisodeBatch
-from controllers.factored import CommsMAC
+from src.learners import REGISTRY as le_REGISTRY
+from src.components.episode_buffer import EpisodeBatch
+from src.controllers.factored import CommsMAC
 
 
 class CommsLearner:

@@ -5,9 +5,9 @@ import copy
 import torch as th
 from torch.optim import RMSprop
 
-from components.episode_buffer import EpisodeBatch
-from modules.mixers.vdn import VDNMixer
-from modules.mixers.qmix import QMixer
+from src.components.episode_buffer import EpisodeBatch
+from src.modules.mixers.vdn import VDNMixer
+from src.modules.mixers.qmix import QMixer
 
 import pandas as pd
 

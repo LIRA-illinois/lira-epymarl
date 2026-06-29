@@ -1,7 +1,7 @@
 from types import SimpleNamespace as SN
 from typing import Optional
 
-from utils.logging import LocalLogger
+from src.utils.logging import LocalLogger
 from .build import build_sim
 
 

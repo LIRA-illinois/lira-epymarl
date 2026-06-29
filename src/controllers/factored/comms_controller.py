@@ -1,9 +1,9 @@
 from torch import Tensor
-from components.episode_buffer import EpisodeBatch
 
-from controllers import REGISTRY as mac_REGISTRY
-from modules.agents import REGISTRY as agent_REGISTRY
-from components.action_selectors import CommsActionSelector
+from src.components.episode_buffer import EpisodeBatch
+from src.controllers import REGISTRY as mac_REGISTRY
+from src.modules.agents import REGISTRY as agent_REGISTRY
+from src.components.action_selectors import CommsActionSelector
 
 
 class CommsMAC:

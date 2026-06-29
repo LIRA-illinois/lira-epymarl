@@ -1,5 +1,5 @@
 [project]
-name = "lira-epymarl"
+name = "src"
 version = "0.1.0"
 description = ""
 readme = "README.md"
@@ -33,10 +33,6 @@ dependencies = [
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.poetry]
-# only use poetry for dependency management, not to create an importable package from this project, do this to avoid changing the directory structure to that required for an importable package
-package-mode = false
 
 [tool.pyrefly]
 project-includes = [

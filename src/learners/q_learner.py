@@ -3,10 +3,10 @@ import copy
 import torch as th
 from torch.optim import Adam
 
-from components.episode_buffer import EpisodeBatch
-from components.standarize_stream import RunningMeanStd
-from modules.mixers.vdn import VDNMixer
-from modules.mixers.qmix import QMixer
+from src.components.episode_buffer import EpisodeBatch
+from src.components.standarize_stream import RunningMeanStd
+from src.modules.mixers.vdn import VDNMixer
+from src.modules.mixers.qmix import QMixer
 
 
 class QLearner:

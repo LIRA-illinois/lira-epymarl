@@ -1,14 +1,15 @@
 # sim_build.py
+from typing import Any, Optional
 from types import SimpleNamespace as SN
 import torch as th
-from components.episode_buffer import ReplayBuffer
-from components.transforms import OneHot
-from controllers import REGISTRY as mac_REGISTRY
-from controllers.factored import REGISTRY as factored_mac_REGISTRY
-from learners import REGISTRY as le_REGISTRY
-from learners.factored import REGISTRY as factored_le_REGISTRY
-from runners import REGISTRY as r_REGISTRY
-from typing import Any, Optional
+
+from ..components.episode_buffer import ReplayBuffer
+from ..components.transforms import OneHot
+from ..controllers import REGISTRY as mac_REGISTRY
+from ..controllers.factored import REGISTRY as factored_mac_REGISTRY
+from ..learners import REGISTRY as le_REGISTRY
+from ..learners.factored import REGISTRY as factored_le_REGISTRY
+from ..runners import REGISTRY as r_REGISTRY
 
 
 def build_sim(

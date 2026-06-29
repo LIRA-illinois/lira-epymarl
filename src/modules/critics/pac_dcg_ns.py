@@ -7,7 +7,7 @@ import torch as th
 import torch.nn as nn
 import torch_scatter
 
-from modules.agents import REGISTRY as agent_REGISTRY
+from src.modules.agents import REGISTRY as agent_REGISTRY
 
 
 class DCGCriticNS:

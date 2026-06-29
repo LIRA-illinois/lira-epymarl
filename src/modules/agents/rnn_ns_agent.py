@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch as th
 
-from modules.agents.rnn_agent import RNNAgent
+from .rnn_agent import RNNAgent
 
 
 class RNNNSAgent(nn.Module):

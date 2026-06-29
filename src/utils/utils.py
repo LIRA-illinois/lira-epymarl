@@ -1,4 +1,6 @@
+from typing import Callable
 import ast
+import sys
 
 
 def mp_kwargs_wrapper(kwargs: dict):
@@ -14,6 +16,28 @@ def mp_kwargs_wrapper(kwargs: dict):
     fn = kwargs.pop("function")
     return fn(**kwargs)
 
+
+def string_inputs_to_list(config: dict, key: str, output_type: Callable) -> dict:
+    """Converts space-delimited string list to list of "type" for the given key in the config dictionary."""
+    if isinstance(config[key][0], output_type):
+        return config
+
+    if isinstance(config[key], str):
+        # config[key] takes this form in main.py after the run command is formatted in grid_search_experiment
+        eval_str = config[key].split("=")[0][1:-1]
+    elif isinstance(config[key], list):
+        # in grid_search_experiment, this is a list with a single space-delimited string with the parameter values
+        eval_str = config[key][0]
+
+    param_values: list[float] = [output_type(x) for x in eval_str.split(" ")]
+    config[key] = param_values
+
+    return config
+
+
+def is_debugger_active():
+    # Returns True if a debugger trace is actively running
+    return hasattr(sys, 'gettrace') and sys.gettrace() is not None
 
 # argument parsing, taken from the Sacred library
 def get_config_updates(updates):

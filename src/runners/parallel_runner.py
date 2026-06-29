@@ -3,9 +3,8 @@ from multiprocessing import Pipe, Process
 
 import numpy as np
 
-from components.episode_buffer import EpisodeBatch
-from envs import REGISTRY as env_REGISTRY
-from envs import register_smac, register_smacv2
+from src.components.episode_buffer import EpisodeBatch
+from src.envs import REGISTRY as env_REGISTRY, register_smac, register_smacv2
 
 
 # Based (very) heavily on SubprocVecEnv from OpenAI Baselines

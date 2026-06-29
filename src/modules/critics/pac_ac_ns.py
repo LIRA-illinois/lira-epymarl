@@ -4,7 +4,7 @@ from einops import rearrange, repeat
 import torch as th
 import torch.nn as nn
 
-from modules.critics.mlp import MLP
+from src.modules.critics.mlp import MLP
 
 
 def generate_other_actions(n_actions, n_agents, device):

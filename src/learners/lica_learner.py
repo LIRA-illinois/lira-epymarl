@@ -1,8 +1,8 @@
 import copy
-from components.episode_buffer import EpisodeBatch
-from modules.critics.lica import LICACritic
-from components.action_selectors import multinomial_entropy
-from utils.rl_utils import build_td_lambda_targets
+from src.components.episode_buffer import EpisodeBatch
+from src.modules.critics.lica import LICACritic
+from src.components.action_selectors import multinomial_entropy
+from src.utils.rl_utils import build_td_lambda_targets
 import torch as th
 from torch.optim import RMSprop, Adam
 

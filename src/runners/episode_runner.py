@@ -8,11 +8,9 @@ from torch import Tensor
 from numpy.typing import NDArray
 import matplotlib.image as mpl_img
 
-from components.episode_buffer import EpisodeBatch
-from envs import REGISTRY as env_REGISTRY
-from envs import register_smac, register_smacv2
-
-from utils.record_video import RecordVideoExtended
+from src.components.episode_buffer import EpisodeBatch
+from src.envs import REGISTRY as env_REGISTRY, register_smac, register_smacv2
+from src.utils.record_video import RecordVideoExtended
 
 
 class EpisodeRunner:

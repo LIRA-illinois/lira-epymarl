@@ -1,8 +1,8 @@
 from typing import Literal, Optional
 import torch as th
 
-from modules.agents import REGISTRY as agent_REGISTRY
-from components.action_selectors import REGISTRY as action_REGISTRY
+from src.modules.agents import REGISTRY as agent_REGISTRY
+from src.components.action_selectors import REGISTRY as action_REGISTRY
 
 
 # This multi-agent controller shares parameters between agents

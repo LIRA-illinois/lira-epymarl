@@ -1,6 +1,6 @@
-from components.episode_buffer import EpisodeBatch
-from modules.rewards import REGISTRY as rewards_registry
-from utils.rl_utils import discount_rewards
+from src.components.episode_buffer import EpisodeBatch
+from src.modules.rewards import REGISTRY as rewards_registry
+from src.utils.rl_utils import discount_rewards
 import torch as th
 from torch.optim import RMSprop
 

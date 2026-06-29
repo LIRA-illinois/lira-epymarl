@@ -22,9 +22,9 @@ import wandb
 from .evaluate import run_eval_episodes
 from .build import build_sim
 
-from utils.general_reward_support import test_alg_config_supports_reward
-from utils.logging import MainLogger, log_setup
-from utils.timehelper import time_left, time_str
+from src.utils.general_reward_support import test_alg_config_supports_reward
+from src.utils.logging import MainLogger, log_setup
+from src.utils.timehelper import time_left, time_str
 
 
 class Simulation:

@@ -2,7 +2,7 @@
 import torch as th
 import torch.nn as nn
 
-from modules.critics.mlp import MLP
+from src.modules.critics.mlp import MLP
 
 
 class MADDPGCriticNS(nn.Module):
