@@ -100,6 +100,7 @@ class EpisodeBatch:
             self.groups if groups is None else groups,
             self.batch_size,
             self.max_seq_length,
+            self.preprocess
         )
 
     def to(self, device):

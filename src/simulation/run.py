@@ -1,21 +1,21 @@
-from types import SimpleNamespace as SN
 import datetime
-
-from os import makedirs, listdir, walk
-from os.path import join, isdir, abspath, splitext
-from shutil import rmtree
-import time
-import threading
-from typing import Optional
 import multiprocessing as mp
+import threading
+import time
+from os import listdir, makedirs, walk
+from os.path import abspath, isdir, join, splitext
+from shutil import rmtree
+from types import SimpleNamespace as SN
+from typing import Optional
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import torch as th
 import wandb
 
-from src.simulation.evaluate import run_eval_episodes
 from src.simulation.build import build_sim
+from src.simulation.evaluate import run_eval_episodes
 from src.utils.general_reward_support import test_alg_config_supports_reward
 from src.utils.logging import MainLogger, log_setup
 from src.utils.timehelper import time_left, time_str
@@ -370,7 +370,7 @@ class Simulation:
         # unique action tuples: (chosen_next_state, comms_val)
         hl_actions = df_actions.action.drop_duplicates().tolist()
 
-        self.logger.info(f"Evaluating Policy Across Tasks", log_header=True)
+        self.logger.info("Evaluating Policy Across Tasks", log_header=True)
 
         eval_data: list[dict] = []
 
@@ -403,7 +403,7 @@ class Simulation:
             ] = success_rate
             df.loc[
                 (df.action == action) & (df.next_state != chosen_next_state), "prob"
-            ] = (1.0 - success_rate)
+            ] = 1.0 - success_rate
 
         df_eval = pd.DataFrame.from_records(eval_data)
         self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
@@ -518,7 +518,6 @@ class Simulation:
 
         for col in cols:
             plt.figure()
-            n_comms_values = len(comms_values)
             for idx, comms_value in enumerate(comms_values):
                 df_plot = df[df.get("comms_value") == comms_value].copy()
                 label = f"Comms: {comms_value}"
@@ -603,10 +602,7 @@ class Simulation:
                 for file in files:
                     data = log_setup(self.logger.step_metric, t)
                     path = join(save_dir, file)
-                    fn, extension = (
-                        splitext(file)[0],
-                        splitext(file)[1][1:],
-                    )
+                    fn = splitext(file)[0],
                     data[f"comms_eval_aggregated/{fn}{self.logger.log_suffix}"] = (
                         wandb.Image(path)
                     )
@@ -771,9 +767,9 @@ class Simulation:
 
         args = SN(**_config)
         args.device = "cuda" if args.use_cuda else "cpu"
-        assert test_alg_config_supports_reward(
-            args
-        ), "The specified algorithm does not support the general reward setup. Please choose a different algorithm or set `common_reward=True`."
+        assert test_alg_config_supports_reward(args), (
+            "The specified algorithm does not support the general reward setup. Please choose a different algorithm or set `common_reward=True`."
+        )
 
         # update for parallel comms eval, can't be done offline
         # due to parallel to a single wandb run on a remote server

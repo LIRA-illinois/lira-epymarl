@@ -174,11 +174,7 @@ class MainLogger:
                 for file in files:
                     data = log_setup(self.step_metric, t)
                     path = join(dir, file)
-                    fn, extension = (
-                        os.path.splitext(file)[0],
-                        os.path.splitext(file)[1][1:],
-                    )
-
+                    fn = os.path.splitext(file)[0]
                     data[f"{group}{key}{fn}{self.log_suffix}"] = wandb.Image(path)
                     self.wandb.log(data=data)
 
@@ -209,10 +205,7 @@ class MainLogger:
             for _, _, videos in os.walk(dir):
                 for video in videos:
                     video_path = join(dir, video)
-                    video_name, extension = (
-                        os.path.splitext(video)[0],
-                        os.path.splitext(video)[1][1:],
-                    )
+                    extension = os.path.splitext(video)[1][1:]
                     video_list.append(wandb.Video(video_path, format=extension))
 
             data[f"{video_prefix}{self.log_suffix}"] = video_list
@@ -280,7 +273,7 @@ class MainLogger:
             window = 5 if k != "epsilon" else 1
             try:
                 item = "{:.4f}".format(np.mean([x[1] for x in self.stats[k][-window:]]))
-            except:
+            except ValueError:
                 item = "{:.4f}".format(
                     np.mean([x[1].item() for x in self.stats[k][-window:]])
                 )
@@ -379,10 +372,7 @@ class LocalLogger:
         for _, _, videos in os.walk(video_dir):
             for video in videos:
                 video_path = join(video_dir, video)
-                video_name, extension = (
-                    os.path.splitext(video)[0],
-                    os.path.splitext(video)[1][1:],
-                )
+                extension = os.path.splitext(video)[1][1:]
                 video_list.append(wandb.Video(video_path, format=extension))
 
         data[f"{video_prefix}{self.log_suffix}"] = video_list

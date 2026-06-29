@@ -20,6 +20,8 @@ dependencies = [
     "psutil",
     "pysc2>=3.0.0",
     "pyyaml>=6.0.2",
+    "types-PyYAML",
+    "types-psutil",
     "sacred==0.8.7",
     "setuptools==81.0.0", # setuptools 81.0.0 is required for sacred to work
     "s2clientprotocol>=4.10.1.75800.0",

@@ -1,31 +1,33 @@
+from logging import Logger
 import logging
+import sys
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+from collections.abc import Mapping
+from copy import deepcopy
+from os.path import abspath, dirname, join
+
+import numpy as np
+import yaml
+from torch import manual_seed as th_manual_seed
+from torch import set_num_threads as th_set_num_threads
+
+from src.simulation.run import Simulation
+from src.utils.logging import get_logger
+from src.utils.utils import get_config_updates, string_inputs_to_list
+
 logging.getLogger("matplotlib").setLevel(logging.CRITICAL)
 logging.getLogger("PIL").setLevel(logging.CRITICAL)
 logging.getLogger("urllib3.connectionpool").setLevel(logging.CRITICAL)
-
-from collections.abc import Mapping
-from copy import deepcopy
-from os.path import dirname, abspath, join
-import sys
-import yaml
-
-import numpy as np
-from torch import manual_seed as th_manual_seed, set_num_threads as th_set_num_threads
-
-from src.utils.utils import get_config_updates, string_inputs_to_list
-from src.utils.logging import get_logger
-from src.simulation.run import Simulation
 
 # ensure to make sure the `protobuf` package works (only used for tensorboard, may not be needed?)
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
 
 
-def experiment_main(_config, logger):
+def experiment_main(_config, logger: Logger) -> None:
     def config_copy(config):
         if isinstance(config, dict):
             return {k: config_copy(v) for k, v in config.items()}
@@ -50,7 +52,7 @@ def experiment_main(_config, logger):
     sim.finish()
 
 
-def get_run_config(params) -> dict:
+def get_run_config(params: str | None) -> dict:
     def recursive_dict_update(d, u):
         for k, v in u.items():
             if isinstance(v, Mapping):
@@ -60,7 +62,7 @@ def get_run_config(params) -> dict:
 
         return d
 
-    def _get_config(params, arg_name, subfolder):
+    def _get_config(params: str | None, arg_name: str, subfolder: str):
         config_name = None
         for _i, _v in enumerate(params):
             if _v.split("=")[0] == arg_name:
@@ -111,7 +113,7 @@ def get_run_config(params) -> dict:
     return config_dict
 
 
-def main(params: str | None = None):
+def main(params: str | None = None) -> None:
     # argv can be passed as a space-delimited string of args
     # if you do that, it's the same as getting sys.argv
     if params is None:
@@ -129,14 +131,14 @@ def main(params: str | None = None):
         experiment_main(config_dict, logger)
 
     else:
-        from sacred import Experiment, SETTINGS
+        from sacred import SETTINGS, Experiment
         from sacred.observers import FileStorageObserver
         from sacred.utils import apply_backspaces_and_linefeeds
 
         ex = Experiment("lira-epymarl")
 
         @ex.main
-        def sacred_main(_run, _config, _log):
+        def sacred_main(_run, _config, _log) -> None:
             experiment_main(_config, _log)
 
         # set to "no" if you want to see stdout/stderr in console

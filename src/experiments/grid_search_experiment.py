@@ -8,6 +8,8 @@ to allow greater control over running jobs compared to wandb which only allows r
 be stopped 1 at a time.
 """
 
+from pandas.core.frame import DataFrame
+from argparse import Namespace
 from typing import Literal
 from os import environ, makedirs, getcwd, walk
 from os.path import join
@@ -147,7 +149,7 @@ class GridSearch(object):
             print("Exiting without running experiment")
             return
 
-    def _run_debug(self, run_setups):
+    def _run_debug(self, run_setups: DataFrame) -> None:
         # just run the first command in run_setups
         for cmd in run_setups.cmd:
             # strip out any "python" prefix stuff and just have the args from src/main.py onwards
@@ -281,7 +283,7 @@ class GridSearch(object):
         run_setups_out = pd.DataFrame.from_records(run_setups)
         return run_setups_out
 
-    def _run_experiment_lab(self, python_cmds: pd.Series):
+    def _run_experiment_lab(self, python_cmds: pd.Series) -> None:
         # assign each runner its commands
         n_runners = self.args.n_runners
         runners = {i: "source .venv/bin/activate;" for i in range(n_runners)}
@@ -339,7 +341,7 @@ class GridSearch(object):
 
         job_paths: list[str] = []
 
-        print(f"Writing job files")
+        print("Writing job files")
 
         # loop thru all jobs, get the slurm config args needed to generate the slurm file and generate the slurm file
         for job_idx, cmds in jobs.items():
@@ -394,13 +396,13 @@ class GridSearch(object):
 
         return job_paths
 
-    def _run_experiment_cluster(self, job_paths: list[str]):
+    def _run_experiment_cluster(self, job_paths: list[str]) -> None:
         # submit jobs to cluster
         for job_path in job_paths:
             print(f"Submitting job {job_path}")
             subprocess.run(["sbatch", job_path], check=False)
 
-    def _parse_args(self):
+    def _parse_args(self) -> Namespace:
         parser = argparse.ArgumentParser()
         parser.add_argument(
             "-e",
@@ -454,7 +456,7 @@ class GridSearch(object):
         self,
         scenarios: list[dict],
         run_setups: pd.DataFrame,
-    ):
+    ) -> None:
         """print experiment summary in a markdown-formatted table"""
         spaces = " " * 4
         n_scenarios = run_setups.scenario.nunique()
@@ -516,7 +518,7 @@ class GridSearch(object):
                 for cmd in run_setups.cmd:
                     f.write(f"{cmd}\n")
 
-    def _print_hardware_info(self):
+    def _print_hardware_info(self) -> None:
         from torch.cuda import get_device_properties
         from torch.cuda.memory import mem_get_info
         import psutil
@@ -572,7 +574,7 @@ class GridSearch(object):
         for combo in product(*(gen_combinations(v) for v in d.values())):
             yield dict(zip(d.keys(), combo))
 
-    def _run_bisimulation_test(self, run_setups: pd.DataFrame):
+    def _run_bisimulation_test(self, run_setups: pd.DataFrame) -> None:
         # get the commands for the two envs you want to compare
         # for the case of 1  seed, this is very easy, just the commands in the list of python_cmds
         processes = []
