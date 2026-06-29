@@ -1,11 +1,3 @@
-# config for a grid search experiment based on wandb sweep config
-# meant to be used with grid_search_experiment.py
-# program: src/experiments/wandb_sweep_wrapper_single_seed.py
-method: random
-metric:
-  goal: maximize
-  name: test_return_mean
-
 # params to grid search over
 # all values assumed to be in lists
 parameters:
@@ -14,11 +6,11 @@ parameters:
   ##################
   # seeds are grid-searched over and are haPndled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # use fixed seeds like this to enable reproducible results
-  seed:
-    values: [101]
+  # seed:
+  #   values: [101]
   # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
-  # n_seeds:
-  #   values: [3]
+  n_seeds:
+    values: [3]
 
   ##################
   # Project setup + logging
@@ -67,7 +59,7 @@ parameters:
   lr:
     values: [0.00005]
   t_max:
-    values: [20]
+    values: [20, 30]
   test_interval:
     values: [10]
   save_model_interval:
@@ -90,10 +82,10 @@ parameters:
   # load_step:
   #   values: [60, 120]
 
-  # load_hlmdp_data:
-  #   values: [True]
-  # hlmdp_time_id:
-  #   values: [exp_dev_26-06-10_16-25-32]
+  # post_processing:
+  #   values: [aggregate_runs]
+  # time_id:
+  #   values: [exp_dev_26-06-26_13-10-53]
 
   ##################
   # Environment config
@@ -109,12 +101,12 @@ parameters:
     # values: [[0.0 1.0]]
     # values: [[0.0 0.5 1.0]]
     # values: [[0.5 1.0]]
-    values: [[1.0 1.0]]
+    values: [[0.0 1.0]]
 
   unique_policy_per_comms_value:
     # values: [True, False]
-    values: [True]
-    # values: [False]
+    # values: [True]
+    values: [False]
 
   # hl_task:
   #   values: [[0 1], [1 2]]

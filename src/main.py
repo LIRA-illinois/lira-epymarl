@@ -1,48 +1,48 @@
+import logging
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+logging.getLogger("matplotlib").setLevel(logging.CRITICAL)
+logging.getLogger("PIL").setLevel(logging.CRITICAL)
+logging.getLogger("urllib3.connectionpool").setLevel(logging.CRITICAL)
 
 from collections.abc import Mapping
 from copy import deepcopy
 from os.path import dirname, abspath, join
 import sys
 import yaml
-import numpy as np
+
 from sacred import Experiment, SETTINGS
 from sacred.observers import FileStorageObserver
 from sacred.utils import apply_backspaces_and_linefeeds
-import torch as th
-import logging
+from sacred.arg_parser import get_config_updates
 
-logging.getLogger("matplotlib").setLevel(logging.CRITICAL)
-logging.getLogger("PIL").setLevel(logging.CRITICAL)
-logging.getLogger("urllib3.connectionpool").setLevel(logging.CRITICAL)
+import numpy as np
+from torch import manual_seed as th_manual_seed, set_num_threads as th_set_num_threads
 
-
+from utils.utils import get_config_updates
 from utils.logging import get_logger
 from experiments.grid_search_experiment import string_inputs_to_list
 from simulation.run import Simulation
 
 # ensure to make sure the `protobuf` package works (only used for tensorboard, may not be needed?)
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
-ex = Experiment("pymarl")
 
 
-@ex.main
-def my_main(_run, _config, _log):
+def experiment_main(_config, logger):
     def config_copy(config):
         if isinstance(config, dict):
             return {k: config_copy(v) for k, v in config.items()}
-        elif isinstance(config, list):
+        if isinstance(config, list):
             return [config_copy(v) for v in config]
-        else:
-            return deepcopy(config)
+        return deepcopy(config)
 
     # Setting the random seed throughout the modules
     config = config_copy(_config)
     np.random.seed(config["seed"])
-    th.manual_seed(config["seed"])
+    th_manual_seed(config["seed"])
     config["env_args"]["seed"] = config["seed"]
 
     if "comms_values" in config:
@@ -51,8 +51,8 @@ def my_main(_run, _config, _log):
         config = string_inputs_to_list(config, "hl_task", output_type=int)
 
     # run the framework
-    sim = Simulation(_run, config, _log)
-    sim.run_sim()
+    sim = Simulation(config, logger)
+    sim.run()
     sim.finish()
 
 
@@ -63,6 +63,7 @@ def get_run_config(params) -> dict:
                 d[k] = recursive_dict_update(d.get(k, {}), v)
             else:
                 d[k] = v
+
         return d
 
     def _get_config(params, arg_name, subfolder):
@@ -94,7 +95,7 @@ def get_run_config(params) -> dict:
         try:
             config_dict = yaml.load(f, Loader=yaml.FullLoader)
         except yaml.YAMLError as exc:
-            assert False, "default.yaml error: {}".format(exc)
+            raise RuntimeError(f"default.yaml error: {exc}") from exc
 
     # Load algorithm and env base configs
     env_config = _get_config(params, "--env-config", "envs")
@@ -103,48 +104,69 @@ def get_run_config(params) -> dict:
     config_dict = recursive_dict_update(config_dict, env_config)
     config_dict = recursive_dict_update(config_dict, alg_config)
 
-    for param in params:
-        if param.startswith("use_sacred"):
-            config_dict["use_sacred"] = param.split("=")[1].lower() == "true"
+    # get updates from commandline params
+    tmp, _ = get_config_updates(params)
+    config_updates = {}
+    for k, v in tmp.items():
+        if k.startswith("-"):
+            config_updates[k.strip("-")] = v
+            continue
+        config_updates[k] = v
+    config_dict = recursive_dict_update(config_dict, config_updates)
 
     return config_dict
 
 
-if __name__ == "__main__":
+def main(argv: str | None = None):
+    # argv can be passed as a space-delimited string of args
+    # if you do that, it's the same as getting sys.argv
+
+    print("\n breakpoint ")
+    __import__("ipdb").set_trace(context=3)
+
     params = deepcopy(sys.argv)
-    th.set_num_threads(1)
+    print("\n breakpoint ")
+    __import__("ipdb").set_trace(context=3)
+
+    th_set_num_threads(1)
     config_dict = get_run_config(params)
+    logger = get_logger()
 
     if "key" not in config_dict["env_args"]:
         config_dict["env_args"]["key"] = config_dict["env"]
 
-    # now add all the config to sacred
-    if config_dict["use_sacred"]:
-        sacred_capture_mode = "no"
-        logger = get_logger()
-        ex.logger = logger
-        ex.captured_out_filter = apply_backspaces_and_linefeeds
+    if not config_dict["use_sacred"]:
+        # completely ignore Sacred
+        experiment_main(config_dict, logger)
+
     else:
+        ex = Experiment("lira-epymarl")
+
+        @ex.main
+        def sacred_main(_run, _config, _log):
+            experiment_main(_config, _log)
+
         # set to "no" if you want to see stdout/stderr in console
         sacred_capture_mode = "no"
-        # disable most Sacred logging
-        ex.add_config({"debug": True})
+        ex.logger = logger
+        ex.captured_out_filter = apply_backspaces_and_linefeeds
+        SETTINGS["CAPTURE_MODE"] = sacred_capture_mode
+        ex.add_config(config_dict)
 
-    SETTINGS["CAPTURE_MODE"] = sacred_capture_mode
-    ex.add_config(config_dict)
-
-    map_name = ""
-    for param in params:
-        if param.startswith("env_args.map_name"):
-            map_name = param.split("=")[1]
-
-    # Save to disk by default for sacred
-    if config_dict["use_sacred"]:
+        # Save to disk by default
+        # update the map name param for run storage
+        map_name = ""
+        for param in params:
+            if param.startswith("env_args.map_name"):
+                map_name = param.split("=")[1]
         logger.info("Saving to FileStorageObserver in results/sacred.")
         results_path = join(dirname(dirname(abspath(__file__))), "results")
         file_obs_path = join(
             results_path, "sacred", config_dict["name"], config_dict["env"], map_name
         )
         ex.observers.append(FileStorageObserver.create(file_obs_path))
+        ex.run_commandline(params)
 
-    ex.run_commandline(params)
+
+if __name__ == "__main__":
+    main()

@@ -1,7 +1,8 @@
-from types import SimpleNamespace, SimpleNamespace as SN
+from types import SimpleNamespace as SN
 import datetime
-from os import makedirs, listdir, cpu_count
-from os.path import join, isdir, abspath
+
+from os import makedirs, listdir, cpu_count, walk
+from os.path import join, isdir, abspath, splitext
 from shutil import rmtree
 import time
 import threading
@@ -11,7 +12,6 @@ import numpy as np
 
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import binomtest
 
 # use agg backend to support multiprocessing
 plt.switch_backend("agg")
@@ -19,35 +19,24 @@ plt.switch_backend("agg")
 import torch as th
 import wandb
 
-from .evaluate import run_eval_episodes, eval_worker
+from .evaluate import run_eval_episodes
 from .build import build_sim
 
-from utils.utils import mp_kwargs_wrapper
 from utils.general_reward_support import test_alg_config_supports_reward
-from utils.logging import MainLogger
+from utils.logging import MainLogger, log_setup
 from utils.timehelper import time_left, time_str
 
 
 class Simulation:
-    def __init__(self, _run, _config, _log) -> None:
+    def __init__(self, _config, _log) -> None:
         mp.set_start_method("spawn", force=True)
+        args: SN = self._parse_config(_config, _log)
 
-        self.args: SN
-        self.args = self._parse_config(_config, _log)
-
-        self.logger: MainLogger
-        self._build_logger(self.args, _run, _config, _log)
-
-        self.runner: Any
-        self.learner: Any
-        self.buffer: Any
-        self.args, self.runner, self.buffer, self.learner = build_sim(
-            self.args, self.logger
-        )
-
+        self.logger: MainLogger = self._build_logger(args, _config, _log)
+        self.args, self.runner, self.buffer, self.learner = build_sim(args, self.logger)
         self.n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
 
-    def run_sim(self) -> None:
+    def run(self) -> None:
         # hierarchical: bool = getattr(self.args, "factored_hierarchical_policy", False)
 
         if self.args.evaluate:
@@ -58,15 +47,73 @@ class Simulation:
                 self.evaluate_loaded()
                 return
 
-        elif getattr(self.args, "load_hlmdp_data", False):
-            self._load_hlmdp_data()
+        elif hasattr(self.args, "post_processing"):
+            assert self.args.post_processing in [
+                "optimize_high_level_policy",
+                "aggregate_runs",
+            ]
 
-            self.logger.info("Optimizing High-Level Policy", log_header=True)
-            self._train_high_level_policy(self.runner.env.hlmdp)
-            print(self.runner.mac.comms_agent.policy.task_policy)
-            print(self.runner.mac.comms_agent.policy.comms_policy)
-            self.runner.close_env()
-            return
+            if self.args.post_processing == "optimize_high_level_policy":
+                df_data = self._load_experiment_artifacts(
+                    art_name="eval_stats",
+                    art_version="latest",
+                    art_type="run_table",
+                )
+                self.logger.info("Optimizing High-Level Policy", log_header=True)
+                self._train_high_level_policy(df_data)
+                print(self.runner.mac.comms_agent.policy.task_policy)
+                print(self.runner.mac.comms_agent.policy.comms_policy)
+                self.runner.close_env()
+                return
+
+            elif self.args.post_processing == "aggregate_runs":
+                df_data, runs = self._load_experiment_artifacts(
+                    art_name="eval_stats",
+                    art_version="latest",
+                    art_type="run_table",
+                    return_runs=True,
+                )
+
+                # average results across seeds within each scenario
+                df_avg = (
+                    df_data.groupby(
+                        ["scenario", "comms_value", "t_env_rounded"], dropna=False
+                    )
+                    .mean(numeric_only=True)
+                    .reset_index()
+                )
+
+                for idx, (scenario, df_scenario) in enumerate(
+                    df_avg.groupby("scenario"), start=np.min(df_avg.scenario)
+                ):
+                    self.logger.info(
+                        f"Plotting aggregated eval stats for scenario {scenario}",
+                    )
+                    scenario_table = wandb.Table(dataframe=df_scenario)
+
+                    # choose a run from this scenario to resume and log the plot
+                    scenario_runs = [
+                        run
+                        for run in runs
+                        if int(run.config.get("scenario", -1)) == int(scenario)
+                    ]
+
+                    wandb_run = wandb.init(
+                        entity=getattr(scenario_runs[0], "entity", None),
+                        project=getattr(scenario_runs[0], "project", None),
+                        id=scenario_runs[0].id,
+                        resume="allow",
+                    )
+
+                    self._make_comms_eval_plots(
+                        scenario_table,
+                        t=np.max(df_avg.t_env_rounded),
+                        wandb_run=wandb_run,
+                    )
+
+                    wandb_run.finish()
+
+                return
 
         # # run training
         # if hierarchical:
@@ -157,31 +204,11 @@ class Simulation:
         self.runner.close_env()
         self.logger.info("Finished Training")
 
-    def train_hierarchical(self) -> None:
-        """
-        Two-stage training: first train low-level policy, then use its success rates
-        in the high-level agent that interfaces with the HLMDP.
-        """
-
-        # Train low-level policy for a single task
-        self.logger.info("Training Low-Level Policy", log_header=True)
-
-        self.train_single_task()
-
-        # may need to eval here for more samples than during training to get good statistical estimates of init state dists
-        # only really needed for the dependent tasks
-
-        # # Train high-level policy with learned success rates
-        self.logger.info("Optimizing High-Level Policy", log_header=True)
-        self._train_high_level_policy(self.runner.env.hlmdp)
-
-        # evaluate Hl policy (only relevant for dependent tasks)
-
-        self.runner.close_env()
-        self.logger.info("Finished Hierarchical Training")
-
-    def _train_high_level_policy(self, data_table: wandb.Table) -> None:
-        self.learner.optimize_hl_agent(data_table, self.args.success_rate_spec)
+    def _train_high_level_policy(self, df_data: pd.DataFrame) -> None:
+        self.runner.env.hlmdp.transition_probs = df_data
+        self.learner.optimize_hl_agent(
+            self.runner.env.hlmdp, self.args.success_rate_spec
+        )
 
     def evaluate(self, n_eval_eps: int, reset_options: Optional[dict] = None) -> None:
         """Evaluation entry point."""
@@ -421,6 +448,7 @@ class Simulation:
 
                 eval_data.append(result["log_stats"])
 
+        """
         else:
             # move to CPU so tensors can be serialized for multiprocessing
             agent_state_dict = {
@@ -459,7 +487,7 @@ class Simulation:
                 results: list[dict] = list(pool.map(mp_kwargs_wrapper, inputs))
 
             eval_data = [res["log_stats"] for res in results]
-
+        """
         # Convert to DataFrame and log
         df_eval = pd.DataFrame.from_records(eval_data)
         self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
@@ -467,7 +495,12 @@ class Simulation:
             self.logger.data_tables["eval_stats"], t=self.runner.t_env
         )
 
-    def _make_comms_eval_plots(self, data_table: wandb.Table, t: int) -> None:
+    def _make_comms_eval_plots(
+        self,
+        data_table: wandb.Table,
+        t: int,
+        wandb_run=None,
+    ) -> None:
         """Make plots for comms evaluation.
 
         Plots each metric in `cols` vs `t_env` for every comms value present
@@ -492,66 +525,68 @@ class Simulation:
             for idx, comms_value in enumerate(comms_values):
                 df_plot = df[df.get("comms_value") == comms_value].copy()
                 label = f"Comms: {comms_value}"
+                n_samples = df_plot["test_n_episodes"].astype(int)
 
                 # compute small horizontal offsets so multiple comms plots don't overlap
                 # base_offset is a small fraction of typical t_env spacing (fallback to 1)
-                t_vals = df_plot["t_env"].values
-                if len(t_vals) > 1:
-                    median_dt = float(np.median(np.diff(np.sort(t_vals))))
-                else:
-                    median_dt = 1.0
-                base_offset = median_dt * 0.1
-                offset = (idx - (n_comms_values - 1) / 2.0) * base_offset
+                # t_vals = df_plot["t_env"].values
+                # if len(t_vals) > 1:
+                #     median_dt = float(np.median(np.diff(np.sort(t_vals))))
+                # else:
+                #     median_dt = 1.0
+                # base_offset = median_dt * 0.1
+                # offset = (idx - (n_comms_values - 1) / 2.0) * base_offset
 
                 # plot the confidence interval of the data based on number of test episodes
                 # use binom test b/c episode success is binary, binom test cannot be used for other values
-                if col in ["test_task_completed_mean"]:
-                    # compute interval per-row and add columns to df_plot
-                    ci_lows = []
-                    ci_highs = []
-                    n_samples_series = df_plot["test_n_episodes"].astype(int)
-                    for k_val, n_val in zip(
-                        (df_plot[col] * n_samples_series).astype(int), n_samples_series
-                    ):
-                        res = binomtest(k=int(k_val), n=int(n_val))
-                        interval = res.proportion_ci(confidence_level=0.95)
-                        ci_lows.append(interval.low)
-                        ci_highs.append(interval.high)
+                # if col in ["test_task_completed_mean"]:
+                #     # compute interval per-row and add columns to df_plot
+                #     ci_lows = []
+                #     ci_highs = []
+                #     for k_val, n_val in zip(
+                #         (df_plot[col] * n_samples).astype(int), n_samples
+                #     ):
+                #         res = binomtest(k=int(k_val), n=int(n_val))
+                #         interval = res.proportion_ci(confidence_level=0.95)
+                #         ci_lows.append(interval.low)
+                #         ci_highs.append(interval.high)
 
-                    df_plot["ci_low"] = ci_lows
-                    df_plot["ci_high"] = ci_highs
-                    df_plot["ci_width"] = df_plot["ci_high"] - df_plot["ci_low"]
+                #     df_plot["ci_low"] = ci_lows
+                #     df_plot["ci_high"] = ci_highs
+                #     df_plot["ci_width"] = df_plot["ci_high"] - df_plot["ci_low"]
 
-                    # use per-row half-width as yerr
-                    yerr = df_plot["ci_width"].values / 2.0
+                #     # use per-row half-width as yerr
+                #     yerr = df_plot["ci_width"].values / 2.0
 
-                    # plot the sampled values with horizontal offset applied
-                    plt.errorbar(
-                        df_plot["t_env"].values + offset,
-                        df_plot[col].values,
-                        yerr=yerr,
-                        marker="o",
-                        alpha=1.0,
-                        capsize=5,
-                        label=label,
-                    )
-                    # show N in legend title using first row's n
-                    n_samples = (
-                        int(n_samples_series.iloc[0])
-                        if len(n_samples_series) > 0
-                        else 0
-                    )
-                    legend_title = f"Conf. Int. ($\\alpha=0.05, N={n_samples}$)"
+                #     # plot the sampled values with horizontal offset applied
+                #     plt.errorbar(
+                #         df_plot["t_env"].values + offset,
+                #         df_plot[col].values,
+                #         yerr=yerr,
+                #         marker="o",
+                #         alpha=1.0,
+                #         capsize=5,
+                #         label=label,
+                #     )
+                #     # show N in legend title using first row's n
+                #     n_samples = (
+                #         int(n_samples.iloc[0])
+                #         if len(n_samples) > 0
+                #         else 0
+                #     )
+                #     legend_title = f"Conf. Int. ($\\alpha=0.05, N={n_samples}$)"
 
-                else:
-                    plt.plot(
-                        df_plot["t_env"],
-                        df_plot[col],
-                        marker="o",
-                        alpha=1.0,
-                        label=label,
-                    )
-                    legend_title = ""
+                # show N in legend title using first row's n
+                n_samples = int(n_samples.iloc[0]) if len(n_samples) > 0 else 0
+
+                plt.plot(
+                    df_plot["t_env"],
+                    df_plot[col],
+                    marker="o",
+                    alpha=1.0,
+                    label=label,
+                )
+                legend_title = f"samples={n_samples}"
 
             plt.xlabel("t_env")
             plt.ylabel(col)
@@ -566,6 +601,21 @@ class Simulation:
             plt.close()
 
         # log all images in the image dir
+        if wandb_run is not None:
+            for _, _, files in walk(save_dir):
+                for file in files:
+                    data = log_setup(self.logger.step_metric, t)
+                    path = join(save_dir, file)
+                    fn, extension = (
+                        splitext(file)[0],
+                        splitext(file)[1][1:],
+                    )
+                    data[f"comms_eval_aggregated/{fn}{self.logger.log_suffix}"] = (
+                        wandb.Image(path)
+                    )
+                    wandb_run.log(data=data)
+            return
+
         self.logger.log_images(save_dir, t=self.runner.t_env, group="comms_eval/")
 
     def evaluate_loaded(self) -> None:
@@ -609,54 +659,59 @@ class Simulation:
         if self.args.delete_local_models:
             rmtree(model_dir, ignore_errors=True)
 
-    def _load_hlmdp_data(self):
+    def _load_experiment_artifacts(
+        self,
+        art_name: str = "eval_stats",
+        art_version: str = "latest",
+        art_type: str = "run_table",
+        return_runs: bool = False,
+    ):
         api = wandb.Api()
 
         # load all runs w/ the given time_id and get eval stats tables
-        runs = []
-        proj = getattr(self.logger.wandb, "project", None)
-        runs = api.runs(proj, filters={"config.time_id": self.args.hlmdp_time_id})
+        runs = api.runs(
+            self.args.wandb_project,
+            filters={"config.time_id": self.args.time_id},
+        )
 
         if len(runs) == 0:
-            self.logger.info(
-                f"No wandb runs found for time_id={self.args.hlmdp_time_id}"
-            )
+            self.logger.info(f"No wandb runs found for time_id={self.args.time_id}")
             return
 
-        self.logger.info(f"Loading runs with ids: ")
-        for run in runs:
-            self.logger.info(run.id)
+        run_ids = [run.id for run in runs]
+        self.logger.info(f"Time ID: {self.args.time_id}")
+        self.logger.info(f"Loading {len(run_ids)} runs with ids: {run_ids}")
 
-        # merge the tables into a single df
         dfs = []
-        for wandb_run in runs:
-            artifacts = list(wandb_run.logged_artifacts())
-            for art in artifacts:
-                if art.type == "run_table":
-                    dfs.append(art.get("eval_stats").get_dataframe())
-        df_data = pd.concat(dfs)
 
-        # fill out the runner env's hlmdp transition_probs
-        # self.runner.env.hlmdp.transition_probs
-        df_hlmdp = self.runner.env.hlmdp.transition_probs
-        for _, row in df_data.iterrows():
-            # task success rate
-            df_hlmdp.loc[
-                (df_hlmdp.state == row.hl_start_state)
-                & (df_hlmdp.action == (row.hl_task[1], row.comms_value))
-                & (df_hlmdp.next_state == row.hl_task[1]),
-                "prob",
-            ] = (
-                1.0 - row.test_project_failed_mean
-            )
+        for i, wandb_run in enumerate(runs):
+            print(f"Run {i} / {len(runs)}")
 
-            # fail rate
-            df_hlmdp.loc[
-                (df_hlmdp.state == row.hl_start_state)
-                & (df_hlmdp.action == (row.hl_task[1], row.comms_value))
-                & (df_hlmdp.next_state != row.hl_task[1]),
-                "prob",
-            ] = row.test_project_failed_mean
+            data = api.artifact(
+                name=join(
+                    wandb_run.entity,
+                    wandb_run.project,
+                    f"run-{wandb_run.id}-{art_name}:{art_version}",
+                ),
+                type=art_type,
+            ).get(art_name)
+
+            df = data.get_dataframe()
+            df["scenario"] = int(wandb_run.config["scenario"])
+            dfs.append(df)
+
+        df_data = pd.concat(dfs, ignore_index=True)
+        # round to the nearest eval time since different seeds eval at slightly different times
+        df_data["t_env_rounded"] = (
+            df_data["t_env"] / wandb_run.config.get("test_interval")
+        ).round() * wandb_run.config.get("test_interval")
+
+        df_data.sort_values("scenario").reset_index(drop=True, inplace=True)
+
+        if return_runs:
+            return df_data, runs
+        else:
+            return df_data
 
     def _load_checkpoint(self) -> None:
         # get load time step for both cases
@@ -714,7 +769,7 @@ class Simulation:
             # clean up local files that have been loaded into memory
             rmtree("artifacts", ignore_errors=True)
 
-    def _parse_config(self, _config, _log) -> SimpleNamespace:
+    def _parse_config(self, _config, _log) -> SN:
         _config = self._args_sanity_check(_config, _log)
 
         args = SN(**_config)
@@ -724,7 +779,7 @@ class Simulation:
         ), "The specified algorithm does not support the general reward setup. Please choose a different algorithm or set `common_reward=True`."
 
         # update for parallel comms eval, can't be done offline
-        # due to parallel logging to a single wandb run on a remote server
+        # due to parallel to a single wandb run on a remote server
         if args.parallel_comms_eval:
             args.wandb_mode = "shared"
 
@@ -748,7 +803,7 @@ class Simulation:
 
         return config
 
-    def _build_logger(self, args: SimpleNamespace, _run, _config, _log) -> None:
+    def _build_logger(self, args: SN, _config, _log):
         # get unique token for this run
         if hasattr(_config["env_args"], "map_name"):
             map_name = _config["env_args"]["map_name"]
@@ -766,7 +821,7 @@ class Simulation:
         args.unique_token = unique_token
 
         # logger setup
-        self.logger = MainLogger(_log, config=_config, args=args)
+        return MainLogger(_log, config=_config, args=args)
 
     def finish(self) -> None:
         # Finish logging
@@ -783,3 +838,26 @@ class Simulation:
                 print("Thread joined")
 
         print("Exiting script")
+
+    # def train_hierarchical(self) -> None:
+    #     """
+    #     Two-stage training: first train low-level policy, then use its success rates
+    #     in the high-level agent that interfaces with the HLMDP.
+    #     """
+
+    #     # Train low-level policy for a single task
+    #     self.logger.info("Training Low-Level Policy", log_header=True)
+
+    #     self.train_single_task()
+
+    #     # may need to eval here for more samples than during training to get good statistical estimates of init state dists
+    #     # only really needed for the dependent tasks
+
+    #     # # Train high-level policy with learned success rates
+    #     self.logger.info("Optimizing High-Level Policy", log_header=True)
+    #     self._train_high_level_policy(self.runner.env.hlmdp)
+
+    #     # evaluate Hl policy (only relevant for dependent tasks)
+
+    #     self.runner.close_env()
+    #     self.logger.info("Finished Hierarchical Training")

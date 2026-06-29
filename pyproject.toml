@@ -4,7 +4,7 @@ version = "0.1.0"
 description = ""
 readme = "README.md"
 authors = [
-    { name = "Jacob Heglund", email = "jheglun2@illinois.edu" }
+    { name = "Jaye Heglund", email = "jheglun2@illinois.edu" }
 ]
 requires-python = ">=3.11"
 dependencies = [
