@@ -42,7 +42,7 @@ class ILPModel(OptimizationProblem):
         super().__init__()
         self.args = args
 
-        self.hlmdp: ProjectMDP
+        self._hlmdp: ProjectMDP
         self.success_rate_spec: float
         self.opt_vars: Variables
         self.policy: Solution
@@ -53,7 +53,7 @@ class ILPModel(OptimizationProblem):
         """optimize a tabular policy"""
         # stat table is a df (or similar) that has data for each subtask + success rates
         # returns a policy to navigate in the HLMDP + choose comms values
-        self.hlmdp = hlmdp
+        self._hlmdp = hlmdp
         self.success_rate_spec = success_rate_spec
 
         ###############
@@ -144,9 +144,9 @@ class ILPModel(OptimizationProblem):
     def _build_variables(self) -> None:
         # state-action occupancy variables (continuous)
         # action = "next state" action
-        df = self.hlmdp.transition_probs
-        for _, row in df.iterrows():
-            if row.next_state == self.hlmdp.fail_state:
+        df_trans = self._hlmdp.transition_probs
+        for _, row in df_trans.iterrows():
+            if row.next_state == self._hlmdp.fail_state:
                 continue
 
             state, next_state, comms_val = row.state, row.action[0], row.action[1]
@@ -167,13 +167,13 @@ class ILPModel(OptimizationProblem):
         self.model.update()
 
     def _build_constraints(self) -> None:
-        df = self.hlmdp.transition_probs
+        df_trans = self._hlmdp.transition_probs
 
         # deterministic comms allocation: chose one comms level for each task
         # for each edge wtih the same start and end states, sum over all the comms vals and set to 1
         for state, next_state in self.opt_vars.task_occupancy:
             # get the relevant comms values for this transition
-            actions = df.loc[(df.state == state) & (df.next_state == next_state)].action
+            actions = df_trans.loc[(df_trans.state == state) & (df_trans.next_state == next_state)].action
             comms_vals = [action[1] for action in actions]
 
             constraint = 0
@@ -186,13 +186,13 @@ class ILPModel(OptimizationProblem):
             )
 
         # Bellman flow constraints: sum occupancy of outgoing actions == sum of incoming occupancy for each state
-        for state in pd.unique(df.state).tolist():
-            if state == self.hlmdp.fail_state:
+        for state in pd.unique(df_trans.state).tolist():
+            if state == self._hlmdp.fail_state:
                 continue
 
             # get set of successor states
-            df_successor = df.loc[
-                (df.state == state) & (df.next_state != self.hlmdp.fail_state)
+            df_successor = df_trans.loc[
+                (df_trans.state == state) & (df_trans.next_state != self._hlmdp.fail_state)
             ]
 
             # define outgoing occupancy from state
@@ -203,7 +203,7 @@ class ILPModel(OptimizationProblem):
                 outgoing += self.opt_vars.task_occupancy[(state, next_state)]
 
             # define incoming occupancy to state
-            if state == self.hlmdp.init_state:
+            if state == self._hlmdp.init_state:
                 # initial state occupancy is defined to be 1 since
                 # we assume there is only one initial state
                 incoming = 1
@@ -211,11 +211,11 @@ class ILPModel(OptimizationProblem):
             else:
                 # add incoming occupancy for predecessor state-actions
                 incoming = 0
-                df_pred = df.loc[df.next_state == state]
+                df_pred = df_trans.loc[df_trans.next_state == state]
 
                 for pred_state in pd.unique(df_pred.state).tolist():
                     # ignore goal state's self transition
-                    if pred_state in [self.hlmdp.goal_state, self.hlmdp.fail_state]:
+                    if pred_state in [self._hlmdp.goal_state, self._hlmdp.fail_state]:
                         continue
 
                     pred_actions = df_pred.loc[
@@ -248,7 +248,7 @@ class ILPModel(OptimizationProblem):
             )
 
         # define constraint on successful global task completion probability (i.e., reaching the goal state)
-        df_goal = df.loc[df.state_type == "goal"]
+        df_goal = df_trans.loc[df_trans.state_type == "goal"]
         self.model.addConstr(
             self.opt_vars.task_occupancy[df_goal.state.item(), df_goal.action.item()[0]]
             >= self.success_rate_spec,
@@ -258,11 +258,11 @@ class ILPModel(OptimizationProblem):
 
     def _build_objective(self) -> None:
         objective = 0
-        df = self.hlmdp.transition_probs
+        df_trans = self._hlmdp._transition_probs
 
         for state, next_state in self.opt_vars.task_occupancy:
             # get the relevant comms values for this transition
-            actions = df.loc[(df.state == state) & (df.next_state == next_state)].action
+            actions = df_trans.loc[(df_trans.state == state) & (df_trans.next_state == next_state)].action
             comms_vals = [action[1] for action in actions]
 
             for comms_val in comms_vals:
