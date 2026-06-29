@@ -28,7 +28,7 @@ buffer_cpu_only: True # If true we won't keep all of the replay buffer in vram
 
 # --- Logging options ---
 use_tensorboard: False # Log results to tensorboard
-use_sacred: True # Log experiment using Sacred
+use_sacred: False # Log experiment using Sacred
 use_wandb: True # Log results to W&B
 sync_tensorboard: False # Log results to W&B while allowing the use of W&B's Tensorboard capabilities
 wandb_team: "" # W&B team name

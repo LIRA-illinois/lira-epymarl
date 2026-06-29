@@ -43,10 +43,6 @@ parameters:
   # live_render:
   #   values: [False]
 
-  # Sacred always off cuz it suuucks
-  use_sacred:
-    values: [False]
-
   ##################
   # MARL alg config
   ##################

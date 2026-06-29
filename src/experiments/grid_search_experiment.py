@@ -40,7 +40,7 @@ class GridSearch(object):
 
     def __init__(self) -> None:
         self.args = self._parse_args()
-        self.args.debug = is_debugger_active()
+        self.args.debug = is_debugger_active() or getattr(self.args, "debug")
 
         self.exp_dir = join("experiments", self.args.experiment)
         # self.exp_dir = join(self.project_dir, "experiments", self.args.experiment)
@@ -441,6 +441,11 @@ class GridSearch(object):
             choices=["lab", "campus", "delta"],
             default="lab",
             help="Computer to run the experiment on.",
+        )
+        parser.add_argument(
+            "-d",
+            "--debug",
+            action="store_true",
         )
 
         return parser.parse_args()

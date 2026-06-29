@@ -1,30 +1,27 @@
 from types import SimpleNamespace as SN
 import datetime
 
-from os import makedirs, listdir, cpu_count, walk
+from os import makedirs, listdir, walk
 from os.path import join, isdir, abspath, splitext
 from shutil import rmtree
 import time
 import threading
-from typing import Any, Optional
+from typing import Optional
 import multiprocessing as mp
 import numpy as np
-
 import pandas as pd
 import matplotlib.pyplot as plt
-
-# use agg backend to support multiprocessing
-plt.switch_backend("agg")
-
 import torch as th
 import wandb
 
-from .evaluate import run_eval_episodes
-from .build import build_sim
-
+from src.simulation.evaluate import run_eval_episodes
+from src.simulation.build import build_sim
 from src.utils.general_reward_support import test_alg_config_supports_reward
 from src.utils.logging import MainLogger, log_setup
 from src.utils.timehelper import time_left, time_str
+
+# use agg backend to support multiprocessing
+plt.switch_backend("agg")
 
 
 class Simulation:

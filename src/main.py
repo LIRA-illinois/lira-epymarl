@@ -14,11 +14,6 @@ from os.path import dirname, abspath, join
 import sys
 import yaml
 
-from sacred import Experiment, SETTINGS
-from sacred.observers import FileStorageObserver
-from sacred.utils import apply_backspaces_and_linefeeds
-from sacred.arg_parser import get_config_updates
-
 import numpy as np
 from torch import manual_seed as th_manual_seed, set_num_threads as th_set_num_threads
 
@@ -129,11 +124,15 @@ def main(params: str | None = None):
     if "key" not in config_dict["env_args"]:
         config_dict["env_args"]["key"] = config_dict["env"]
 
+    # sacred is off by default
     if not config_dict["use_sacred"]:
-        # completely ignore Sacred
         experiment_main(config_dict, logger)
 
     else:
+        from sacred import Experiment, SETTINGS
+        from sacred.observers import FileStorageObserver
+        from sacred.utils import apply_backspaces_and_linefeeds
+
         ex = Experiment("lira-epymarl")
 
         @ex.main
