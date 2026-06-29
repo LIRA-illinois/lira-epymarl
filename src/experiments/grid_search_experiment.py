@@ -22,6 +22,7 @@ import pandas as pd
 import numpy as np
 
 
+
 def string_inputs_to_list(config: dict, key: str, output_type: Callable) -> dict:
     """Converts space-delimited string list to list of "type" for the given key in the config dictionary."""
     if isinstance(config[key][0], output_type):
@@ -40,236 +41,238 @@ def string_inputs_to_list(config: dict, key: str, output_type: Callable) -> dict
     return config
 
 
-class SlurmArgs:
-    """configure the computational resources to be used for an experiment on the NCSA Delta AI Cluster"""
+class Computers:
+    cluster = ["campus", "delta"]
+    lab = ["lab"]
 
-    def __init__(
-        self,
-        experiment: str,
-        delta_config: dict,
-        campus_config: dict,
-        cluster: Literal["delta", "campus"],
-        job_idx: int = 1,
-        time: str = "2-00:00:00",
-        memory_gb: int = 128,
-        nodes: int = 1,
-        n_tasks_per_node: int = 1,
-        cpus_per_task: int = 64,
-        log_dir: str = "",
-    ) -> None:
-        """
-        Notes on Delta system specs: https://docs.ncsa.illinois.edu/systems/delta/en/latest/user_guide/architecture.html
+    # A40 has 48 GB VRAM per GPU, A100 has 80 GB VRAM per GPU, H200 has 141 GB VRAM per GPU
+    # The H200 costs a lot in terms of my credits to use, and is a monster GPU in general
+    # Any combination of these strings is valid too, so "gpuA40x4,gpuA100x4,gpuA100x8" is a valid partition
+    delta_partitions = ["gpuA40x4", "gpuA100x4", "gpuA100x8", "H200x8"]
 
-        Parameters
-        ----------
-        experiment : str
-            name of the experiment
-        account : str, optional
-            account name, by default "bfke-delta-gpu"
-        time : str, optional
-            max run time of the experiment in d-hh:mm:ss format, by default "2-00:00:00"
-        nodes : int, optional
-            number of compute nodes to use for this job, by default 1
-            Don't mess with multi-node stuff. You'll run separate jobs rather than having a single big job you need to parallelize across nodes.
-        memory_gb : int, optional
-            requested memory in GB, by default 128. 256 GB available on 4-GPU nodes, 2 TB on 8-GPU nodes.
-        n_tasks_per_node : int, optional
-            something to do with parallel processing. Just keep at the default value of 1.
-        cpus_per_task : int, optional
-            number of CPU cores to use for your task, by default 64.
-            64 CPU cores available on the 4-GPU nodes, 128 cores on the 8-GPU A100 node, and 96 cores on the 8-GPU H200 node.
-        gpus_per_node : int, optional
-            number of GPUs to use in your job, by default 1
-        gpu_bind : Literal["closest"], optional
-            chose the GPU and CPU that are physically closest to speed things up, by default "closest"
-        """
+    # IllinoisComputes-GPU has 5 nodes
+    ## 4 with 4, 80 GB A100 GPUs, 512 GB RAM, and 128 CPU cores
+    ## 1 with 8, 141GB H200 GPUs, 1.5 TB RAM, and 64 CPU cores
+    # eng-research-gpu has 5 nodes, each with 8, 24 GB A10 GPUs, 512 GB RAM, and 64 CPU cores
+    # csl has 2 nodes, each with 8, 48 GB L40S GPUs, 1 TB RAM, and 128 CPU cores
+    # Any combination of these strings is valid too, so ""IllinoisComputes-GPU,eng-research-gpu"" is a valid partition
+    campus_partitions = ["IllinoisComputes-GPU", "eng-research-gpu", "csl"]
 
-        # put vars in a dict b/c some vars in the config have
-        # dashes in their names and you can't do that with python vars
-        self.config: dict = {
-            "job-name": f"{experiment}_job_{job_idx}",
-            "time": time,
-        }
 
-        match cluster:
-            case "delta":
-                # partition of the cluster, by default "gpuA40x4"
-                # A40 has 48 GB VRAM per GPU, A100 has 80 GB VRAM per GPU, H200 has 141 GB VRAM per GPU
-                # The H200 costs a lot in terms of my credits to use, and is a monster GPU in general. Very unnecessary for my purposes lol
-                # Any combination of these strings is valid too, so "gpuA40x4,gpuA100x4,gpuA100x8" is a valid partition
-                partition_delta: Literal["gpuA40x4", "gpuA100x4", "gpuA100x8", "H200x8"]
-                self.config["partition"] = delta_config["partition"]
+def get_slurm_args(
+    experiment: str,
+    delta_config: dict,
+    campus_config: dict,
+    cluster: str,
+    job_idx: int = 1,
+    time: str = "2-00:00:00",
+    memory_gb: int = 128,
+    nodes: int = 1,
+    n_tasks_per_node: int = 1,
+    cpus_per_task: int = 64,
+    log_dir: str = "",
+) -> dict:
+    """configure the computational resources to be used for an experiment on a compute cluster
+    Notes on Delta system specs: https://docs.ncsa.illinois.edu/systems/delta/en/latest/user_guide/architecture.html
 
-                if campus_config["exclude"] != "":
-                    self.config["exclude"] = delta_config["exclude"]
+    Parameters
+    ----------
+    experiment : str
+        name of the experiment
+    account : str, optional
+        account name, by default "bfke-delta-gpu"
+    time : str, optional
+        max run time of the experiment in d-hh:mm:ss format, by default "2-00:00:00"
+    nodes : int, optional
+        number of compute nodes to use for this job, by default 1
+        Don't mess with multi-node stuff. You'll run separate jobs rather than having a single big job you need to parallelize across nodes.
+    memory_gb : int, optional
+        requested memory in GB, by default 128. 256 GB available on 4-GPU nodes, 2 TB on 8-GPU nodes.
+    n_tasks_per_node : int, optional
+        something to do with parallel processing. Just keep at the default value of 1.
+    cpus_per_task : int, optional
+        number of CPU cores to use for your task, by default 64.
+        64 CPU cores available on the 4-GPU nodes, 128 cores on the 8-GPU A100 node, and 96 cores on the 8-GPU H200 node.
+    gpus_per_node : int, optional
+        number of GPUs to use in your job, by default 1
+    gpu_bind : Literal["closest"], optional
+        chose the GPU and CPU that are physically closest to speed things up, by default "closest"
+    """
 
-                self.config["account"] = "bfke-delta-gpu"
-                self.config["nodes"] = nodes
-                self.config["gpus-per-node"] = delta_config["gpus_per_node"]
-                self.config["cpus-per-task"] = cpus_per_task
-                self.config["ntasks-per-node"] = n_tasks_per_node
-                self.config["gpu-bind"] = "closest"
+    # put vars in a dict b/c some vars in the config have
+    # dashes in their names and you can't do that with a namespace
+    config: dict = {
+        "job-name": f"{experiment}_job_{job_idx}",
+        "time": time,
+    }
 
-            case "campus":
-                # partition of the cluster to use
-                # IllinoisComputes-GPU has 5 nodes
-                ## 4 with 4, 80 GB A100 GPUs, 512 GB RAM, and 128 CPU cores
-                ## 1 with 8, 141GB H200 GPUs, 1.5 TB RAM, and 64 CPU cores
-                # eng-research-gpu has 5 nodes, each with 8, 24 GB A10 GPUs, 512 GB RAM, and 64 CPU cores
-                # csl has 2 nodes, each with 8, 48 GB L40S GPUs, 1 TB RAM, and 128 CPU cores
-                # Any combination of these strings is valid too, so ""IllinoisComputes-GPU,eng-research-gpu"" is a valid partition
-                partition_campus: Literal[
-                    "IllinoisComputes-GPU", "eng-research-gpu", "csl"
-                ]
-                self.config["partition"] = campus_config["partition"]
+    match cluster:
+        case "delta":
+            config["partition"] = delta_config["partition"]
 
-                if campus_config["exclude"] != "":
-                    self.config["exclude"] = campus_config["exclude"]
+            if campus_config["exclude"] != "":
+                config["exclude"] = delta_config["exclude"]
 
-                self.config["account"] = "huytran1-ic"
-                self.config["nodes"] = nodes
+            config["account"] = "bfke-delta-gpu"
+            config["nodes"] = nodes
+            config["gpus-per-node"] = delta_config["gpus_per_node"]
+            config["cpus-per-task"] = cpus_per_task
+            config["ntasks-per-node"] = n_tasks_per_node
+            config["gpu-bind"] = "closest"
 
-                # ‑‑ntasks=p  Total number of cores for the batch job. p is how many cores (ntasks) per job or per node (ntasks-per-node) to use (1 through 40) [default: 1 core].
-                # https://docs.ncsa.illinois.edu/systems/icc/en/latest/user_guide/running_jobs.html
-                self.config["ntasks"] = cpus_per_task
+        case "campus":
+            config["partition"] = campus_config["partition"]
 
-                # this cluster can also take a "gres" (GPU resources) argument instead of gpus-per-node. gres takes the format "gpu:{gpu_type}:{n_gpus}"
-                # EX: gpu:A100:2 requests 2 Nvidia A100 GPUs on whatever partition you're submitting your job to
-                # this is different from Delta where choosing the partition also chooses
-                # the types of GPUs that are available for use
-                self.config["gpus-per-node"] = campus_config["gpus_per_node"]
-            case _:
-                raise NotImplementedError
+            if campus_config["exclude"] != "":
+                config["exclude"] = campus_config["exclude"]
 
-        self.config["mem"] = f"{memory_gb}G"
-        self.config["output"] = join(log_dir, f"job_{job_idx}_log.out")
-        self.config["error"] = join(log_dir, f"job_{job_idx}_log.err")
+            config["account"] = "huytran1-ic"
+            config["nodes"] = nodes
 
-    def get_config_lines(self) -> list[str]:
-        """get list of strings to be put in the sbatch file"""
-        output_strs: list[str] = ["#!/bin/bash"]
+            # ‑‑ntasks=p  Total number of cores for the batch job. p is how many cores (ntasks) per job or per node (ntasks-per-node) to use (1 through 40) [default: 1 core].
+            # https://docs.ncsa.illinois.edu/systems/icc/en/latest/user_guide/running_jobs.html
+            config["ntasks"] = cpus_per_task
 
-        for k, v in self.config.items():
-            output_strs.append(f"#SBATCH --{k}={v}")
+            # this cluster can also take a "gres" (GPU resources) argument instead of gpus-per-node. gres takes the format "gpu:{gpu_type}:{n_gpus}"
+            # EX: gpu:A100:2 requests 2 Nvidia A100 GPUs on whatever partition you're submitting your job tomake
+            # this is different from Delta where choosing the partition also chooses
+            # the types of GPUs that are available for use
+            config["gpus-per-node"] = campus_config["gpus_per_node"]
 
-        return output_strs
+    config["mem"] = f"{memory_gb}G"
+    config["output"] = join(log_dir, f"job_{job_idx}_log.out")
+    config["error"] = join(log_dir, f"job_{job_idx}_log.err")
+
+    return config
+
+
+def get_slurm_config_lines(config: dict) -> list[str]:
+    """get list of strings to be put in the sbatch file"""
+    output_strs: list[str] = ["#!/bin/bash"]
+
+    for k, v in config.items():
+        output_strs.append(f"#SBATCH --{k}={v}")
+
+    return output_strs
 
 
 class GridSearch(object):
+    venv_activate_path = join(".venv", "bin", "activate")
+    basic_config_params: list[str] = ["config", "env-config"]
+
+    bash_prefix = ["/bin/bash", "-c"]
+    script_path = join("src", "main.py")
+
     def __init__(self) -> None:
-        self.args = self.parse_args()
-        self.venv_activate_path = join(".venv", "bin", "activate")
+        self.args = self._parse_args()
+
         self.exp_dir = join("experiments", self.args.experiment)
-        self.script_path = join("src", "main.py")
+        # self.exp_dir = join(self.project_dir, "experiments", self.args.experiment)
         self.job_dir = join(self.exp_dir, "jobs")
         makedirs(self.job_dir, exist_ok=True)
 
         # setup
-        exp_config_path = join(self.exp_dir, "exp_config.yaml")
-        with open(exp_config_path, "r", encoding="utf8") as f:
-            exp_config: dict = yaml.safe_load(f)
+        config_path = join(self.exp_dir, "exp_config.yaml")
+        with open(config_path, "r", encoding="utf8") as f:
+            full_config: dict = yaml.safe_load(f)
 
-        self.basic_config_params: list[str] = ["config", "env-config"]
+        config = full_config["parameters"]
+        conditional_config = full_config.get("conditional_parameters", None)
 
-        self.bash_prefix = ["/bin/bash", "-c"]
+        # generate a unique time id for this experiment
+        if config.get("time_id", False):
+            time_id = config.get("time_id")["values"][0]
+            # do not create a new wandb run if time_id provided, likely doing post-processing
+            # with its own specialized logging
+            config["use_wandb"] = {"values": [False]}
 
-        self.save_params: list[str] = [
-            "cmd",
-            "wandb_project",
-            "save_model",
-            "save_model_interval",
-            "save_test_replays",
-            "use_sacred",
-            "use_wandb",
-            "save_replay_buffer",
-        ]
-
-        # unique value for this experiment
-        time_id = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")[2:]
-
-        if self.args.computer in ["campus", "delta"]:
-            slurm_config_path = join(self.exp_dir, "slurm_config.yaml")
-            with open(slurm_config_path, "r", encoding="utf8") as f:
-                self.slurm_config: dict = yaml.safe_load(f)
-
-            cluster_log_dir: str = join(
-                "results",
-                "cluster_logs",
-                self.args.experiment,
-                time_id,
-            )
-
-            self.slurm_config["experiment"] = self.args.experiment
-            self.slurm_config["cluster"] = self.args.computer
-            self.slurm_config["log_dir"] = cluster_log_dir
+        else:
+            time_id = f"{self.args.experiment}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')[2:]}"
 
         # get seeds
-        if exp_config["parameters"].get("seed", False):
-            seeds = exp_config["parameters"].pop("seed")["values"]
+        if config.get("seed"):
+            seeds = config.pop("seed")["values"]
         else:
-            if exp_config["parameters"].get("n_seeds", False):
-                # generate n_seeds random seeds to use in this experiment
-                n_seeds = exp_config["parameters"].pop("n_seeds")["values"][0]
-            else:
-                # default value
-                n_seeds = 5
-
-            # true randomness from the OS
+            n_seeds = config.pop("n_seeds")["values"][0] if config.get("n_seeds") else 5
             rng = SystemRandom()
             seeds = [rng.randint(0, 1000000) for _ in range(n_seeds)]
 
+        """
         # check if running bisimulation test
-        if exp_config["parameters"].get("env_bisimulation_test", False):
-            env_bisimulation_test = exp_config["parameters"].pop(
+        if base_config.get("env_bisimulation_test", False):
+            env_bisimulation_test = base_config.pop(
                 "env_bisimulation_test"
             )["values"][0]
             # add save_replay_buffer to the config so you can run the post-processing
-            exp_config["parameters"]["save_replay_buffer"] = {"values": ["True"]}
+            base_config["save_replay_buffer"] = {"values": ["True"]}
 
         else:
             env_bisimulation_test = False
+        """
 
-        scenarios, scenario_names = self.get_scenarios(exp_config)
+        scenarios, scenario_names = self._get_scenarios(config, conditional_config)
 
-        run_setups = self.get_run_setups(
+        run_setups = self._get_run_setups(
             scenarios=scenarios,
             seeds=seeds,
             scenario_names=scenario_names,
-            script_path=self.script_path,
             time_id=time_id,
         )
 
         if self.args.debug:
-            self.run_debug(run_setups)
+            self._run_debug(run_setups)
+            return
 
         else:
-            self.print_info(scenarios, run_setups)
+            if self.args.computer in Computers.lab:
+                self._print_hardware_info()
+            self._print_exp_info(scenarios, run_setups)
 
-            if self.args.computer in ["campus", "delta"]:
-                job_paths = self.build_sbatch_files(
-                    run_setups, cluster=self.args.computer, time_id=time_id
+            if self.args.computer in Computers.cluster:
+                # get config for slurm job on cluster
+                slurm_config_path = join(self.exp_dir, "slurm_config.yaml")
+                with open(slurm_config_path, "r", encoding="utf8") as f:
+                    slurm_config: dict = yaml.safe_load(f)
+
+                cluster_log_dir: str = join(
+                    "results",
+                    "cluster_logs",
+                    self.args.experiment,
+                    time_id,
+                )
+
+                slurm_config["experiment"] = self.args.experiment
+                slurm_config["cluster"] = self.args.computer
+                slurm_config["log_dir"] = cluster_log_dir
+
+                job_paths = self._build_sbatch_files(
+                    slurm_config,
+                    run_setups,
+                    cluster=self.args.computer,
+                    time_id=time_id,
                 )
 
             # check if user wants to run the experiment
             user_input = input("Run experiment now? (y/n) ").lower()
             if user_input == "y":
                 print("Running experiment")
-                if env_bisimulation_test:
-                    self.run_bisimulation_test(run_setups)
+                # if env_bisimulation_test:
+                #     self._run_bisimulation_test(run_setups)
+                #     return
 
-                else:
-                    match self.args.computer:
-                        case "lab":
-                            self.run_experiment_lab(run_setups.cmd)
-                        case "campus" | "delta":
-                            makedirs(cluster_log_dir, exist_ok=True)
-                            self.run_experiment_cluster(job_paths)
+                match self.args.computer:
+                    case "lab":
+                        self._run_experiment_lab(run_setups.cmd)
+                    case "campus" | "delta":
+                        makedirs(cluster_log_dir, exist_ok=True)
+                        self._run_experiment_cluster(job_paths)
+                return
 
-            else:
-                print("Exiting without running experiment")
-                exit()
+            print("Exiting without running experiment")
+            return
 
-    def run_debug(self, run_setups):
+    def _run_debug(self, run_setups):
+        # just run the first command in run_setups
         for cmd in run_setups.cmd:
             run_cmd = [
                 *self.bash_prefix,
@@ -279,44 +282,42 @@ class GridSearch(object):
                 run_cmd,
             )
             proc.wait()
-            print("done")
-            exit()
+            print("done with debugging")
+            return
 
-    def get_scenarios(self, exp_config: dict) -> tuple[list[dict], list[str]]:
-        scenarios: list[dict] = [*self.gen_dict_combinations(exp_config["parameters"])]
+    def _get_scenarios(
+        self, base_config: dict, conditional_config: dict | None = None
+    ) -> tuple[list[dict], list[str]]:
+        scenarios: list[dict] = [*self._gen_dict_combinations(base_config)]
 
         # handle comms_values when a unique policy per comms value is requested
         # expand scenarios so each comms value becomes its own scenario
         updated_scenarios = []
         for scenario in scenarios:
-            if scenario.get("comms_values", False) and scenario.get(
-                "unique_policy_per_comms_value", False
+            if scenario.get("comms_values") and scenario.get(
+                "unique_policy_per_comms_value"
             ):
-                # convert space-delimited string to list of floats
                 scenario = string_inputs_to_list(
                     scenario, "comms_values", output_type=float
                 )
-                comms_list = scenario.pop("comms_values")
-                for cv in comms_list:
+                for cv in scenario.pop("comms_values"):
                     new_s = scenario.copy()
                     # format as a string in a list to work with parsing in main.py
                     new_s["comms_values"] = [f"{cv}"]
                     updated_scenarios.append(new_s)
             else:
                 updated_scenarios.append(scenario)
-
         scenarios = updated_scenarios
 
         # get scenario configs based on conditional params
-        if "conditional_parameters" in exp_config:
+        if conditional_config is not None:
             # loop over outer vars (EX: config, env-config)
-            for outer_var, conditional_vars in exp_config[
+            for outer_var, conditional_vars in base_config[
                 "conditional_parameters"
             ].items():
-
                 # loop over config (EX: maic, qmix) and env-config (EX: join1-v0 and join1_original)
                 for inner_var, varied_params in conditional_vars.items():
-                    conditional_combos = [*self.gen_dict_combinations(varied_params)]
+                    conditional_combos = [*self._gen_dict_combinations(varied_params)]
 
                     updated_scenarios = []
                     indices_remove = []
@@ -328,9 +329,7 @@ class GridSearch(object):
 
                     # remove scenarios that were updated and bring in their updated versions
                     scenarios = [
-                        scenario
-                        for i, scenario in enumerate(scenarios)
-                        if i not in indices_remove
+                        s for i, s in enumerate(scenarios) if i not in indices_remove
                     ]
                     scenarios += updated_scenarios
 
@@ -340,39 +339,42 @@ class GridSearch(object):
 
         return scenarios, scenario_names
 
-    def get_run_setups(
+    def _get_run_setups(
         self,
         scenarios: list[str],
         seeds: list[int],
         scenario_names: list[str],
-        script_path: str,
         time_id: str,
     ) -> pd.DataFrame:
 
         run_setups: list[dict] = []
+
+        scenario_params = {
+            "experiment": self.args.experiment,
+            "time_id": time_id,
+        }
+
         for scenario_idx, params in enumerate(scenarios):
             _params: dict = params.copy()
+            scenario_params["scenario"] = scenario_names[scenario_idx]
 
+            # get cartesian product of any grid_search_params (seed, ...)
             grid_search_params = {"seed": seeds}
-            # produce cartesian product of any grid_search_params (seed, ...)
             grid_keys = list(grid_search_params.keys())
             grid_values = list(grid_search_params.values())
 
-            # unique wandb group name for each experimental scenario + runtime, used to group runs on the wandb website for post-processing
-            scenario_params = {
-                "experiment": self.args.experiment,
-                "scenario": scenario_names[scenario_idx],
-                "time_id": f"{self.args.experiment}_{time_id}",
-            }
-            for param in self.save_params:
-                if _params.get(param):
-                    scenario_params[param] = _params.get(param)
+            # unique wandb group name for each experimental scenario + runtime,
+            # used to group runs on the wandb for post-processing
+            # for param in self.save_params:
+            #     if param in _params:
+            #         scenario_params[param] = _params[param]
 
             # options is rl alg and env
-            # update is the "with" params (except seed, you add that in manually)
+            # update is the "with" params (except params grid-searched above here)
             options = []
             updates = []
             for k, v in _params.items():
+                # used for the Sacred arg parser
                 if k in self.basic_config_params:
                     options.append(f"--{k}={v}")
                 else:
@@ -386,27 +388,24 @@ class GridSearch(object):
                 # for each seed/comms_value combo, build a run
                 run_params = scenario_params.copy()
                 run_params.update(combo_dict)
-                run_updates = [f"{k}={v}" for k, v in run_params.items()]
+                run_updates = [f"--{k}={v}" for k, v in run_params.items()]
 
                 # needed for debugging while using Sacred
                 # --force makes Sacred ignore this error since it sucks at checking whether params are actually used in your code or not
                 # sacred.utils.ConfigAddedError: Added new config entry that is not used anywhere
-                sacred_debug_suffix = "-d --force"
+                sacred_debug_suffix = ""
+                # sacred_debug_suffix = "-d --force"
 
-                if self.args.debug:
-                    base_cmd = "ipdb3 -c continue"
+                base_cmd = ["ipdb3 -c continue"] if self.args.debug else ["python3"]
 
-                else:
-                    base_cmd = "python3"
-
-                python_cmd = f"{base_cmd} {script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)} {sacred_debug_suffix}"
+                python_cmd = f"{' '.join(base_cmd)} {self.script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)} {sacred_debug_suffix}"
                 run_params["cmd"] = python_cmd
                 run_setups.append(run_params)
 
         run_setups_out = pd.DataFrame.from_records(run_setups)
         return run_setups_out
 
-    def run_experiment_lab(self, python_cmds: pd.Series):
+    def _run_experiment_lab(self, python_cmds: pd.Series):
         # assign each runner its commands
         n_runners = self.args.n_runners
         runners = {i: "source .venv/bin/activate;" for i in range(n_runners)}
@@ -444,8 +443,9 @@ class GridSearch(object):
             for p in processes:
                 p.wait()
 
-    def build_sbatch_files(
+    def _build_sbatch_files(
         self,
+        slurm_config: dict,
         run_setups: pd.DataFrame,
         cluster: Literal["campus", "delta"],
         time_id: str,
@@ -470,11 +470,11 @@ class GridSearch(object):
             cmds.insert(0, "# job commands")
 
             # slurm config
-            self.slurm_config["job_idx"] = job_idx + 1
-            slurm_args = SlurmArgs(**self.slurm_config)
-            slurm_config_lines = slurm_args.get_config_lines()
+            slurm_config["job_idx"] = job_idx + 1
+            slurm_config_lines = get_slurm_config_lines(get_slurm_args(**slurm_config))
 
             # commands to run this project on the cluster
+            # TODO this logic can just be replaced by a call of getcwd()
             project_name = getcwd().split("/")[-1]
             match self.args.computer:
                 case "delta":
@@ -492,11 +492,9 @@ class GridSearch(object):
                 f"source {self.venv_activate_path}",
             ]
 
-            module_load_lines: list[str] = []
-            if self.args.computer == "campus":
-                module_load_lines.append(
-                    "module load cuda/12.4",
-                )
+            module_load_lines: list[str] = (
+                ["module load cuda/12.4"] if self.args.computer == "campus" else []
+            )
             module_load_lines += [
                 "echo 'Running on node with hostname:'",
                 "hostname -s",
@@ -516,17 +514,17 @@ class GridSearch(object):
             job_path = join(job_dir, f"job_{cluster}_{job_idx + 1}.slurm")
             job_paths.append(job_path)
             print(f"{len(cmds) - 1} runs to {job_path}")
-            self.write_sbatch(output_path=job_path, setups=setups)
+            self._write_sbatch(output_path=job_path, setups=setups)
 
         return job_paths
 
-    def run_experiment_cluster(self, job_paths: list[str]):
+    def _run_experiment_cluster(self, job_paths: list[str]):
         # submit jobs to cluster
         for job_path in job_paths:
             print(f"Submitting job {job_path}")
             subprocess.run(["sbatch", job_path], check=False)
 
-    def parse_args(self):
+    def _parse_args(self):
         parser = argparse.ArgumentParser()
         parser.add_argument(
             "-e",
@@ -576,55 +574,18 @@ class GridSearch(object):
 
         return parser.parse_args()
 
-    def print_info(
+    def _print_exp_info(
         self,
         scenarios: list[dict],
         run_setups: pd.DataFrame,
     ):
-        """print useful info about the experiment"""
-
+        """print experiment summary in a markdown-formatted table"""
+        spaces = " " * 4
         n_scenarios = run_setups.scenario.nunique()
         seeds = run_setups.seed.unique()
         n_seeds = len(seeds)
         time_id = run_setups.time_id[0]
 
-        spaces = " " * 4
-
-        if self.args.computer == "lab":
-            from torch.cuda import get_device_properties
-            from torch.cuda.memory import mem_get_info
-            import psutil
-
-            # available computer resources
-            print(
-                f"Lab computer hardware summary\nUsing {len(self.args.gpus)} GPUs with indices {self.args.gpus}\nVRAM usage"
-            )
-            byte_to_gb = 1024**3
-            for device in self.args.gpus:
-                avail_vram, total_vram = mem_get_info(device)
-                # convert from bytes to gigabtyes
-                avail_vram, total_vram = round(avail_vram / byte_to_gb, 1), round(
-                    total_vram / byte_to_gb, 1
-                )
-                used_vram = round(total_vram - avail_vram, 1)
-
-                props = get_device_properties(device)
-
-                print(
-                    f"Device {device} -- {used_vram} GB / {total_vram} GB used ({avail_vram} GB available) -- {props.name}"
-                )
-
-            ram_info = psutil.virtual_memory()
-            used_ram = round(ram_info.used / byte_to_gb, 1)
-            total_ram = round(ram_info.total / byte_to_gb, 1)
-            avail_ram = round(ram_info.available / byte_to_gb, 1)
-
-            print(
-                "\nRAM usage --",
-                f"{used_ram} GB / {total_ram} GB used ({avail_ram} GB available)",
-            )
-
-        # print experiment summary in a markdown-formatted table
         n_runs = n_scenarios * n_seeds
         print(f"\n- Experiment summary ({self.args.computer} computer)")
         print(
@@ -638,11 +599,29 @@ class GridSearch(object):
         )
         print(table_header)
 
+        no_print_params: list[str] = [
+            "cmd",
+            "wandb_project",
+            "wandb_mode",
+            "use_wandb",
+            "save_model",
+            "save_model_interval",
+            "save_test_replays",
+            "use_sacred",
+            "save_replay_buffer",
+            "delete_local_models",
+            "live_render",
+            "save_model_interval",
+            "runner_log_interval",
+            "n_test_replays_save",
+        ]
+
         for scenario_idx, params in enumerate(scenarios):
             # print params to markdown table
             other_params = ""
+
             for k, v in params.items():
-                if k not in self.basic_config_params + self.save_params:
+                if k not in self.basic_config_params + no_print_params:
                     other_params += f"{k}={v} "
 
             table_line = f"| {run_setups.scenario[scenario_idx * n_seeds]} | {params['config']} | {params['env-config']} | {other_params}|"
@@ -661,7 +640,39 @@ class GridSearch(object):
                 for cmd in run_setups.cmd:
                     f.write(f"{cmd}\n")
 
-    def write_sbatch(self, output_path: str, setups: list[list[str]]) -> None:
+    def _print_hardware_info(self):
+        from torch.cuda import get_device_properties
+        from torch.cuda.memory import mem_get_info
+        import psutil
+
+        # available computer resources
+        print(
+            f"Lab computer hardware summary\nUsing {len(self.args.gpus)} GPUs with indices {self.args.gpus}\nVRAM usage"
+        )
+        byte_to_gb = 1024**3
+        for device in self.args.gpus:
+            avail_vram, total_vram = mem_get_info(device)
+            avail_vram = round(avail_vram / byte_to_gb, 1)
+            total_vram = round(total_vram / byte_to_gb, 1)
+            used_vram = round(total_vram - avail_vram, 1)
+
+            props = get_device_properties(device)
+
+            print(
+                f"Device {device} -- {used_vram} GB / {total_vram} GB used ({avail_vram} GB available) -- {props.name}"
+            )
+
+        ram = psutil.virtual_memory()
+        used_ram = round(ram.used / byte_to_gb, 1)
+        total_ram = round(ram.total / byte_to_gb, 1)
+        avail_ram = round(ram.available / byte_to_gb, 1)
+
+        print(
+            "\nRAM usage --",
+            f"{used_ram} GB / {total_ram} GB used ({avail_ram} GB available)",
+        )
+
+    def _write_sbatch(self, output_path: str, setups: list[list[str]]) -> None:
         with open(output_path, "w", encoding="utf8") as f:
             for setup in setups:
                 for line in setup:
@@ -673,18 +684,19 @@ class GridSearch(object):
             # otherwise the batch job immediately terminates
             f.write("wait")
 
-    def gen_dict_combinations(self, d: dict):
-        # https://stackoverflow.com/questions/50606454/cartesian-product-of-nested-dictionaries-of-lists
+    def _gen_dict_combinations(self, d: dict):
+        """Generate all combinations of nested dict values.
+        See: https://stackoverflow.com/questions/50606454/cartesian-product-of-nested-dictionaries-of-lists
+        """
 
-        def gen_combinations(d: dict):
-            combinations = product(*d.values())
-            for c in combinations:
-                yield c[0]
+        def gen_combinations(nested_dict):
+            for combo in product(*nested_dict.values()):
+                yield combo[0]
 
-        for c in product(*(gen_combinations(v) for v in d.values())):
-            yield dict(zip(d.keys(), c))
+        for combo in product(*(gen_combinations(v) for v in d.values())):
+            yield dict(zip(d.keys(), combo))
 
-    def run_bisimulation_test(self, run_setups: pd.DataFrame):
+    def _run_bisimulation_test(self, run_setups: pd.DataFrame):
         # get the commands for the two envs you want to compare
         # for the case of 1  seed, this is very easy, just the commands in the list of python_cmds
         processes = []
