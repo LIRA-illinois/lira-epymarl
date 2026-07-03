@@ -40,7 +40,7 @@ class VarianceEstimatorWelford:
         var_p (array(D,)): Population variance of the accumulated samples.
     """
 
-    def __init__(self, elements=None):
+    def __init__(self, elements=None) -> None:
         """__init__
 
         Initialize with an optional data.
@@ -74,7 +74,7 @@ class VarianceEstimatorWelford:
             self.__init_old_with_nan()
 
     @property
-    def count(self):
+    def count(self) -> int:
         return self.__count
 
     @property
@@ -89,7 +89,7 @@ class VarianceEstimatorWelford:
     def var_p(self):
         return self.__getvars(ddof=0)
 
-    def add(self, element, backup_flg=True):
+    def add(self, element, backup_flg=True) -> None:
         """add
 
         add one data sample.
@@ -119,7 +119,7 @@ class VarianceEstimatorWelford:
         self.__m += delta / self.__count
         self.__s += delta * (element - self.__m)
 
-    def add_all(self, elements, backup_flg=True):
+    def add_all(self, elements, backup_flg: bool=True) -> None:
         """add_all
 
         add multiple data samples.
@@ -136,7 +136,7 @@ class VarianceEstimatorWelford:
         for elem in elements:
             self.add(elem, backup_flg=False)
 
-    def rollback(self):
+    def rollback(self) -> None:
         self.__count = self.__count_old
         self.__m[...] = self.__m_old[...]
         self.__s[...] = self.__s_old[...]
@@ -150,7 +150,7 @@ class VarianceEstimatorWelford:
         else:
             return self.__s / (self.__count - ddof)
 
-    def __backup_attrs(self):
+    def __backup_attrs(self) -> None:
         if self.__shape is None:
             pass
         else:
@@ -158,7 +158,7 @@ class VarianceEstimatorWelford:
             self.__m_old[...] = self.__m[...]
             self.__s_old[...] = self.__s[...]
 
-    def __init_old_with_nan(self):
+    def __init_old_with_nan(self) -> None:
         self.__m_old = np.empty(self.__shape)
         self.__m_old[...] = np.nan
         self.__s_old = np.empty(self.__shape)
@@ -247,7 +247,7 @@ def get_estimated_mean_return():
     return estimated_mean_return, conf_int
 
 
-def run_return_variance_experiment():
+def run_return_variance_experiment() -> None:
     n_eval = 100
     estimated_vars = np.zeros(n_eval)
     var = 0.25
@@ -266,13 +266,13 @@ def run_return_variance_experiment():
 ############
 # part 2: estimating the current-best model's success probability and final state distribution by sampling evaluation episodes
 ############
-def sample_final_state_dist(n_samples):
+def sample_final_state_dist(n_samples: int):
     elements = [0, 1, 2, 3, 4]
     probs = [0.4, 0.2, 0.2, 0.1, 0.1]
     return np.random.choice(elements, n_samples, p=probs)
 
 
-def sample_success_dist(n_samples):
+def sample_success_dist(n_samples: int):
     elements = [0, 1]
     probs = [0.9, 0.1]
     return np.random.choice(elements, n_samples, p=probs)
@@ -369,7 +369,7 @@ def get_estimated_final_joint_state_distribution():
     )
 
 
-def get_sample_size_to_estimate_single_proportion(alpha: float = 0.05, d: float = 0.05):
+def get_sample_size_to_estimate_single_proportion(alpha: float = 0.05, d: float = 0.05) -> int:
     """based on equation 5.2 of "Sampling" (Thompson, 2012)
     gives the samples size needed to obtain an estimator \hat{theta} which has probability of at least 1-alpha of being no farther than d from the true theta
     """
@@ -387,7 +387,7 @@ def get_sample_size_to_estimate_single_proportion(alpha: float = 0.05, d: float 
     return n_samples
 
 
-def get_sample_size_to_estimate_all_proportions(alpha: float = 0.05, d: float = 0.05):
+def get_sample_size_to_estimate_all_proportions(alpha: float = 0.05, d: float = 0.05) -> int:
     """
     To get the worst-case n which assumes no knowledge of the probabilities, I need to solve the following optimization problem from equation 1 of "Sample Size for Estimating Multinomial Proportions" (Thompson, 1987)
 
@@ -415,7 +415,7 @@ def get_sample_size_to_estimate_all_proportions(alpha: float = 0.05, d: float = 
     return n_samples_worst_case
 
 
-def main():
+def main() -> None:
     # mean, conf_int = get_estimated_mean_return()
     # print(mean, conf_int)
     # run_mean_return_experiment()

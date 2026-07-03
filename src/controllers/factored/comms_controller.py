@@ -1,3 +1,5 @@
+from torch.nn.parameter import Parameter
+from src.modules.agents.rnn_agent import RNNAgent
 from torch import Tensor
 
 from src.components.episode_buffer import EpisodeBatch
@@ -7,7 +9,7 @@ from src.components.action_selectors import CommsActionSelector
 
 
 class CommsMAC:
-    def __init__(self, scheme, groups, args):
+    def __init__(self, scheme, groups, args) -> None:
 
         # mac to interact with low-level environment
         self.env_mac = mac_REGISTRY[args.mac](scheme, groups, args)
@@ -24,15 +26,15 @@ class CommsMAC:
 
         # self.agent_output_type = args.agent_output_type
 
-    def _build_agents(self, input_shape):
+    def _build_agents(self, input_shape) -> None:
         # you would add your model-based ILP agent as an agent in the registry to be grabbed here
         self.comms_agent = agent_REGISTRY[self.args.comms_agent](self.args)
 
     @property
-    def env_agent(self):
+    def env_agent(self) -> RNNAgent:
         return self.env_mac.agent
 
-    def init_hidden(self, batch_size):
+    def init_hidden(self, batch_size) -> None:
         self.env_mac.init_hidden(batch_size=batch_size)
 
     def cuda(self) -> None:
@@ -48,7 +50,7 @@ class CommsMAC:
 
         return input_shape
 
-    def parameters(self):
+    def parameters(self) -> list[Parameter]:
         params = list(self.env_agent.parameters())
         if hasattr(self.comms_agent, "parameters"):
             params += list(self.comms_agent.parameters())
@@ -56,7 +58,7 @@ class CommsMAC:
         return params
 
     def select_actions(
-        self, ep_batch: EpisodeBatch, t_ep, t_env, bs=slice(None), test_mode=False
+        self, ep_batch: EpisodeBatch, t_ep, t_env, bs=slice(None), test_mode: bool=False
     ) -> dict:
         # get the model of the env + optimize
         # update comms allocation to low-level agents + choose next task to complete (if relevant)
@@ -84,10 +86,10 @@ class CommsMAC:
         return self.env_mac.comms_value
 
     @comms_value.setter
-    def comms_value(self, value):
+    def comms_value(self, value) -> None:
         self.comms_value = value
 
-    def forward(self, ep_batch: EpisodeBatch, t, test_mode=False, **kwargs):
+    def forward(self, ep_batch: EpisodeBatch, t, test_mode: bool=False, **kwargs) -> int:
         return 1
         # agent_inputs = self._build_inputs(ep_batch, t)
         # avail_actions = ep_batch["avail_actions"][:, t]
@@ -103,7 +105,7 @@ class CommsMAC:
 
         # return agent_outs.view(ep_batch.batch_size, self.n_agents, -1), losses
 
-    def _build_inputs(self, batch, t):
+    def _build_inputs(self, batch, t) -> None:
 
         # Assumes homogenous agents with flat observations.
         # Other MACs might want to e.g. delegate building inputs to each agent
@@ -126,7 +128,7 @@ class CommsMAC:
         # inputs = th.cat([x.reshape(bs * self.n_agents, -1) for x in inputs], dim=1)
         # return inputs
 
-    def save_models(self, path: str):
+    def save_models(self, path: str) -> None:
         self.env_mac.save_models(path)
 
     @property

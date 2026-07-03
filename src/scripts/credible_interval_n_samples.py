@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def credible_interval_analysis():
+def credible_interval_analysis() -> None:
     # setting a, b = 1 is the same as assuming a uniform prior distribution over the interval [0, 1]
     a_prior = 1
     b_prior = 1
@@ -44,7 +44,7 @@ def credible_interval_analysis():
     )
 
 
-def credible_interval_width(p_success=0.5, credible_interval_size=0.95):
+def credible_interval_width(p_success: float=0.5, credible_interval_size: float=0.95):
     """Estimate expected posterior credible interval width for Bernoulli with Beta(1,1) prior.
 
     Returns arrays (ns, widths).
@@ -73,7 +73,7 @@ def credible_interval_width(p_success=0.5, credible_interval_size=0.95):
     return n_samples, widths
 
 
-def plot_credible_interval_vs_n_samples(p_true=0.5, save_path=None):
+def plot_credible_interval_vs_n_samples(p_true: float=0.5, save_path=None) -> None:
     n_samples, widths = credible_interval_width(p_success=p_true)
 
     plt.figure(figsize=(6, 4))

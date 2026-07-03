@@ -1,4 +1,4 @@
-def test_alg_config_supports_reward(args):
+def test_alg_config_supports_reward(args) -> bool:
     """
     Check whether algorithm supports specified reward configuration
     """

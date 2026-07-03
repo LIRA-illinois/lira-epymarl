@@ -1,3 +1,4 @@
+from torch._tensor import Tensor
 from collections import defaultdict
 
 import torch as th
@@ -16,7 +17,7 @@ class STEFunction(th.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, x: Tensor, thres: float):
+    def forward(ctx, x: Tensor, thres: float) -> Tensor:
         # Binary threshold: 1 if x > thres, else 0
         return (x >= thres).float()
 
@@ -34,7 +35,7 @@ class STEFunction(th.autograd.Function):
 class MAICAgent(nn.Module):
     """class for a team of agents that communicate using MAIC"""
 
-    def __init__(self, input_shape, args):
+    def __init__(self, input_shape, args) -> None:
         super(MAICAgent, self).__init__()
         self.args = args
         self.n_agents = args.n_agents
@@ -94,7 +95,7 @@ class MAICAgent(nn.Module):
         """
         return th.sigmoid(steepness * (x - bias))
 
-    def init_hidden(self):
+    def init_hidden(self) -> Tensor:
         return self.fc1.weight.new(1, self.args.hidden_dim).zero_()
 
     @property
@@ -107,7 +108,7 @@ class MAICAgent(nn.Module):
         return self._comms_value
 
     @comms_value.setter
-    def comms_value(self, value):
+    def comms_value(self, value) -> None:
         self._comms_value = value
 
     @property
@@ -320,7 +321,7 @@ class MAICAgent(nn.Module):
 
         return alpha
 
-    def _get_action_mi_loss(self, hidden_state, bs, latent_embed, q):
+    def _get_action_mi_loss(self, hidden_state: Tensor, bs: int, latent_embed: Tensor, q: Tensor):
         """mutual information loss to train each agent's teammate model"""
         # get the conditional distribution which approximates the variational distribution
         # p(z_{ij} | \tau_i, d_j)

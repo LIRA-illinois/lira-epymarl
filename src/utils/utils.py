@@ -35,7 +35,7 @@ def string_inputs_to_list(config: dict, key: str, output_type: Callable) -> dict
     return config
 
 
-def is_debugger_active():
+def is_debugger_active() -> bool:
     # Returns True if a debugger trace is actively running
     return hasattr(sys, 'gettrace') and sys.gettrace() is not None
 
@@ -72,7 +72,7 @@ def get_config_updates(updates):
     return config_updates, named_configs
 
 
-def set_by_dotted_path(d, path, value):
+def set_by_dotted_path(d, path, value) -> None:
     """
     Set an entry in a nested dict using a dotted path.
 

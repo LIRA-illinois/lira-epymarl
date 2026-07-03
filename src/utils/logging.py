@@ -1,3 +1,4 @@
+from logging import Logger
 from typing import Optional
 import os
 from os.path import join
@@ -22,7 +23,7 @@ def log_setup(step_metric: str, t: int) -> dict:
 
 
 class MainLogger:
-    def __init__(self, console_logger, config, args):
+    def __init__(self, console_logger, config, args) -> None:
         self.console_logger = console_logger
 
         self.use_wandb = False
@@ -42,7 +43,7 @@ class MainLogger:
 
         self._setup(config, args)
 
-    def _setup(self, config, args):
+    def _setup(self, config, args) -> None:
         if args.use_wandb:
             if args.run_name != "":
                 run_name = args.run_name
@@ -77,7 +78,7 @@ class MainLogger:
         group_name: str = "",
         run_name: str = "",
         eval_run_id: Optional[str] = None,
-    ):
+    ) -> None:
         self.use_wandb = True
 
         # load wandb run from server for evaluation
@@ -134,7 +135,7 @@ class MainLogger:
         self.wandb_current_t = -1
         self.wandb_current_data = {}
 
-    def info(self, log_str: str, log_header: bool = False):
+    def info(self, log_str: str, log_header: bool = False) -> None:
         if log_header:
             self.console_logger.info(self.header)
             self.console_logger.info(log_str)
@@ -142,7 +143,7 @@ class MainLogger:
         else:
             self.console_logger.info(log_str)
 
-    def log_stat(self, key: str, value: float, t: int):
+    def log_stat(self, key: str, value: float, t: int) -> None:
         """
         logging is delayed by period due to how finish() works
         used for printing stats periodically
@@ -159,14 +160,14 @@ class MainLogger:
             self.wandb_current_t = t
             self.wandb_current_data[f"{key}{self.log_suffix}"] = value
 
-    def log_image(self, image_path: str, t: int, key: str = ""):
+    def log_image(self, image_path: str, t: int, key: str = "") -> None:
         if self.use_wandb:
             data = log_setup(self.step_metric, t)
             data[f"{key}{self.log_suffix}"] = wandb.Image(image_path)
 
             self.wandb.log(data=data)
 
-    def log_images(self, dir: str, t: int, key: str = "", group: str = ""):
+    def log_images(self, dir: str, t: int, key: str = "", group: str = "") -> None:
         """logs all images in a given directory to a wandb run, then removes the original directory to avoid replicated data on disk"""
         if self.use_wandb:
             # log each image separately
@@ -195,7 +196,7 @@ class MainLogger:
         dir: str,
         t: int,
         video_prefix: str = "replay",
-    ):
+    ) -> None:
         """logs all videos in a given directory to a wandb run, then removes the original directory to avoid replicated data on disk"""
         if self.use_wandb:
             # log all replays in a directory to a wandb run, concat videos
@@ -222,7 +223,7 @@ class MainLogger:
             # needs an absolute path to work correctly
             rmtree(path_delete)
 
-    def log_table(self, key: str, value: pd.DataFrame, t: int):
+    def log_table(self, key: str, value: pd.DataFrame, t: int) -> None:
         """Log accumulated evaluation statistics as a wandb table"""
         if isinstance(value, pd.DataFrame):
             if not self.data_tables.get(key, False):
@@ -243,7 +244,7 @@ class MainLogger:
             data = {f"{key}{self.log_suffix}": table}
             self.wandb.log(data)
 
-    def log_agent(self, save_path: str, t: int):
+    def log_agent(self, save_path: str, t: int) -> None:
         """logs agent models to a wandb run as an artifact"""
         if self.use_wandb:
             # include environment timestep as metadata for the logged agent files
@@ -261,7 +262,7 @@ class MainLogger:
 
             self.wandb.log_artifact(artifact)
 
-    def print_recent_stats(self):
+    def print_recent_stats(self) -> None:
         log_str = "Recent Stats | t_env: {:>10} | Episode: {:>8}\n".format(
             *self.stats["episode"][-1]
         )
@@ -281,7 +282,7 @@ class MainLogger:
             log_str += "\n" if i % 4 == 0 else "\t"
         self.info(log_str)
 
-    def finish(self):
+    def finish(self) -> None:
         if self.use_wandb:
             if self.wandb_current_data:
                 self.wandb_current_data[self.step_metric] = self.wandb_current_t
@@ -313,10 +314,10 @@ class LocalLogger:
     class BasicConsoleLogger:
         """basic logger that just prints to terminal"""
 
-        def info(self, *a, **k):
+        def info(self, *a, **k) -> None:
             print(*a)
 
-    def __init__(self, dir: str, wandb_config: dict, comms_value: float):
+    def __init__(self, dir: str, wandb_config: dict, comms_value: float) -> None:
         """
         Initialize the local logger.
 
@@ -351,10 +352,10 @@ class LocalLogger:
         self.step_metric = "t_env"
         self.wandb.define_metric("*", step_metric=self.step_metric)
 
-    def info(self, log_str: str):
+    def info(self, log_str: str) -> None:
         self.console_logger.info(log_str)
 
-    def log_stat(self, key, value, t: int):
+    def log_stat(self, key, value, t: int) -> None:
         data = log_setup(self.step_metric, t)
         data[key] = value
         self.wandb.log(data)
@@ -364,7 +365,7 @@ class LocalLogger:
         video_dir: str,
         t: int,
         video_prefix: str = "replay",
-    ):
+    ) -> None:
         # log all replays in a directory to a wandb run as a table for easier visualization
         data = log_setup(self.step_metric, t)
         # log all replays in a directory to a wandb run
@@ -378,12 +379,12 @@ class LocalLogger:
         data[f"{video_prefix}{self.log_suffix}"] = video_list
         self.wandb.log(data=data)
 
-    def finish(self):
+    def finish(self) -> None:
         self.wandb.finish()
 
 
 # set up a custom logger
-def get_logger(name: Optional[str] = None):
+def get_logger(name: Optional[str] = None) -> Logger:
     logger = logging.getLogger(name=name)
     logger.handlers = []
 

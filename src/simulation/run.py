@@ -602,7 +602,7 @@ class Simulation:
                 for file in files:
                     data = log_setup(self.logger.step_metric, t)
                     path = join(save_dir, file)
-                    fn = splitext(file)[0],
+                    fn = (splitext(file)[0],)
                     data[f"comms_eval_aggregated/{fn}{self.logger.log_suffix}"] = (
                         wandb.Image(path)
                     )
@@ -796,7 +796,7 @@ class Simulation:
 
         return config
 
-    def _build_logger(self, args: SN, _config, _log):
+    def _build_logger(self, args: SN, _config, _log) -> MainLogger:
         # get unique token for this run
         if hasattr(_config["env_args"], "map_name"):
             map_name = _config["env_args"]["map_name"]

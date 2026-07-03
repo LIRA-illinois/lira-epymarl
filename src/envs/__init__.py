@@ -33,7 +33,7 @@ def __check_and_prepare_smac_kwargs(kwargs):
 
 # registering both smac and smacv2 causes a pysc2 error
 # --> dynamically register the needed env
-def register_smac():
+def register_smac() -> None:
     from .smac_wrapper import SMACWrapper
 
     def smac_fn(**kwargs) -> MultiAgentEnv:
@@ -43,7 +43,7 @@ def register_smac():
     REGISTRY["sc2"] = smac_fn
 
 
-def register_smacv2():
+def register_smacv2() -> None:
     from .smacv2_wrapper import SMACv2Wrapper
 
     def smacv2_fn(**kwargs) -> MultiAgentEnv:

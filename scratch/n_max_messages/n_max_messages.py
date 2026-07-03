@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def get_max_sent_messages(n_agents: int, alpha_thres: float):
+def get_max_sent_messages(n_agents: int, alpha_thres: float) -> float:
     # Create a new model
     model = gp.Model()
     model.setParam("OutputFlag", 0)  # Disables solver print output

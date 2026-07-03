@@ -1,12 +1,9 @@
+from numpy import ndarray
 import gymnasium as gym
-from gymnasium import ObservationWrapper
-from gymnasium.spaces import Discrete, flatdim
+from gymnasium.spaces import Discrete
 from gymnasium.wrappers import TimeLimit
 from gymnasium.spaces import Box, Tuple
 import numpy as np
-import gym_multigrid
-import os 
-import imageio
 from gymnasium.wrappers import RecordVideo
 
 
@@ -23,7 +20,7 @@ class GymMultiGridWrapper(gym.Env):
         common_reward,
         reward_scalarisation,
         **kwargs,
-    ):
+    ) -> None:
         self.save_replay_path = kwargs.pop("save_replay_path")
         self.save_replay_ = kwargs.pop("save_replay_")
         self.worker_id = kwargs.pop("worker_id", 0)
@@ -145,7 +142,7 @@ class GymMultiGridWrapper(gym.Env):
         # self._frames.append(self.frame)
         return self._env.render()
 
-    def close(self):
+    def close(self) -> None:
         return self._env.close()
     
     def get_state_size(self):
@@ -173,7 +170,7 @@ class GymMultiGridWrapper(gym.Env):
         }
         return env_info
     
-    def get_state(self):
+    def get_state(self) -> ndarray[tuple[int]]:
         # Global state - for shared obs envs, this is just the flattened observation
         return np.array(self.last_obs).flatten()
 
@@ -187,7 +184,7 @@ class GymMultiGridWrapper(gym.Env):
             obs_flat = np.array(self.last_obs).flatten()
             return [obs_flat.copy() for _ in range(self.num_agents)]
     
-    def save_replay(self):
+    def save_replay(self) -> None:
         pass
 
     # def save_gif_replays(self):

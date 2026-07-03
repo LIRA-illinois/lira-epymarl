@@ -22,10 +22,10 @@ class RecordVideoExtended(RecordVideo):
         env,
         video_folder,
         episode_trigger,
-        name_prefix="rl-video",
-        disable_logger=True,
+        name_prefix: str="rl-video",
+        disable_logger: bool=True,
         output_formats: list[str] = ["mp4"],
-    ):
+    ) -> None:
         """Initialize RecordWebmVideo wrapper.
 
         Parameters
@@ -62,7 +62,7 @@ class RecordVideoExtended(RecordVideo):
             disable_logger=disable_logger,
         )
 
-    def stop_recording(self, save: bool = True):
+    def stop_recording(self, save: bool = True) -> None:
         """Stop current recording single episode and saves the video in the specified format (MP4, WebM, or GIF)."""
         assert self.recording, "stop_recording was called, but no recording was started"
 

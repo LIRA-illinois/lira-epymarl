@@ -22,7 +22,7 @@ REGISTRY["ac_critic"] = ACCritic
 REGISTRY["ac_critic_ns"] = ACCriticNS
 REGISTRY["lica_critic"] = LICACritic
 
-def register_pac_critics():
+def register_pac_critics() -> None:
     from .pac_ac import PACCritic
     from .pac_ac_ns import PACCriticNS
     from .pac_dcg_ns import DCGCriticNS

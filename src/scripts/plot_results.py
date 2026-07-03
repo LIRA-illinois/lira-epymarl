@@ -1,3 +1,4 @@
+from argparse import Namespace
 import argparse
 from collections import defaultdict
 import json
@@ -14,7 +15,7 @@ THRESHOLD_FOR_NUM_ALGS_UNTIL_LEGEND_BELOW_PLOT = 6
 THRESHOLD_FOR_ALG_NAME_LENGTH_UNTIL_LEGEND_BELOW_PLOT = 20
 
 
-def parse_args():
+def parse_args() -> Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--path",
@@ -81,7 +82,7 @@ def extract_alg_name_from_config(config):
     return config["name"]
 
 
-def extract_env_name_from_config(config):
+def extract_env_name_from_config(config) -> str:
     env = config["env"]
     if "map_name" in config["env_args"]:
         env_name = config["env_args"]["map_name"]
@@ -304,7 +305,7 @@ def _filter_best_per_alg(data):
     return max(means, key=means.get)
 
 
-def plot_results(data, metric, save_dir, y_min, y_max, log_scale):
+def plot_results(data, metric, save_dir: Path, y_min, y_max, log_scale) -> None:
     if save_dir is not None:
         save_dir.mkdir(parents=True, exist_ok=True)
     sns.set_style("whitegrid")
@@ -355,7 +356,7 @@ def plot_results(data, metric, save_dir, y_min, y_max, log_scale):
             plt.savefig(save_dir / f"{env}_{metric}_{cr}.pdf", bbox_inches="tight")
 
 
-def main():
+def main() -> None:
     args = parse_args()
     data = load_results(args.path, args.metric)
     data = filter_results(data, args.filter_by_algs, args.filter_by_envs)

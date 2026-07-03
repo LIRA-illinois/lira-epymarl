@@ -10,7 +10,7 @@ from src.envs import REGISTRY as env_REGISTRY, register_smac, register_smacv2
 # Based (very) heavily on SubprocVecEnv from OpenAI Baselines
 # https://github.com/openai/baselines/blob/master/baselines/common/vec_env/subproc_vec_env.py
 class ParallelRunner:
-    def __init__(self, args, logger):
+    def __init__(self, args, logger) -> None:
         self.args = args
         self.logger = logger
         self.batch_size = self.args.batch_size_run
@@ -60,7 +60,7 @@ class ParallelRunner:
 
         self.log_train_stats_t = -100000
 
-    def setup(self, scheme, groups, preprocess, mac):
+    def setup(self, scheme, groups, preprocess, mac) -> None:
         self.new_batch = partial(
             EpisodeBatch,
             scheme,
@@ -78,22 +78,22 @@ class ParallelRunner:
     def get_env_info(self):
         return self.env_info
 
-    def save_replay(self):
+    def save_replay(self) -> None:
         self.parent_conns[0].send(("save_replay", None))
 
-    def start_episode_recording(self):
+    def start_episode_recording(self) -> None:
         #TODO implement this like in the single ep runner
         pass
 
-    def stop_episode_recording(self):
+    def stop_episode_recording(self) -> None:
         #TODO implement this like in the single ep runner
         pass
 
-    def close_env(self):
+    def close_env(self) -> None:
         for parent_conn in self.parent_conns:
             parent_conn.send(("close", None))
 
-    def reset(self):
+    def reset(self) -> None:
         self.batch = self.new_batch()
 
         # Reset the envs
@@ -113,7 +113,7 @@ class ParallelRunner:
         self.t = 0
         self.env_steps_this_run = 0
 
-    def run(self, test_mode=False):
+    def run(self, test_mode: bool=False) -> EpisodeBatch:
         self.reset()
 
         all_terminated = False
@@ -259,7 +259,7 @@ class ParallelRunner:
 
         return self.batch
 
-    def _log(self, returns, stats, prefix):
+    def _log(self, returns, stats, prefix: str) -> None:
         if self.args.common_reward:
             self.logger.log_stat(prefix + "return_mean", np.mean(returns), self.t_env)
             self.logger.log_stat(prefix + "return_std", np.std(returns), self.t_env)
@@ -292,7 +292,7 @@ class ParallelRunner:
         stats.clear()
 
 
-def env_worker(remote, env_fn):
+def env_worker(remote, env_fn) -> None:
     # Make environment
     env = env_fn.x()
     while True:
@@ -348,15 +348,15 @@ class CloudpickleWrapper:
     Uses cloudpickle to serialize contents (otherwise multiprocessing tries to use pickle)
     """
 
-    def __init__(self, x):
+    def __init__(self, x) -> None:
         self.x = x
 
-    def __getstate__(self):
+    def __getstate__(self) -> bytes:
         import cloudpickle
 
         return cloudpickle.dumps(self.x)
 
-    def __setstate__(self, ob):
+    def __setstate__(self, ob) -> None:
         import pickle
 
         self.x = pickle.loads(ob)
