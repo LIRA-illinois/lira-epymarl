@@ -14,7 +14,7 @@ from src.utils.record_video import RecordVideoExtended
 
 
 class EpisodeRunner:
-    def __init__(self, args, logger):
+    def __init__(self, args, logger) -> None:
         self.args = args
         self.logger = logger
         self.batch_size = self.args.batch_size_run
@@ -46,7 +46,7 @@ class EpisodeRunner:
         # Log the first run
         self.log_train_stats_t = -1000000
 
-    def setup(self, scheme, groups, preprocess, mac):
+    def setup(self, scheme, groups, preprocess, mac) -> None:
         self.new_batch = partial(
             EpisodeBatch,
             scheme,
@@ -69,7 +69,7 @@ class EpisodeRunner:
         n_test_replays_save: int,
         video_prefix: str = "replay",
         t_env: Optional[int] = None,
-    ):
+    ) -> None:
         # use env in parallel comms eval when the new runners don't have updated t_env
 
         # get video folder from wandb logger
@@ -91,7 +91,7 @@ class EpisodeRunner:
 
     def stop_recording(
         self, t_env: Optional[int] = None, video_prefix: str = "replays"
-    ):
+    ) -> None:
         if t_env is None:
             t_env = self.t_env
 
@@ -220,7 +220,7 @@ class EpisodeRunner:
         out["batch"] = self.batch
         return out
 
-    def _reset(self, options: dict | None = None):
+    def _reset(self, options: dict | None = None) -> None:
         self.batch = self.new_batch()
         self.env.reset(options=options)
         self._t = 0
@@ -252,7 +252,7 @@ class EpisodeRunner:
         return actions
 
     @property
-    def t(self):
+    def t(self) -> int:
         return self._t
 
     def _step(self, actions):
@@ -303,7 +303,7 @@ class EpisodeRunner:
 
         return data
 
-    def _get_log_stats(self, returns, stats, prefix) -> dict:
+    def _get_log_stats(self, returns, stats, prefix: str) -> dict:
         # populates a dict with all the stats you want to log with appropriate keys
         log_stats = {}
         # returns
@@ -338,12 +338,12 @@ class EpisodeRunner:
         for k, v in log_stats.items():
             self.logger.log_stat(k, v, self.t_env)
 
-    def _clear_stats(self, returns, stats):
+    def _clear_stats(self, returns, stats) -> None:
         returns.clear()
         stats.clear()
 
     # helpers
-    def _print_data(self, data: dict):
+    def _print_data(self, data: dict) -> None:
         print(f"t_ep: {self._t}, hl_state: {data.get('hl_state', None)}")
         # for k, v in data.items():
         #     val = v[0]
@@ -358,7 +358,7 @@ class EpisodeRunner:
         #     print(val)
         #     print()
 
-    def _live_render(self, file_name: str, actions: Optional[dict] = None):
+    def _live_render(self, file_name: str, actions: Optional[dict] = None) -> None:
         render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
         makedirs(render_save_dir, exist_ok=True)
         mpl_img.imsave(
