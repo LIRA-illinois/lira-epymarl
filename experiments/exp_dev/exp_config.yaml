@@ -93,16 +93,19 @@ parameters:
 
   # comms allocation params
   # all values in the space-delimited list will be evaluated in a single run
-  comms_values:
-    # values: [[0.0 1.0]]
-    # values: [[0.0 0.5 1.0]]
-    # values: [[0.5 1.0]]
-    values: [[0.0 1.0]]
+  # comms_values:
+  #   values: [[0.0 1.0]]
+  #   # values: [[0.0 0.5 1.0]]
+  #   # values: [[0.5 1.0]]
+  #   values: [[0.0 1.0]]
 
-  unique_policy_per_comms_value:
-    # values: [True, False]
-    # values: [True]
-    values: [False]
+  # unique_policy_per_message_budget:
+  #   # values: [True, False]
+
+  # unique_policy_per_comms_value:
+  #   # values: [True, False]
+  #   # values: [True]
+  #   values: [False]
 
   # hl_task:
   #   values: [[0 1], [1 2]]
@@ -152,3 +155,9 @@ parameters:
   env_args.hl_env_args.task_type:
     values: [composed]
 
+# conditional_parameters:
+#   # example of how you would do the comms values for these different settings
+#   env_args.n_agents:
+#     3:
+#       message_budget_per_agent:
+#         values: [[0 1 2]]
