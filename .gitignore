@@ -5,6 +5,7 @@ results/
 poetry.lock
 jobs/
 job*.slurm
+.ruff_cache
 
 # wandb data
 wandb/
