@@ -1,43 +1,53 @@
-[project]
+[tool.poetry]
 name = "src"
 version = "0.1.0"
 description = ""
 readme = "README.md"
-authors = [
-    { name = "Jaye Heglund", email = "jheglun2@illinois.edu" }
-]
-requires-python = ">=3.11"
-dependencies = [
-    "gymnasium[other]>=0.28", # [other] includes extra packages to record env replays
-    "gurobipy>=13.0.0",
-    "ipdb", # better debugging than pdb
-    "ipywidgets", # enable notebook magic commands
-    "ipympl", # enable notebook magic commands
-    "matplotlib>=3.10.6",
-    "networkx",
-    "numpy>=2.3.2",
-    "pandas>=3.0.0",
-    "psutil",
-    "pysc2>=3.0.0",
-    "pyrefly", # fast code formatting, type hinting, and more!
-    "pyyaml>=6.0.2",
-    "ruff", # fast code formatting and linting
-    "types-PyYAML",
-    "types-psutil",
-    "sacred==0.8.7", # the final release of Sacred, only tested up to python 3.11
-    "setuptools==81.0.0", # this specific version needed for sacred to work
-    "s2clientprotocol>=4.10.1.75800.0",
-    "statsmodels",
-    "torch==2.6.0",
-    "wandb>=0.25.1"
-]
+authors = ["Jaye Heglund <jheglun2@illinois.edu>"]
 
-# dependencies soon to be removed
+[tool.poetry.dependencies]
+###############
+# core dependencies
+python = ">=3.11"
+gymnasium = { version = ">=0.28", extras = ["other"] } # [other] includes extra packages to record env replays
+gurobipy = ">=13.0.0"
+matplotlib = ">=3.10.6"
+networkx = "*"
+numpy = ">=2.3.2"
+pandas = ">=3.0.0"
+psutil = "*"
+pysc2 = ">=3.0.0"
+pyyaml = ">=6.0.2"
+sacred = "==0.8.7" # the final release of Sacred is only tested up to python 3.11
+setuptools = "==81.0.0" # this version needed for sacred to work
+s2clientprotocol = ">=4.10.1.75800.0"
+statsmodels = "*"
+torch = "==2.6.0"
+wandb = ">=0.25.1"
+###############
+# ipython debugging and notebook magic commands
+ipdb = "*"
+ipywidgets = "*"
+ipympl = "*"
+###############
+# fast code formatting and linting
+pyrefly = "*"
+ruff = "*"
+###############
+# type checking
+types-PyYAML = "*"
+types-psutil = "*"
+###############
+# local gymnasium environments
+gym-multigrid = { path = "src/envs/gym-multigrid", develop = true }
+join1 = { path = "src/envs/join1", develop = true }
+lbforaging = { path = "src/envs/lb-foraging", develop = true }
+
+# deprecated dependencies
 # "absl-py>=0.1.0", # not use anywhere
 # "protobuf>=3.20.0", # only needed for tensorboard
 # "tensorboard>=2.20.0", # use wandb
 # "tensorboard-logger", # use wandb
-
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -47,9 +57,4 @@ build-backend = "poetry.core.masonry.api"
 project-includes = [
     "**/*.py*",
     "**/*.ipynb",
-]
-
-[dependency-groups]
-dev = [
-    "ipykernel (>=7.3.0,<8.0.0)"
 ]
