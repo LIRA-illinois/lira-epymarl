@@ -381,7 +381,7 @@ class EpisodeRunner:
         # print(f"self.t: {self._t}")
 
         # if isinstance(actions, dict):
-        #     if self.mac.message_budget_per_agent == 0.0:
+        #     if self.mac.msg_budget_per_agent == 0.0:
         #         # succeed 1st subtask, fail 2nd one
         #         if 0 < self._t <= 3:
         #             # go right
@@ -390,7 +390,7 @@ class EpisodeRunner:
         #             actions["env_actions"] = np.array([[0, 0, 0]])
 
         #     # succeed both subtasks
-        #     elif self.mac.message_budget_per_agent == 1.0:
+        #     elif self.mac.msg_budget_per_agent == 1.0:
         #         # go right
         #         actions["env_actions"] = np.array([[4, 4, 4]])
 
@@ -417,7 +417,7 @@ class EpisodeRunner:
             #     # actions = np.array([[5, 5, 5]])
             #     actions = np.array([[0, 0, 0]])
 
-            # if self.mac.message_budget_per_agent == 0.0:
+            # if self.mac.msg_budget_per_agent == 0.0:
             #     if self.t == 0:
             #         # right
             #         actions = np.array([[4, 4, 4]])
@@ -425,7 +425,7 @@ class EpisodeRunner:
             #         # grab
             #         actions = np.array([[5, 5, 5]])
 
-            # elif self.mac.message_budget_per_agent == 1.0:
+            # elif self.mac.msg_budget_per_agent == 1.0:
             #     # left
             #     actions = np.array([[3, 3, 3]])
 

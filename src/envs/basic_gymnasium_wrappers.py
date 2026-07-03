@@ -201,8 +201,8 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         # default of n_agents-1 since agent can't send itself a message
 
-        message_budget_per_agent: list[int] = env_args.pop(
-            "message_budget_per_agent", [env_args["n_agents"] - 1]
+        msg_budget_per_agent: list[int] = env_args.pop(
+            "msg_budget_per_agent", [env_args["n_agents"] - 1]
         )
         # optional behavior: end episode when low-level reports task_completed
         # (useful during evaluation). Default False to preserve training behavior.
@@ -218,7 +218,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # high-level MDP tracks valid goal transitions
         self.hlmdp = ProjectMDP(
             num_rooms=self.num_rooms,
-            message_budget_per_agent=message_budget_per_agent,
+            msg_budget_per_agent=msg_budget_per_agent,
             # task_type=self.task_type,
         )
 

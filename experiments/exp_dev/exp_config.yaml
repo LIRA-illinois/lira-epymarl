@@ -99,20 +99,31 @@ parameters:
   #   # values: [[0.5 1.0]]
   #   values: [[0.0 1.0]]
 
-  # unique_policy_per_message_budget:
-  #   # values: [True, False]
-
-  # unique_policy_per_comms_value:
-  #   # values: [True, False]
-  #   # values: [True]
-  #   values: [False]
+  unique_policy_per_msg_budget:
+    values: [True, False]
 
   # hl_task:
   #   values: [[0 1], [1 2]]
 
+  # message filtering to model a constrained communication network
+  msg_filter_type:
+    values: [hard_topk]
+    # values: [soft_topk]
+    # values: [attention_thres]
+    # values: [attention_thres_only_test]
+
+  # soft_topk_base_temperature:
+  #   values: [0.01, 0.02, 0.03]
+
+  msg_drop_rate:
+    values: [0.0, 0.25, 0.5]
+
+
   # project-level success rate requirement
   success_rate_spec:
     values: [0.0]
+
+
 
   env_args.map_name:
     # values: [1r_small]
@@ -160,5 +171,10 @@ conditional_parameters:
   env_args.n_agents:
     3:
       # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-      message_budget_per_agent:
-        values: [[0 1 2]]
+      msg_budget_per_agent:
+        values: [[1 2]]
+    5:
+      # goes up to n_agents - 1 since we assume agents cannot send themselves a message
+      msg_budget_per_agent:
+        values: [[0 1 2 3 4]]
+

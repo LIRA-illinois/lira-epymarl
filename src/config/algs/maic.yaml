@@ -39,3 +39,5 @@ msg_l1_reg_loss_weight: 0
 var_floor: 0.002
 log_weights: True
 
+
+soft_topk_base_temperature: 0.025

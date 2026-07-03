@@ -35,11 +35,24 @@ def string_inputs_to_list(config: dict, key: str, output_type: Callable) -> dict
     return config
 
 
-def is_debugger_active() -> bool:
-    # Returns True if a debugger trace is actively running
-    return hasattr(sys, 'gettrace') and sys.gettrace() is not None
+def is_debugger_active():
+    # Standard trace check
+    if sys.gettrace() is not None:
+        return True
 
-# argument parsing, taken from the Sacred library
+    # Check for IDE debuggers (VS Code/debugpy, PyCharm, or PDB)
+    active_debuggers = {'debugpy', 'pydevd', 'pdb'}
+    if active_debuggers.intersection(sys.modules.keys()):
+        return True
+
+    # Check if a python -m pdb command was used
+    if 'pdb' in sys.modules and hasattr(sys.modules['pdb'], 'Pdb'):
+        return True
+
+    if 'ipdb' in sys.modules and hasattr(sys.modules['ipdb'], 'iPdb'):
+        return True
+
+    return False# argument parsing, taken from the Sacred library
 def get_config_updates(updates):
     """
     Parse the UPDATES given on the commandline.

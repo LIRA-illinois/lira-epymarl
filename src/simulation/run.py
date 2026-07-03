@@ -74,7 +74,7 @@ class Simulation:
                 # average results across seeds within each scenario
                 df_avg = (
                     df_data.groupby(
-                        ["scenario", "message_budget_per_agent", "t_env_rounded"],
+                        ["scenario", "msg_budget_per_agent", "t_env_rounded"],
                         dropna=False,
                     )
                     .mean(numeric_only=True)
@@ -144,9 +144,9 @@ class Simulation:
         # training loop
         self.logger.info("Beginning training for {} timesteps".format(self.args.t_max))
 
-        if getattr(self.args, "unique_policy_per_message_budget", False):
-            self.runner.mac.message_budget_per_agent = (
-                self.args.message_budget_per_agent[0]
+        if getattr(self.args, "unique_policy_per_msg_budget", False):
+            self.runner.mac.msg_budget_per_agent = (
+                self.args.msg_budget_per_agent[0]
             )
 
         while self.runner.t_env <= self.args.t_max:
@@ -214,10 +214,10 @@ class Simulation:
         """Evaluation entry point."""
 
         # always comms sweep if hierarchical or not
-        if hasattr(self.args, "message_budget_per_agent"):
-            message_budget_per_agent_list = self.args.message_budget_per_agent
+        if hasattr(self.args, "msg_budget_per_agent"):
+            msg_budget_per_agent_list = self.args.msg_budget_per_agent
             self.logger.info(
-                f"Evaluating Policy Across Message Budgets: {message_budget_per_agent_list}",
+                f"Evaluating Policy Across Message Budgets: {msg_budget_per_agent_list}",
                 log_header=True,
             )
 
@@ -230,15 +230,15 @@ class Simulation:
             env_rng = self.runner.env.get_wrapper_attr("np_random")
             init_rng_state = env_rng.bit_generator.state
 
-            for budget in message_budget_per_agent_list:
+            for budget in msg_budget_per_agent_list:
                 env_rng.bit_generator.state = init_rng_state
 
-                self.logger.info(f"Evaluating with message_budget_per_agent = {budget}")
+                self.logger.info(f"Evaluating with msg_budget_per_agent = {budget}")
 
                 if reset_options is None:
-                    reset_options = {"message_budget_per_agent": budget}
+                    reset_options = {"msg_budget_per_agent": budget}
                 else:
-                    reset_options["message_budget_per_agent"] = budget
+                    reset_options["msg_budget_per_agent"] = budget
 
                 result = run_eval_episodes(
                     args=self.args,
@@ -262,10 +262,10 @@ class Simulation:
                 wandb_attrs = ["entity", "project", "id", "name"]
                 wandb_config = {attr: getattr(self.logger.wandb, attr) for attr in wandb_attrs}
 
-                n_procs = getattr(self.args, "max_parallel_eval_processes", min(len(message_budget_per_agents), max(1, (cpu_count() or 1) - 1)))
+                n_procs = getattr(self.args, "max_parallel_eval_processes", min(len(msg_budget_per_agents), max(1, (cpu_count() or 1) - 1)))
 
                 inputs = []
-                for message_budget_per_agent in message_budget_per_agents:
+                for msg_budget_per_agent in msg_budget_per_agents:
                     input_args = {
                         "function": eval_worker,
                         "args": self.args,
@@ -274,7 +274,7 @@ class Simulation:
                         "agent_state_dict": agent_state_dict,
                         "logger_dir": self.logger.dir,
                         "wandb_config": wandb_config,
-                        "reset_options": {"message_budget_per_agent": message_budget_per_agent},
+                        "reset_options": {"msg_budget_per_agent": msg_budget_per_agent},
                     }
                     inputs.append(input_args)
 
@@ -310,7 +310,7 @@ class Simulation:
             #     for action in hl_actions:
             #         state = df_actions.loc[df_actions.action == action, "state"].unique().item()
             #         chosen_next_state, comms_val = action
-            #         ro = {"hl_start_state": int(state), "message_budget_per_agent": comms_val}
+            #         ro = {"hl_start_state": int(state), "msg_budget_per_agent": comms_val}
 
             #         result = run_eval_episodes(
             #             args=self.args,
@@ -384,7 +384,7 @@ class Simulation:
             chosen_next_state, message_budget = action
             reset_options = {
                 "hl_start_state": int(state),
-                "message_budget_per_agent": message_budget,
+                "msg_budget_per_agent": message_budget,
             }
 
             # set comms value if provided
@@ -413,12 +413,12 @@ class Simulation:
 
         # TODO it may make sense to log each tasks's success rate to wandb too
 
-        # if message_budget_per_agents is not None:
+        # if msg_budget_per_agents is not None:
         #     self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
 
     def _evaluate_multi_comms(
         self,
-        message_budget_per_agents: list[float],
+        msg_budget_per_agents: list[float],
         n_eval_eps: int,
         parallel_eval: bool = True,
     ) -> None:
@@ -427,11 +427,11 @@ class Simulation:
 
         Parameters
         ----------
-        message_budget_per_agents : list[float]
+        msg_budget_per_agents : list[float]
             List of comms values to evaluate (e.g., [0.0, 0.5, 1.0])
         """
         self.logger.info(
-            f"Evaluating Policy Across Comms Values: {message_budget_per_agents}",
+            f"Evaluating Policy Across Comms Values: {msg_budget_per_agents}",
             log_header=True,
         )
 
@@ -439,15 +439,15 @@ class Simulation:
 
         # Serial evaluation
         if not parallel_eval:
-            for mb in message_budget_per_agents:
-                self.logger.info(f"Evaluating with message_budget_per_agent = {mb}")
+            for mb in msg_budget_per_agents:
+                self.logger.info(f"Evaluating with msg_budget_per_agent = {mb}")
 
                 result = run_eval_episodes(
                     args=self.args,
                     runner=self.runner,
                     n_eval_eps=n_eval_eps,
                     t_env=self.runner.t_env,
-                    reset_options={"message_budget_per_agent": mb},
+                    reset_options={"msg_budget_per_agent": mb},
                 )
 
                 eval_data.append(result["log_stats"])
@@ -468,7 +468,7 @@ class Simulation:
         """Make plots for comms evaluation.
 
         Plots each metric in `cols` vs `t_env` for every comms value present
-        (or provided in `message_budget_per_agents`) and logs images to wandb if enabled.
+        (or provided in `msg_budget_per_agents`) and logs images to wandb if enabled.
         """
         df = data_table.get_dataframe()
         save_dir = abspath(join(self.logger.dir, "images", f"t_{t}"))
@@ -481,15 +481,15 @@ class Simulation:
             "test_task_completed_mean",
             "test_ep_length_mean",
         ]
-        message_budget_per_agents = sorted(df["message_budget_per_agent"].unique())
+        msg_budget_per_agents = sorted(df["msg_budget_per_agent"].unique())
 
         for col in cols:
             plt.figure()
-            for idx, message_budget_per_agent in enumerate(message_budget_per_agents):
+            for idx, msg_budget_per_agent in enumerate(msg_budget_per_agents):
                 df_plot = df[
-                    df.get("message_budget_per_agent") == message_budget_per_agent
+                    df.get("msg_budget_per_agent") == msg_budget_per_agent
                 ].copy()
-                label = f"Comms: {message_budget_per_agent}"
+                label = f"Comms: {msg_budget_per_agent}"
                 n_samples = df_plot["test_n_episodes"].astype(int)
 
                 # show N in legend title using first row's n

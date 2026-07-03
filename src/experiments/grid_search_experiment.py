@@ -173,16 +173,16 @@ class GridSearch(object):
         # expand scenarios so each comms value becomes its own scenario
         updated_scenarios = []
         for scenario in scenarios:
-            if scenario.get("message_budget_per_agent") and scenario.get(
-                "unique_policy_per_message_budget"
+            if scenario.get("msg_budget_per_agent") and scenario.get(
+                "unique_policy_per_msg_budget"
             ):
                 scenario = string_inputs_to_list(
-                    scenario, "message_budget_per_agent", output_type=float
+                    scenario, "msg_budget_per_agent", output_type=float
                 )
-                for val in scenario.pop("message_budget_per_agent"):
+                for val in scenario.pop("msg_budget_per_agent"):
                     new_s = scenario.copy()
                     # format as a string in a list to work with parsing in main.py
-                    new_s["message_budget_per_agent"] = [f"{val}"]
+                    new_s["msg_budget_per_agent"] = [f"{val}"]
                     updated_scenarios.append(new_s)
             else:
                 updated_scenarios.append(scenario)
@@ -259,7 +259,7 @@ class GridSearch(object):
                     updates.append(f"{k}={v}")
 
             # define the command to be run for each combination of grid params
-            # seeds have the same scenario number, but unique_policy_per_message_budget should generate different scenarios
+            # seeds have the same scenario number, but unique_policy_per_msg_budget should generate different scenarios
             for combo in product(*grid_values):
                 combo_dict = dict(zip(grid_keys, combo))
 

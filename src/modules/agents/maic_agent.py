@@ -1,12 +1,16 @@
-from torch._tensor import Tensor
+from typing import Callable
+from typing import Literal
 from collections import defaultdict
 
 import torch as th
+import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.types import Tensor
-import torch.distributions as D
 from torch.distributions import kl_divergence
+from torch.types import Tensor
+
+from torch import topk as hard_topk
+from softtorch import topk as soft_topk
 
 
 class STEFunction(th.autograd.Function):
@@ -29,19 +33,19 @@ class STEFunction(th.autograd.Function):
         return grad_output, None
 
 
-# updated implementation w/ better encapsulation of functions and an explicit comms value parameter
-# also has a new method to change the comms value during training
 @th.compile
 class MAICAgent(nn.Module):
-    """class for a team of agents that communicate using MAIC"""
+    """class for a team of agents that communicate using MAIC
+    updated implementation w/ better encapsulation of functions and different options for filtering messages
+    """
 
     def __init__(self, input_shape, args) -> None:
         super(MAICAgent, self).__init__()
         self.args = args
-        self.n_agents = args.n_agents
+        self.n_agents: int = args.n_agents
         self.latent_dim = args.latent_dim
         self.n_actions = args.n_actions
-        self._comms_value: float = 1.0
+        self._msg_budget: int = getattr(args, "msg_budget_per_agent", self.n_agents - 1)
 
         activation_func = nn.LeakyReLU()
 
@@ -72,52 +76,39 @@ class MAICAgent(nn.Module):
         self.w_query = nn.Linear(args.hidden_dim, args.attention_dim)
         self.w_key = nn.Linear(args.latent_dim, args.attention_dim)
 
-    def _approx_threshold_sigmoid(
-        self, x: Tensor, steepness: float = 50.0, bias: float = 0.5
-    ) -> Tensor:
-        """uses a steep sigmoid to approximate a hard threshold set at "bias",
-        using the sigmoid allows gradients to pass through the thresholding operation
-        Setting steepness to 50 means values < 0.4 are set to 0 and > 0.6 are set to 1, which is probably good enough for this use case. Setting it steeper may lead to gradient issues.
+        self.msg_filter_type: Literal[
+            "hard_topk", "soft_topk", "attention_thres", "attention_thres_only_test"
+        ] = getattr(args, "msg_filter_type", "attention_thres_only_test")
 
-        Parameters
-        ----------
-        x : Tensor
-            data to be thresholded
-        steepness : float, optional
-            by default 50.
-        bias : float, optional
-            location of the threshold, by default 0.5
+        self._msg_filter: Callable
 
-        Returns
-        -------
-        Tensor
-            tensor with approximately binary values
-        """
-        return th.sigmoid(steepness * (x - bias))
+        match self.msg_filter_type:
+            case "hard_topk":
+                self._msg_filter = self._msg_filter_hard_topk
+            case "soft_topk":
+                self._msg_filter = self._msg_filter_soft_topk
+            case "attention_thres":
+                self._msg_filter = self._msg_filter_attention_thres
+            case "attention_thres_only_test":
+                self._msg_filter = self._msg_filter_attention_thres_only_test
+
+        if hasattr(args, "msg_drop_rate"):
+            self._msg_dropout = nn.Dropout(p=args.msg_drop_rate)
+
+    def _unscaled_dropout(self, msg: Tensor):
+        # dropout scales input by by 1 / (1-p), so undo that operation
+        return (1 - self.args.msg_drop_rate) * self._msg_dropout(msg)
 
     def init_hidden(self) -> Tensor:
         return self.fc1.weight.new(1, self.args.hidden_dim).zero_()
 
     @property
-    def comms_value(self) -> float:
-        """_summary_
-        comms_value \in [0, 1], larger comms_value means "more" communication between agents
-        = 0 means no comms between agents, attention weights for all messages are set to 0, equivalent to not using the MAIC module
-        = 1 means unrestricted comms between agents, no attention weights are filtered out
-        """
-        return self._comms_value
+    def msg_budget(self):
+        return self._msg_budget
 
-    @comms_value.setter
-    def comms_value(self, value) -> None:
-        self._comms_value = value
-
-    @property
-    def msg_filter_thres(self) -> float:
-        """based on definition of comms_value,
-        if comms = 1.0, that means no restriction on communication, so the threshold should be set to 0
-        if comms = 0.0, that means all communication is restricted, so the threshold should be set to 1.0
-        """
-        return 1.0 - self._comms_value
+    @msg_budget.setter
+    def msg_budget(self, value: int):
+        self._msg_budget = value
 
     def forward(
         self,
@@ -178,14 +169,6 @@ class MAICAgent(nn.Module):
         else:
             # same as VDN, QMIX, or whatever mixer you're using
             q_out = q_local
-
-        # verify that changing comms value affects q_out
-        # if test_mode:
-        #     print("msg_filter_thres\n", 1.0 - self._comms_value)
-        #     print("comms_value\n", self.args.comms_value)
-        #     print("msg_tot\n", msg_tot)
-        #     print("q_local\n", q_local)
-        #     print("q_out\n", q_out)
 
         return q_out, hidden_state, agent_info
 
@@ -301,27 +284,80 @@ class MAICAgent(nn.Module):
 
         alpha = F.softmax(alpha, dim=-1).reshape(bs, self.n_agents, self.n_agents, 1)
 
-        # new approach: filter message weights based on a threshold, can be used during training as part of gradient computations
-        if getattr(self.args, "unique_policy_per_message_budget", False):
-            msg_filter = STEFunction.apply(alpha, self.msg_filter_thres)
-            alpha = msg_filter * alpha
-            return alpha
+        # always run filtering if unique_policy_per_msg_budget
+        # if unique_policy_per_msg_budget false, always run filtering during test mode
+        print(self.args.msg_budget_per_agent)
+        if getattr(self.args, "unique_policy_per_msg_budget", False) or test_mode:
+            alpha = self._msg_filter(alpha, compute_loss)
 
-        # original approach: only filters messages during evaluation where they aren't part of any gradient calculation for learning
-        if test_mode:
-            # set attention weights to 0 if they are below a pre-defined threshold
-            # slightly different from the paper, if we let \delta = msg_filter_thres, then we do not scale
-            # \delta by n_agents when filtering out the messages
-            # This gives more control over the sparsity of messages. In the original implementation, it did
-            # not feel like there was a good reason to scale by the number of agents.
-            alpha[alpha < self.msg_filter_thres] = 0
-
-            # original implementation
-            # alpha[alpha < (0.25 * 1 / self.n_agents)] = 0
+        # random dropping of messages to model comms network reliability
+        if hasattr(self.args, "msg_drop_rate"):
+            alpha = self._unscaled_dropout(alpha)
 
         return alpha
 
-    def _get_action_mi_loss(self, hidden_state: Tensor, bs: int, latent_embed: Tensor, q: Tensor):
+    def _msg_filter_hard_topk(self, alpha: Tensor, _):
+        # keep only the top-k message weights and zero out the rest
+        _, top_k_idx = hard_topk(alpha, k=self._msg_budget, dim=2)
+
+        mask = th.zeros_like(alpha, dtype=th.bool)
+        mask.scatter_(2, top_k_idx, True)
+        alpha = th.where(mask, alpha, th.zeros_like(alpha))
+
+        return alpha
+
+    def _msg_filter_soft_topk(self, alpha: Tensor, compute_loss: bool):
+        # only keep K messages with the highest attention values, 0 out the rest
+        # based on the current message budget for the team
+        top_k_vals, top_k_idx = soft_topk(alpha, k=self._msg_budget, dim=2)
+
+        # Build a soft mask over the selected entries
+        mask = top_k_idx.sum(dim=2)
+        mask = mask.reshape(alpha.shape)
+
+        # Apply the mask so only the top-k entries remain active.
+        # An approximation since using a soft version of top-K
+        alpha = alpha * mask
+
+        if not compute_loss:
+            # set each agent's attention weight for its message to itself to a large negative value
+            # so the softmax sets it to 0
+            for i in range(self.n_agents):
+                alpha[:, i, i] = -1e9
+
+        # this is a way of approximately enforcing the message budget since we're using a soft verion of "top K" to allow gradients to flow backward
+        # smaller temperature encourages the distribution to concentrate more probability mass in fewer outputs
+        # higher temperature leads to a flatter distribution
+        # 0.025 seems about right to get the sharpening you want for the 5-agent case
+        # 0.05 allows more messages than you want
+        # probably needs be tuned for other n_agents too
+        temperature = self.args.soft_topk_base_temperature * self._msg_budget
+        alpha = F.softmax(alpha / temperature, dim=2)
+
+        return alpha
+
+    def _msg_filter_attention_thres(self, alpha: Tensor, _):
+        # filter message weights based on a threshold on the weights, can be used during training as part of gradient computations
+        msg_filter = STEFunction.apply(alpha, self.msg_filter_thres)
+        alpha = msg_filter * alpha
+        return alpha
+
+    def _msg_filter_attention_thres_only_test(self, alpha: Tensor, _):
+        # original approach: only filters messages during evaluation where they aren't part of any gradient calculation for learning
+        # set attention weights to 0 if they are below a pre-defined threshold
+        # slightly different from the paper, if we let \delta = msg_filter_thres, then we do not scale
+        # \delta by n_agents when filtering out the messages
+        # This gives more control over the sparsity of messages. In the original implementation, it did
+        # not feel like there was a good reason to scale by the number of agents.
+        alpha[alpha < 0.25] = 0
+
+        # original implementation, has weird scaling
+        # alpha[alpha < (0.25 * 1 / self.n_agents)] = 0
+        return alpha
+
+    def _get_action_mi_loss(
+        self, hidden_state: Tensor, bs: int, latent_embed: Tensor, q: Tensor
+    ):
         """mutual information loss to train each agent's teammate model"""
         # get the conditional distribution which approximates the variational distribution
         # p(z_{ij} | \tau_i, d_j)
@@ -382,6 +418,50 @@ class MAICAgent(nn.Module):
         entropy_loss = -(alpha * th.log2(alpha)).sum(-1).mean()
 
         return entropy_loss * self.args.entropy_loss_weight
+
+    # @property
+    # def comms_value(self) -> float:
+    #     """_summary_
+    #     comms_value in [0, 1], larger comms_value means "more" communication between agents
+    #     = 0 means no comms between agents, attention weights for all messages are set to 0, equivalent to not using the MAIC module
+    #     = 1 means unrestricted comms between agents, no attention weights are filtered out
+    #     """
+    #     return self._comms_value
+
+    # @comms_value.setter
+    # def comms_value(self, value) -> None:
+    #     self._comms_value = value
+
+    # @property
+    # def msg_filter_thres(self) -> float:
+    #     """based on definition of comms_value,
+    #     if comms = 1.0, that means no restriction on communication, so the threshold should be set to 0
+    #     if comms = 0.0, that means all communication is restricted, so the threshold should be set to 1.0
+    #     """
+    #     return 1.0 - self._comms_value
+
+    # def _approx_threshold_sigmoid(
+    #     self, x: Tensor, steepness: float = 50.0, bias: float = 0.5
+    # ) -> Tensor:
+    #     """uses a steep sigmoid to approximate a hard threshold set at "bias",
+    #     using the sigmoid allows gradients to pass through the thresholding operation
+    #     Setting steepness to 50 means values < 0.4 are set to 0 and > 0.6 are set to 1, which is probably good enough for this use case. Setting it steeper may lead to gradient issues.
+
+    #     Parameters
+    #     ----------
+    #     x : Tensor
+    #         data to be thresholded
+    #     steepness : float, optional
+    #         by default 50.
+    #     bias : float, optional
+    #         location of the threshold, by default 0.5
+
+    #     Returns
+    #     -------
+    #     Tensor
+    #         tensor with approximately binary values
+    #     """
+    #     return th.sigmoid(steepness * (x - bias))
 
 
 # original implementation

@@ -295,7 +295,7 @@ class ILPModel(OptimizationProblem):
                 {
                     "state": state,
                     "next_state": next_state,
-                    "message_budget_per_agent": message_budget,
+                    "msg_budget_per_agent": message_budget,
                     "action_probability": var.X,
                 }
             )

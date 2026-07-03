@@ -89,12 +89,12 @@ class CommsMAC:
         return actions
 
     @property
-    def message_budget_per_agent(self):
-        return self.env_mac.message_budget_per_agent
+    def msg_budget_per_agent(self):
+        return self.env_mac.msg_budget_per_agent
 
-    @message_budget_per_agent.setter
-    def message_budget_per_agent(self, value) -> None:
-        self.message_budget_per_agent = value
+    @msg_budget_per_agent.setter
+    def msg_budget_per_agent(self, value) -> None:
+        self.msg_budget_per_agent = value
 
     def forward(
         self, ep_batch: EpisodeBatch, t, test_mode: bool = False, **kwargs
