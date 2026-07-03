@@ -19,7 +19,9 @@ dependencies = [
     "pandas>=3.0.0",
     "psutil",
     "pysc2>=3.0.0",
+    "pyrefly", # fast code formatting, type hinting, and more!
     "pyyaml>=6.0.2",
+    "ruff", # fast code formatting and linting
     "types-PyYAML",
     "types-psutil",
     "sacred==0.8.7", # the final release of Sacred, only tested up to python 3.11
@@ -31,7 +33,7 @@ dependencies = [
 ]
 
 # dependencies soon to be removed
-# "absl-py>=0.1.0", # not use anywhere?
+# "absl-py>=0.1.0", # not use anywhere
 # "protobuf>=3.20.0", # only needed for tensorboard
 # "tensorboard>=2.20.0", # use wandb
 # "tensorboard-logger", # use wandb

@@ -46,18 +46,17 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
     pyenv local 3.11 # set the version of Python to be used for this project
 
     # Install poetry inside this project's venv so it does not affect the global python installation
-    # NOTE: Use `python`, not `python3` here so pyenv uses the right version of python
+    # NOTE: Use `python`, not `python3` here so pyenv uses this project's local version of Python set above
     python -m venv .venv
 
     # Activate the venv
     source .venv/bin/activate
 
-    #Install poetry inside the venv
+    # Install poetry inside the venv
     # NOTE: this ensures that the pyenv version of python is used to set up the project
     pip install poetry
 
     # Create lock file and install Python packages
-    # NOTE: since package-mode = false in pyproject.toml, this will install the project without packaging it, which means avoiding modifications to the project's directory structure compared to EPyMARL
     poetry lock
     poetry install
 
