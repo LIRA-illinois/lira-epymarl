@@ -1,4 +1,4 @@
-from typing import Any, Optional, Literal
+from typing import Any, Optional
 import numpy as np
 from numpy.typing import NDArray
 import gymnasium as gym
@@ -14,7 +14,7 @@ NON_GYMNASIUM_ENVS = {"join1_original": join1.Join1EnvOriginal}
 
 
 class GymnasiumEnvWrapper(gym.Env):
-    def __init__(self, env, env_args: dict):
+    def __init__(self, env, env_args: dict) -> None:
         self.env = env
         self.env_args = env_args
 
@@ -61,7 +61,7 @@ class BasicGymnasiumWrapper(gym.Wrapper):
     Basic wrapper that supports Gymnasium and non-gymnasium envs to ensure they conform to the Gymnasium API standards. Designed for the join1 env from MAIC, but may be extended to support other envs too.
     """
 
-    def __init__(self, env_args: dict):
+    def __init__(self, env_args: dict) -> None:
         self.env_name: str = env_args.pop("key")
         self.seed: int = env_args.pop("seed")
         self.env_args: dict = env_args
@@ -104,7 +104,6 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         # register envs supported by this wrapper
         lbf.register_envs(max_episode_steps=self.episode_limit)
         join1.register_envs()
-        import gym_multigrid
 
     def _get_env_id(self, env_name: str, env_args: dict) -> str:
         match env_name:
@@ -131,11 +130,11 @@ class BasicGymnasiumWrapper(gym.Wrapper):
 
         return env_id
 
-    def _set_env_seed(self):
+    def _set_env_seed(self) -> None:
         # print(f"Setting env seed to {self.seed}")
         self.env.reset(seed=self.seed)
 
-    def _check_env(self):
+    def _check_env(self) -> None:
         try:
             check_env(self.env.unwrapped, skip_render_check=True)
         except Exception as e:
@@ -195,12 +194,15 @@ class BasicGymnasiumWrapper(gym.Wrapper):
 
 
 class HLMDPEnvWrapper(gym.Wrapper):
-    def __init__(self, env_args: dict, hl_env_args: Optional[dict] = None):
+    def __init__(self, env_args: dict, hl_env_args: Optional[dict] = None) -> None:
         # if hl_env_args is not None:
         #     self.task_type: Literal["atomic", "composed"] = hl_env_args.pop("task_type")
-
         self.num_rooms: int = env_args.pop("num_rooms", 2)
-        comms_values: float = env_args.pop("comms_values", [0.0])
+
+        # default of n_agents-1 since agent can't send itself a message
+        message_budget_per_agent: list[int] = env_args.pop(
+            "message_budget_per_agent", [env_args["n_agents"] - 1]
+        )
         # optional behavior: end episode when low-level reports task_completed
         # (useful during evaluation). Default False to preserve training behavior.
         self.terminate_on_task_completed: bool = env_args.pop(
@@ -215,7 +217,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # high-level MDP tracks valid goal transitions
         self.hlmdp = ProjectMDP(
             num_rooms=self.num_rooms,
-            comms_values=comms_values,
+            message_budget_per_agent=message_budget_per_agent,
             # task_type=self.task_type,
         )
 

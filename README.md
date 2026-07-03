@@ -62,24 +62,6 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
 
     ```
 
-1. You have two options for environment package installation:
-
-  - To enable environment editing and modification, include your env as a git submodule, then install it in editable mode. An example with Level-Based Foraging is included below:
-
-    ```bash
-    # the --recurse-submodules option should have cloned these environments when this repository was originally cloned
-    pip install -e src/envs/lb-foraging
-    pip install -e src/envs/join1
-    pip install -e src/envs/gym-multigrid
-    ```
-
-  - Otherwise, to install extra environments as uneditable packages, simply run the following while your venv is activated
-
-    ```bash
-    pip install -r env_requirements.txt
-    ```
-
-
 ### Makefile
 
 - There a ton of helper commands in `Makefile`, check them out.
