@@ -58,14 +58,21 @@ class CommsMAC:
         return params
 
     def select_actions(
-        self, ep_batch: EpisodeBatch, t_ep, t_env, bs=slice(None), test_mode: bool=False
+        self,
+        ep_batch: EpisodeBatch,
+        t_ep,
+        t_env,
+        bs=slice(None),
+        test_mode: bool = False,
     ) -> dict:
         # get the model of the env + optimize
         # update comms allocation to low-level agents + choose next task to complete (if relevant)
-        high_level_actions = self.comms_agent.select_actions(ep_batch, t_ep, t_env, test_mode=test_mode)
+        high_level_actions = self.comms_agent.select_actions(
+            ep_batch, t_ep, t_env, test_mode=test_mode
+        )
 
         # TODO assume this happens in an external control loop for now, we only change comms when doing different evaluation subtasks
-        # self.update_comms_value(high_level_actions["comms_allocation"])
+        # self.update_comms_value(high_level_actions["comms_budget"])
 
         # NDArray or Tensor of size (1, n_env_agents)
         env_actions = self.env_mac.select_actions(ep_batch, t_ep, t_env, bs, test_mode)
@@ -82,14 +89,16 @@ class CommsMAC:
         return actions
 
     @property
-    def comms_value(self):
-        return self.env_mac.comms_value
+    def message_budget_per_agent(self):
+        return self.env_mac.message_budget_per_agent
 
-    @comms_value.setter
-    def comms_value(self, value) -> None:
-        self.comms_value = value
+    @message_budget_per_agent.setter
+    def message_budget_per_agent(self, value) -> None:
+        self.message_budget_per_agent = value
 
-    def forward(self, ep_batch: EpisodeBatch, t, test_mode: bool=False, **kwargs) -> int:
+    def forward(
+        self, ep_batch: EpisodeBatch, t, test_mode: bool = False, **kwargs
+    ) -> int:
         return 1
         # agent_inputs = self._build_inputs(ep_batch, t)
         # avail_actions = ep_batch["avail_actions"][:, t]
@@ -130,7 +139,3 @@ class CommsMAC:
 
     def save_models(self, path: str) -> None:
         self.env_mac.save_models(path)
-
-    @property
-    def comms_value(self):
-        return self.env_mac.comms_value

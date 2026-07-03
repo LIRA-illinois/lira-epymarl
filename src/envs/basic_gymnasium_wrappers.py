@@ -200,6 +200,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
         self.num_rooms: int = env_args.pop("num_rooms", 2)
 
         # default of n_agents-1 since agent can't send itself a message
+
         message_budget_per_agent: list[int] = env_args.pop(
             "message_budget_per_agent", [env_args["n_agents"] - 1]
         )

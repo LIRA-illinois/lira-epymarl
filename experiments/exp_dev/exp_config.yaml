@@ -155,10 +155,10 @@ parameters:
   env_args.hl_env_args.task_type:
     values: [composed]
 
-# conditional_parameters:
-#   # example of how you would do the comms values for these different settings
-#   env_args.n_agents:
-#     3:
-#       # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-#       message_budget_per_agent:
-#         values: [[0 1 2]]
+conditional_parameters:
+  # example of how you would do the comms values for these different settings
+  env_args.n_agents:
+    3:
+      # goes up to n_agents - 1 since we assume agents cannot send themselves a message
+      message_budget_per_agent:
+        values: [[0 1 2]]

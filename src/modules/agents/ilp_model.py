@@ -17,14 +17,14 @@ from gurobipy import GRB
 @dataclass
 class Variables(VariablesBase):
     task_occupancy: Dict[Tuple[int, int], object] = field(default_factory=dict)
-    comms_action: Dict[Tuple[int, int, float], object] = field(default_factory=dict)
+    message_budget: Dict[Tuple[int, int, float], object] = field(default_factory=dict)
 
 
 @dataclass
 class Solution(SolutionBase):
     # TODO these can be combined into a single HL policy that outputs the next state and comms value together
     task_policy: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
-    comms_policy: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
+    comms_budget_policy: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
 
 
 class ILPModel(OptimizationProblem):
@@ -104,14 +104,14 @@ class ILPModel(OptimizationProblem):
         mdp_state = int(hl_state[0])
 
         chosen_next_mdp_state: int
-        comms_allocation: float
+        comms_budget: float
 
         # can have a null action while the low-level policy is executing its task
         if test_mode:
             # actually choose the comms value to be used during evaluation of MAIC
-            comms_allocation = 0.0
+            comms_budget = 0.0
         else:
-            comms_allocation = 0.0
+            comms_budget = 0.0
 
         if (t_env == 0) and (t_ep == 0):
             print("solving model-based MDP problem (ILP) to get full tabular policy")
@@ -133,7 +133,7 @@ class ILPModel(OptimizationProblem):
 
         actions: dict = {
             "chosen_next_state": chosen_next_mdp_state,
-            "comms_allocation": comms_allocation,
+            "comms_budget": comms_budget,
         }
 
         return actions
@@ -149,7 +149,7 @@ class ILPModel(OptimizationProblem):
             if row.next_state == self._hlmdp.fail_state:
                 continue
 
-            state, next_state, comms_val = row.state, row.action[0], row.action[1]
+            state, next_state, message_budget = row.state, row.action[0], row.action[1]
 
             self.opt_vars.task_occupancy[state, next_state] = self.model.addVar(
                 vtype=GRB.CONTINUOUS,
@@ -157,10 +157,10 @@ class ILPModel(OptimizationProblem):
                 name=f"task_occupancy_ss'={state, next_state}",
             )
 
-            self.opt_vars.comms_action[state, next_state, comms_val] = (
+            self.opt_vars.message_budget[state, next_state, message_budget] = (
                 self.model.addVar(
                     vtype=GRB.BINARY,
-                    name=f"comms_action_ss'c={state,next_state,comms_val}",
+                    name=f"action_ss'c={state,next_state,message_budget}",
                 )
             )
 
@@ -176,11 +176,11 @@ class ILPModel(OptimizationProblem):
             actions = df_trans.loc[
                 (df_trans.state == state) & (df_trans.next_state == next_state)
             ].action
-            comms_vals = [action[1] for action in actions]
+            message_budgets = [action[1] for action in actions]
 
             constraint = 0
-            for comms_val in comms_vals:
-                constraint += self.opt_vars.comms_action[state, next_state, comms_val]
+            for message_budget in message_budgets:
+                constraint += self.opt_vars.message_budget[state, next_state, message_budget]
 
             self.model.addConstr(
                 constraint == 1.0,
@@ -225,26 +225,26 @@ class ILPModel(OptimizationProblem):
                         (df_pred.state == pred_state) & (df_pred.next_state == state)
                     ].action
 
-                    comms_vals = [action[1] for action in pred_actions]
+                    message_budgets = [action[1] for action in pred_actions]
 
-                    for comms_val in comms_vals:
+                    for budget in message_budgets:
 
-                        comms_action = self.opt_vars.comms_action[
-                            pred_state, state, comms_val
+                        comms_action = self.opt_vars.message_budget[
+                            pred_state, state, budget
                         ]
 
                         success_rate = df_pred.loc[
                             (df_pred.state == pred_state)
-                            & (df_pred.action == (state, comms_val))
+                            & (df_pred.action == (state, budget))
                         ].prob.item()
 
-                        chosen_comms_success_rate = comms_action * success_rate
+                        chosen_budget_success_rate = comms_action * success_rate
 
                         incoming_task_occupancy = self.opt_vars.task_occupancy[
                             (pred_state, state)
                         ]
 
-                        incoming += incoming_task_occupancy * chosen_comms_success_rate
+                        incoming += incoming_task_occupancy * chosen_budget_success_rate
 
             self.model.addConstr(
                 outgoing == incoming, name=f"bellman_flow_conservation_s={state}"
@@ -268,13 +268,13 @@ class ILPModel(OptimizationProblem):
             actions = df_trans.loc[
                 (df_trans.state == state) & (df_trans.next_state == next_state)
             ].action
-            comms_vals = [action[1] for action in actions]
+            message_budgets = [action[1] for action in actions]
 
-            for comms_val in comms_vals:
+            for budget in message_budgets:
                 objective += (
                     self.opt_vars.task_occupancy[state, next_state]
-                    * self.opt_vars.comms_action[state, next_state, comms_val]
-                    * comms_val
+                    * self.opt_vars.message_budget[state, next_state, budget]
+                    * budget
                 )
 
         self.model.setObjective(objective, GRB.MINIMIZE)
@@ -290,18 +290,18 @@ class ILPModel(OptimizationProblem):
                 {"state": state, "next_state": next_state, "occupancy": var.X}
             )
 
-        for (state, next_state, comms_val), var in self.opt_vars.comms_action.items():
+        for (state, next_state, message_budget), var in self.opt_vars.message_budget.items():
             comms_data.append(
                 {
                     "state": state,
                     "next_state": next_state,
-                    "comms_val": comms_val,
+                    "message_budget_per_agent": message_budget,
                     "action_probability": var.X,
                 }
             )
 
         sol.task_policy = pd.DataFrame.from_records(env_data)
-        sol.comms_policy = pd.DataFrame.from_records(comms_data)
+        sol.comms_budget_policy = pd.DataFrame.from_records(comms_data)
 
         sol.objective_value = self.get_objective_value()
         sol.feasible = True if self.check_if_optima_found() else False

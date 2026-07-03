@@ -317,7 +317,7 @@ class LocalLogger:
         def info(self, *a, **k) -> None:
             print(*a)
 
-    def __init__(self, dir: str, wandb_config: dict, comms_value: float) -> None:
+    def __init__(self, dir: str, wandb_config: dict, message_budget_per_agent: float) -> None:
         """
         Initialize the local logger.
 
@@ -344,7 +344,7 @@ class LocalLogger:
             **wandb_config,
             dir=RESULTS_DIR,
             settings=wandb.Settings(
-                x_label=f"subproc_eval_{comms_value}",
+                x_label=f"subproc_eval_{message_budget_per_agent}",
                 x_primary=False,
                 mode="shared",
             ),

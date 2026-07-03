@@ -74,7 +74,8 @@ class Simulation:
                 # average results across seeds within each scenario
                 df_avg = (
                     df_data.groupby(
-                        ["scenario", "comms_value", "t_env_rounded"], dropna=False
+                        ["scenario", "message_budget_per_agent", "t_env_rounded"],
+                        dropna=False,
                     )
                     .mean(numeric_only=True)
                     .reset_index()
@@ -143,8 +144,10 @@ class Simulation:
         # training loop
         self.logger.info("Beginning training for {} timesteps".format(self.args.t_max))
 
-        if getattr(self.args, "unique_policy_per_comms_value", False):
-            self.runner.mac.comms_value = self.args.comms_values[0]
+        if getattr(self.args, "unique_policy_per_message_budget", False):
+            self.runner.mac.message_budget_per_agent = (
+                self.args.message_budget_per_agent[0]
+            )
 
         while self.runner.t_env <= self.args.t_max:
             # Run for a whole episode at a time
@@ -211,10 +214,10 @@ class Simulation:
         """Evaluation entry point."""
 
         # always comms sweep if hierarchical or not
-        if hasattr(self.args, "comms_values"):
-            comms_values = self.args.comms_values
+        if hasattr(self.args, "message_budget_per_agent"):
+            message_budget_per_agent_list = self.args.message_budget_per_agent
             self.logger.info(
-                f"Evaluating Policy Across Comms Values: {comms_values}",
+                f"Evaluating Policy Across Message Budgets: {message_budget_per_agent_list}",
                 log_header=True,
             )
 
@@ -227,15 +230,15 @@ class Simulation:
             env_rng = self.runner.env.get_wrapper_attr("np_random")
             init_rng_state = env_rng.bit_generator.state
 
-            for comms_value in comms_values:
+            for budget in message_budget_per_agent_list:
                 env_rng.bit_generator.state = init_rng_state
 
-                self.logger.info(f"Evaluating with comms_value = {comms_value}")
+                self.logger.info(f"Evaluating with message_budget_per_agent = {budget}")
 
                 if reset_options is None:
-                    reset_options = {"comms_value": comms_value}
+                    reset_options = {"message_budget_per_agent": budget}
                 else:
-                    reset_options["comms_value"] = comms_value
+                    reset_options["message_budget_per_agent"] = budget
 
                 result = run_eval_episodes(
                     args=self.args,
@@ -259,10 +262,10 @@ class Simulation:
                 wandb_attrs = ["entity", "project", "id", "name"]
                 wandb_config = {attr: getattr(self.logger.wandb, attr) for attr in wandb_attrs}
 
-                n_procs = getattr(self.args, "max_parallel_eval_processes", min(len(comms_values), max(1, (cpu_count() or 1) - 1)))
+                n_procs = getattr(self.args, "max_parallel_eval_processes", min(len(message_budget_per_agents), max(1, (cpu_count() or 1) - 1)))
 
                 inputs = []
-                for comms_value in comms_values:
+                for message_budget_per_agent in message_budget_per_agents:
                     input_args = {
                         "function": eval_worker,
                         "args": self.args,
@@ -271,7 +274,7 @@ class Simulation:
                         "agent_state_dict": agent_state_dict,
                         "logger_dir": self.logger.dir,
                         "wandb_config": wandb_config,
-                        "reset_options": {"comms_value": comms_value},
+                        "reset_options": {"message_budget_per_agent": message_budget_per_agent},
                     }
                     inputs.append(input_args)
 
@@ -307,7 +310,7 @@ class Simulation:
             #     for action in hl_actions:
             #         state = df_actions.loc[df_actions.action == action, "state"].unique().item()
             #         chosen_next_state, comms_val = action
-            #         ro = {"hl_start_state": int(state), "comms_value": comms_val}
+            #         ro = {"hl_start_state": int(state), "message_budget_per_agent": comms_val}
 
             #         result = run_eval_episodes(
             #             args=self.args,
@@ -378,10 +381,10 @@ class Simulation:
         for action in hl_actions:
             # action is expected to be a tuple (chosen_next_state, comms_val)
             state = df_actions.loc[df_actions.action == action, "state"].unique().item()
-            chosen_next_state, comms_val = action
+            chosen_next_state, message_budget = action
             reset_options = {
                 "hl_start_state": int(state),
-                "comms_value": comms_val,
+                "message_budget_per_agent": message_budget,
             }
 
             # set comms value if provided
@@ -410,81 +413,45 @@ class Simulation:
 
         # TODO it may make sense to log each tasks's success rate to wandb too
 
-        # if comms_values is not None:
+        # if message_budget_per_agents is not None:
         #     self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
 
     def _evaluate_multi_comms(
-        self, comms_values: list[float], n_eval_eps: int, parallel_eval: bool = True
+        self,
+        message_budget_per_agents: list[float],
+        n_eval_eps: int,
+        parallel_eval: bool = True,
     ) -> None:
         """
         Evaluate a trained policy across multiple comms allocation values.
 
         Parameters
         ----------
-        comms_values : list[float]
+        message_budget_per_agents : list[float]
             List of comms values to evaluate (e.g., [0.0, 0.5, 1.0])
         """
         self.logger.info(
-            f"Evaluating Policy Across Comms Values: {comms_values}", log_header=True
+            f"Evaluating Policy Across Comms Values: {message_budget_per_agents}",
+            log_header=True,
         )
 
         eval_data: list[dict] = []
 
         # Serial evaluation
         if not parallel_eval:
-            for comms_value in comms_values:
-                self.logger.info(f"Evaluating with comms_value = {comms_value}")
+            for mb in message_budget_per_agents:
+                self.logger.info(f"Evaluating with message_budget_per_agent = {mb}")
 
                 result = run_eval_episodes(
                     args=self.args,
                     runner=self.runner,
                     n_eval_eps=n_eval_eps,
                     t_env=self.runner.t_env,
-                    reset_options={"comms_value": comms_value},
+                    reset_options={"message_budget_per_agent": mb},
                 )
 
                 eval_data.append(result["log_stats"])
 
-        """
-        else:
-            # move to CPU so tensors can be serialized for multiprocessing
-            agent_state_dict = {
-                k: v.cpu() for k, v in self.runner.mac.agent.state_dict().items()
-            }
-
-            wandb_attrs = ["entity", "project", "id", "name"]
-
-            wandb_config = {}
-            for attr in wandb_attrs:
-                wandb_config[attr] = getattr(self.logger.wandb, attr)
-
-            # prepare inputs for multiprocessing workers
-            n_procs = getattr(
-                self.args,
-                "max_parallel_eval_processes",
-                min(len(comms_values), max(1, (cpu_count() or 1) - 1)),
-            )
-
-            inputs = []
-            for comms_value in comms_values:
-                input_args = {
-                    "function": eval_worker,
-                    "args": self.args,
-                    "n_eval_eps": n_eval_eps,
-                    "t_env": self.runner.t_env,
-                    "agent_state_dict": agent_state_dict,
-                    "logger_dir": self.logger.dir,
-                    "wandb_config": wandb_config,
-                    "reset_options": {"comms_value": comms_value},
-                }
-                inputs.append(input_args)
-
-            # run multiprocessing
-            with mp.Pool(processes=n_procs, maxtasksperchild=2) as pool:
-                results: list[dict] = list(pool.map(mp_kwargs_wrapper, inputs))
-
-            eval_data = [res["log_stats"] for res in results]
-        """
         # Convert to DataFrame and log
         df_eval = pd.DataFrame.from_records(eval_data)
         self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
@@ -501,7 +468,7 @@ class Simulation:
         """Make plots for comms evaluation.
 
         Plots each metric in `cols` vs `t_env` for every comms value present
-        (or provided in `comms_values`) and logs images to wandb if enabled.
+        (or provided in `message_budget_per_agents`) and logs images to wandb if enabled.
         """
         df = data_table.get_dataframe()
         save_dir = abspath(join(self.logger.dir, "images", f"t_{t}"))
@@ -514,63 +481,16 @@ class Simulation:
             "test_task_completed_mean",
             "test_ep_length_mean",
         ]
-        comms_values = sorted(df["comms_value"].unique())
+        message_budget_per_agents = sorted(df["message_budget_per_agent"].unique())
 
         for col in cols:
             plt.figure()
-            for idx, comms_value in enumerate(comms_values):
-                df_plot = df[df.get("comms_value") == comms_value].copy()
-                label = f"Comms: {comms_value}"
+            for idx, message_budget_per_agent in enumerate(message_budget_per_agents):
+                df_plot = df[
+                    df.get("message_budget_per_agent") == message_budget_per_agent
+                ].copy()
+                label = f"Comms: {message_budget_per_agent}"
                 n_samples = df_plot["test_n_episodes"].astype(int)
-
-                # compute small horizontal offsets so multiple comms plots don't overlap
-                # base_offset is a small fraction of typical t_env spacing (fallback to 1)
-                # t_vals = df_plot["t_env"].values
-                # if len(t_vals) > 1:
-                #     median_dt = float(np.median(np.diff(np.sort(t_vals))))
-                # else:
-                #     median_dt = 1.0
-                # base_offset = median_dt * 0.1
-                # offset = (idx - (n_comms_values - 1) / 2.0) * base_offset
-
-                # plot the confidence interval of the data based on number of test episodes
-                # use binom test b/c episode success is binary, binom test cannot be used for other values
-                # if col in ["test_task_completed_mean"]:
-                #     # compute interval per-row and add columns to df_plot
-                #     ci_lows = []
-                #     ci_highs = []
-                #     for k_val, n_val in zip(
-                #         (df_plot[col] * n_samples).astype(int), n_samples
-                #     ):
-                #         res = binomtest(k=int(k_val), n=int(n_val))
-                #         interval = res.proportion_ci(confidence_level=0.95)
-                #         ci_lows.append(interval.low)
-                #         ci_highs.append(interval.high)
-
-                #     df_plot["ci_low"] = ci_lows
-                #     df_plot["ci_high"] = ci_highs
-                #     df_plot["ci_width"] = df_plot["ci_high"] - df_plot["ci_low"]
-
-                #     # use per-row half-width as yerr
-                #     yerr = df_plot["ci_width"].values / 2.0
-
-                #     # plot the sampled values with horizontal offset applied
-                #     plt.errorbar(
-                #         df_plot["t_env"].values + offset,
-                #         df_plot[col].values,
-                #         yerr=yerr,
-                #         marker="o",
-                #         alpha=1.0,
-                #         capsize=5,
-                #         label=label,
-                #     )
-                #     # show N in legend title using first row's n
-                #     n_samples = (
-                #         int(n_samples.iloc[0])
-                #         if len(n_samples) > 0
-                #         else 0
-                #     )
-                #     legend_title = f"Conf. Int. ($\\alpha=0.05, N={n_samples}$)"
 
                 # show N in legend title using first row's n
                 n_samples = int(n_samples.iloc[0]) if len(n_samples) > 0 else 0

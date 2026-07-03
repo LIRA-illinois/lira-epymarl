@@ -302,7 +302,7 @@ class MAICAgent(nn.Module):
         alpha = F.softmax(alpha, dim=-1).reshape(bs, self.n_agents, self.n_agents, 1)
 
         # new approach: filter message weights based on a threshold, can be used during training as part of gradient computations
-        if getattr(self.args, "unique_policy_per_comms_value", False):
+        if getattr(self.args, "unique_policy_per_message_budget", False):
             msg_filter = STEFunction.apply(alpha, self.msg_filter_thres)
             alpha = msg_filter * alpha
             return alpha

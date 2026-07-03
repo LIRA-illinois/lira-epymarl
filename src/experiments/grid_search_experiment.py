@@ -169,20 +169,20 @@ class GridSearch(object):
     ) -> tuple[list[dict], list[str]]:
         scenarios: list[dict] = [*self._gen_dict_combinations(base_config)]
 
-        # handle comms_values when a unique policy per comms value is requested
+        # handle comms budgets when a unique policy per comms value is requested
         # expand scenarios so each comms value becomes its own scenario
         updated_scenarios = []
         for scenario in scenarios:
-            if scenario.get("comms_values") and scenario.get(
-                "unique_policy_per_comms_value"
+            if scenario.get("message_budget_per_agent") and scenario.get(
+                "unique_policy_per_message_budget"
             ):
                 scenario = string_inputs_to_list(
-                    scenario, "comms_values", output_type=float
+                    scenario, "message_budget_per_agent", output_type=float
                 )
-                for cv in scenario.pop("comms_values"):
+                for val in scenario.pop("message_budget_per_agent"):
                     new_s = scenario.copy()
                     # format as a string in a list to work with parsing in main.py
-                    new_s["comms_values"] = [f"{cv}"]
+                    new_s["message_budget_per_agent"] = [f"{val}"]
                     updated_scenarios.append(new_s)
             else:
                 updated_scenarios.append(scenario)
@@ -192,9 +192,7 @@ class GridSearch(object):
         # get scenario configs based on conditional params
         if conditional_config is not None:
             # loop over outer vars (EX: config, env-config)
-            for outer_var, conditional_vars in base_config[
-                "conditional_parameters"
-            ].items():
+            for outer_var, conditional_vars in conditional_config.items():
                 # loop over config (EX: maic, qmix) and env-config (EX: join1-v0 and join1_original)
                 for inner_var, varied_params in conditional_vars.items():
                     conditional_combos = [*self._gen_dict_combinations(varied_params)]
@@ -214,7 +212,7 @@ class GridSearch(object):
                     scenarios += updated_scenarios
 
         scenario_names: list[str] = [
-            f"{scenario_idx+1}".zfill(2) for scenario_idx, _ in enumerate(scenarios)
+            f"{scenario_idx + 1}".zfill(2) for scenario_idx, _ in enumerate(scenarios)
         ]
 
         return scenarios, scenario_names
@@ -261,11 +259,11 @@ class GridSearch(object):
                     updates.append(f"{k}={v}")
 
             # define the command to be run for each combination of grid params
-            # seeds have the same scenario number, but unique_policy_per_comms_value should generate different scenarios
+            # seeds have the same scenario number, but unique_policy_per_message_budget should generate different scenarios
             for combo in product(*grid_values):
                 combo_dict = dict(zip(grid_keys, combo))
 
-                # for each seed/comms_value combo, build a run
+                # for each (seed, message_budget) combo, build a run
                 run_params = scenario_params.copy()
                 run_params.update(combo_dict)
                 run_updates = [f"--{k}={v}" for k, v in run_params.items()]
@@ -301,7 +299,7 @@ class GridSearch(object):
 
         for i, runner_cmds in runners.items():
             env["CUDA_VISIBLE_DEVICES"] = f"{runner_gpus[i]}"
-            screen_name = f"{self.args.experiment}_runner_{i+1}"
+            screen_name = f"{self.args.experiment}_runner_{i + 1}"
             screen_prefix = ["screen", "-dmS", screen_name]
             run_cmd = [
                 *screen_prefix,

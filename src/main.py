@@ -38,8 +38,8 @@ def experiment_main(_config, logger: Logger) -> None:
     th_manual_seed(config["seed"])
     config["env_args"]["seed"] = config["seed"]
 
-    if "comms_values" in config:
-        config = string_inputs_to_list(config, "comms_values", output_type=float)
+    if "message_budget_per_agent" in config:
+        config = string_inputs_to_list(config, "message_budget_per_agent", output_type=int)
     if "hl_task" in config:
         config = string_inputs_to_list(config, "hl_task", output_type=int)
 

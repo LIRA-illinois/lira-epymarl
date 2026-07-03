@@ -14,26 +14,26 @@ def run_eval_episodes(
     reset_options: Optional[dict] = None,
 ):
     """Run n_eval_eps evaluation episodes, optionally recording, and return last result."""
-    task_state, comms_value = None, None
+    task_state, message_budget_per_agent = None, None
     if reset_options is not None:
         task_state = reset_options.get("hl_start_state", None)
-        comms_value = reset_options.get("comms_value", None)
+        message_budget_per_agent = reset_options.get("message_budget_per_agent", None)
 
-    set_comms_value_for_eval = (
-        comms_value is not None
-        and getattr(args, "unique_policy_per_comms_value", False) is False
+    set_message_budget_per_agent_for_eval = (
+        message_budget_per_agent is not None
+        and getattr(args, "unique_policy_per_message_budget", False) is False
     )
 
-    if set_comms_value_for_eval:
-        print(f"Setting MAC comms value to {comms_value}")
-        runner.mac.comms_value = comms_value
+    if set_message_budget_per_agent_for_eval:
+        print(f"Setting MAC message_budget_per_agent to {message_budget_per_agent}")
+        runner.mac.message_budget_per_agent = message_budget_per_agent
 
     # filename prefix includes task state and comms value when available
     prefix_parts = [video_prefix]
     if task_state is not None:
         prefix_parts.append(f"task_{int(task_state)}")
-    if comms_value is not None:
-        prefix_parts.append(f"comms_{comms_value:.2f}")
+    if message_budget_per_agent is not None:
+        prefix_parts.append(f"message_budget_{message_budget_per_agent:.2f}")
     file_name_prefix = "-".join(prefix_parts)
 
     # If the runner's env supports terminating on task completion, enable it for evaluation
@@ -76,9 +76,9 @@ def run_eval_episodes(
     if hasattr(runner.env, "terminate_on_task_completed"):
         runner.env.terminate_on_task_completed = False
 
-    if set_comms_value_for_eval:
-        print("Evaluation done, setting MAC comms value to default of 1.0")
-        runner.mac.comms_value = 1.0
+    if set_message_budget_per_agent_for_eval:
+        print("Evaluation done, Setting MAC message_budget_per_agent to default of 1.0")
+        runner.mac.message_budget_per_agent = 1.0
 
     return last_result
 
@@ -94,7 +94,7 @@ def eval_worker(
 ) -> dict:
     """Worker function run inside a child process.
 
-    Builds runner/mac/learner locally, loads model state dict, runs evaluation for `comms_value`, and returns stats dictionary.
+    Builds runner/mac/learner locally, loads model state dict, runs evaluation for `message_budget_per_agent`, and returns stats dictionary.
 
     run_id is a wandb run id from the main process
     """
@@ -102,7 +102,7 @@ def eval_worker(
     logger = LocalLogger(
         dir=logger_dir,
         wandb_config=wandb_config,
-        comms_value=reset_options["comms_value"],
+        message_budget_per_agent=reset_options["message_budget_per_agent"],
     )
 
     # build env runner and other necessary objects

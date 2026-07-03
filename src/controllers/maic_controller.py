@@ -141,9 +141,9 @@ class MAICMAC:
         return input_shape
 
     @property
-    def comms_value(self):
-        return self.agent.comms_value
+    def message_budget_per_agent(self):
+        return self.agent.message_budget_per_agent
 
-    @comms_value.setter
-    def comms_value(self, value: float):
-        self.agent.comms_value = value
+    @message_budget_per_agent.setter
+    def message_budget_per_agent(self, value: float):
+        self.agent.message_budget_per_agent = value
