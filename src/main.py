@@ -23,9 +23,6 @@ logging.getLogger("matplotlib").setLevel(logging.CRITICAL)
 logging.getLogger("PIL").setLevel(logging.CRITICAL)
 logging.getLogger("urllib3.connectionpool").setLevel(logging.CRITICAL)
 
-# ensure to make sure the `protobuf` package works (only used for tensorboard, may not be needed?)
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
-
 
 def experiment_main(_config, logger: Logger) -> None:
     def config_copy(config):
