@@ -8,7 +8,7 @@ authors = ["Jaye Heglund <jheglun2@illinois.edu>"]
 [tool.poetry.dependencies]
 ###############
 # core dependencies
-python = ">=3.11"
+python = ">=3.12"
 gymnasium = { version = ">=0.28", extras = ["other"] } # [other] includes extra packages to record env replays
 gurobipy = ">=13.0.0"
 matplotlib = ">=3.10.6"
@@ -23,6 +23,7 @@ setuptools = "==81.0.0" # this version needed for sacred to work
 s2clientprotocol = ">=4.10.1.75800.0"
 statsmodels = "*"
 torch = "==2.6.0"
+softtorch = "*"
 wandb = ">=0.25.1"
 ###############
 # ipython debugging and notebook magic commands
@@ -39,9 +40,9 @@ types-PyYAML = "*"
 types-psutil = "*"
 ###############
 # local gymnasium environments
-gym-multigrid = { path = "src/envs/gym-multigrid", develop = true }
-join1 = { path = "src/envs/join1", develop = true }
-lbforaging = { path = "src/envs/lb-foraging", develop = true }
+gym-multigrid = { path = "submodules/gym-multigrid", develop = true }
+join1 = { path = "submodules/join1", develop = true }
+lbforaging = { path = "submodules/lb-foraging", develop = true }
 
 # deprecated dependencies
 # "absl-py>=0.1.0", # not use anywhere

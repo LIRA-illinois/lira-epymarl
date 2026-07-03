@@ -42,8 +42,8 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
     # This project uses pyenv because it allows each user to easily control which versions of Python are used for each of their projects
 
     # Install Python using pyenv
-    pyenv install 3.11 # (higher versions may have compatibility issues with Sacred)
-    pyenv local 3.11 # set the version of Python to be used for this project
+    pyenv install 3.12 # (higher versions may have compatibility issues with Sacred)
+    pyenv local 3.12 # set the version of Python to be used for this project
 
     # Install poetry inside this project's venv so it does not affect the global python installation
     # NOTE: Use `python`, not `python3` here so pyenv uses this project's local version of Python set above
@@ -72,7 +72,7 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
 - To add an environment submodule (in this example, REPO_NAME) to the project, run the following in the project root:
 
 ```bash
-git submodule add https://github.com/LIRA-Illinois/REPO_NAME.git src/envs/REPO_NAME
+git submodule add https://github.com/LIRA-Illinois/REPO_NAME.git submodules/REPO_NAME
 ```
 
 
