@@ -29,11 +29,13 @@ r ?= 2
 d ?= False
 ifeq ($(d), True)
     debug = --debug
+	cmd = ipdb3 -c continue
 else
     debug =
+	cmd = python3
 endif
 run_experiment:
-	@bash -c 'source .venv/bin/activate; python3 src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${debug}'
+	bash -c 'source .venv/bin/activate; ${cmd} src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${debug}'
 
 activate_venv:
 	bash -c 'source .venv/bin/activate; /bin/bash'

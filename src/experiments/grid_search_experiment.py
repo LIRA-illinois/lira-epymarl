@@ -177,7 +177,7 @@ class GridSearch(object):
                 "unique_policy_per_msg_budget"
             ):
                 scenario = string_inputs_to_list(
-                    scenario, "msg_budget_per_agent", output_type=float
+                    scenario, "msg_budget_per_agent", output_type=int
                 )
                 for val in scenario.pop("msg_budget_per_agent"):
                     new_s = scenario.copy()
@@ -202,7 +202,19 @@ class GridSearch(object):
                     for i, scenario in enumerate(scenarios):
                         if scenario[outer_var] == inner_var:
                             for combo in conditional_combos:
-                                updated_scenarios.append(scenario | combo)
+
+                                if combo.get("msg_budget_per_agent") and scenario.get(
+                                    "unique_policy_per_msg_budget"
+                                ):
+                                    combo = string_inputs_to_list(combo, "msg_budget_per_agent", output_type=int)
+                                    for val in combo.pop("msg_budget_per_agent"):
+                                        new_c = combo.copy()
+                                        # format as a string in a list to work with parsing in main.py
+                                        new_c["msg_budget_per_agent"] = [f"{val}"]
+                                        updated_scenarios.append(scenario | new_c)
+                                else:
+                                    updated_scenarios.append(scenario | combo)
+
                                 indices_remove.append(i)
 
                     # remove scenarios that were updated and bring in their updated versions

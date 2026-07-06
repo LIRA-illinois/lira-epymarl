@@ -45,7 +45,8 @@ class MAICAgent(nn.Module):
         self.n_agents: int = args.n_agents
         self.latent_dim = args.latent_dim
         self.n_actions = args.n_actions
-        self._msg_budget: int = getattr(args, "msg_budget_per_agent", self.n_agents - 1)
+        # default to unconstrained comms
+        self._msg_budget: int = self.n_agents - 1
 
         activation_func = nn.LeakyReLU()
 
@@ -286,7 +287,6 @@ class MAICAgent(nn.Module):
 
         # always run filtering if unique_policy_per_msg_budget
         # if unique_policy_per_msg_budget false, always run filtering during test mode
-        print(self.args.msg_budget_per_agent)
         if getattr(self.args, "unique_policy_per_msg_budget", False) or test_mode:
             alpha = self._msg_filter(alpha, compute_loss)
 

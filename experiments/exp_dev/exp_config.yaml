@@ -55,7 +55,7 @@ parameters:
   lr:
     values: [0.00005]
   t_max:
-    values: [20, 30]
+    values: [20]
   test_interval:
     values: [10]
   save_model_interval:
@@ -100,7 +100,7 @@ parameters:
   #   values: [[0.0 1.0]]
 
   unique_policy_per_msg_budget:
-    values: [True, False]
+    values: [False]
 
   # hl_task:
   #   values: [[0 1], [1 2]]
@@ -115,8 +115,8 @@ parameters:
   # soft_topk_base_temperature:
   #   values: [0.01, 0.02, 0.03]
 
-  msg_drop_rate:
-    values: [0.0, 0.25, 0.5]
+  # msg_drop_rate:
+  #   values: [0.0, 0.25, 0.5]
 
 
   # project-level success rate requirement
@@ -172,9 +172,9 @@ conditional_parameters:
     3:
       # goes up to n_agents - 1 since we assume agents cannot send themselves a message
       msg_budget_per_agent:
-        values: [[1 2]]
-    5:
-      # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-      msg_budget_per_agent:
-        values: [[0 1 2 3 4]]
+        values: [[0 1 2]]
+    # 5:
+    #   # goes up to n_agents - 1 since we assume agents cannot send themselves a message
+    #   msg_budget_per_agent:
+    #     values: [[0 1 2 3 4]]
 

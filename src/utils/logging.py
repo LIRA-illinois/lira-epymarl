@@ -225,6 +225,7 @@ class MainLogger:
 
     def log_table(self, key: str, value: pd.DataFrame, t: int) -> None:
         """Log accumulated evaluation statistics as a wandb table"""
+
         if isinstance(value, pd.DataFrame):
             if not self.data_tables.get(key, False):
                 # make a new entry

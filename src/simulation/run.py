@@ -145,9 +145,7 @@ class Simulation:
         self.logger.info("Beginning training for {} timesteps".format(self.args.t_max))
 
         if getattr(self.args, "unique_policy_per_msg_budget", False):
-            self.runner.mac.msg_budget_per_agent = (
-                self.args.msg_budget_per_agent[0]
-            )
+            self.runner.mac.msg_budget_per_agent = self.args.msg_budget_per_agent[0]
 
         while self.runner.t_env <= self.args.t_max:
             # Run for a whole episode at a time

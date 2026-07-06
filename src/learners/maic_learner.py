@@ -264,11 +264,13 @@ class MAICLearner:
                 and len(v.shape) > 1
                 and v.shape[0] == self.args.n_agents
             ):
-                columns = [f"agent_{i}" for i in range(self.args.n_agents)]
-                df_data = pd.DataFrame(
-                    data=v.T,
-                    columns=columns,
-                )
+                # add a t_env column
+                columns = [f"agent_{i}" for i in range(self.args.n_agents)] + [
+                    self.logger.step_metric
+                ]
+                row_data = v.tolist() + [[t]]
+                row = {column: entry for column, entry in zip(columns, row_data)}
+                df_data = pd.DataFrame(data=row)
                 self.logger.log_table(key=k, value=df_data, t=t)
 
             else:

@@ -40,16 +40,9 @@ def is_debugger_active():
     if sys.gettrace() is not None:
         return True
 
-    # Check for IDE debuggers (VS Code/debugpy, PyCharm, or PDB)
-    active_debuggers = {'debugpy', 'pydevd', 'pdb'}
+    # Check for IDE debugger
+    active_debuggers = {'debugpy'}
     if active_debuggers.intersection(sys.modules.keys()):
-        return True
-
-    # Check if a python -m pdb command was used
-    if 'pdb' in sys.modules and hasattr(sys.modules['pdb'], 'Pdb'):
-        return True
-
-    if 'ipdb' in sys.modules and hasattr(sys.modules['ipdb'], 'iPdb'):
         return True
 
     return False# argument parsing, taken from the Sacred library

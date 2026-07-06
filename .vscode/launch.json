@@ -1,34 +1,64 @@
-{
-    "version": "0.2.0",
-    "configurations": [
+
+ {
+     "version": "0.2.0",
+    "inputs": [
         {
-            "name": "Python: Grid Search Experiment",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/experiments/grid_search_experiment.py",
-            "console": "internalConsole",
-            "cwd": "${workspaceFolder}",
-            "args": ["-e", "exp_dev",],
-            "justMyCode": true,
-            // disable warning about frozen modules
-            "env": {
-                "PYDEVD_DISABLE_FILE_VALIDATION": "1",
-                "PYTHONPATH": "${workspaceFolder}",
-            },
+            "id": "gridSearchExperiment",
+            "type": "promptString",
+            "description": "Experiment name (for example exp_dev)",
+            "default": "exp_dev"
         },
         {
-            "name": "Python: General",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "internalConsole",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": true,
-            // disable warning about frozen modules
-            "env": {
-                "PYDEVD_DISABLE_FILE_VALIDATION": "1",
-                "PYTHONPATH": "${workspaceFolder}",
-            },
+            "id": "gridSearchComputer",
+            "type": "pickString",
+            "description": "Target computer",
+            "options": ["lab", "campus", "delta"],
+            "default": "lab"
+        },
+        {
+            "id": "gridSearchRunners",
+            "type": "promptString",
+            "description": "Number of parallel runners",
+            "default": "2"
         }
-    ]
-}
+    ],
+     "configurations": [
+         {
+             "name": "Python: Grid Search Experiment",
+             "type": "debugpy",
+             "request": "launch",
+             "program": "${workspaceFolder}/src/experiments/grid_search_experiment.py",
+             "console": "internalConsole",
+             "cwd": "${workspaceFolder}",
+            "args": [
+                "-e",
+                "${input:gridSearchExperiment}",
+                "-c",
+                "${input:gridSearchComputer}",
+                "-r",
+                "${input:gridSearchRunners}",
+                "-d"
+            ],
+             "justMyCode": true,
+             // disable warning about frozen modules
+             "env": {
+                 "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+                 "PYTHONPATH": "${workspaceFolder}",
+             },
+         },
+         {
+             "name": "Python: General",
+             "type": "debugpy",
+             "request": "launch",
+             "program": "${file}",
+             "console": "internalConsole",
+             "cwd": "${workspaceFolder}",
+             "justMyCode": true,
+             // disable warning about frozen modules
+             "env": {
+                 "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+                 "PYTHONPATH": "${workspaceFolder}",
+             },
+         },
+     ]
+ }

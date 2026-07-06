@@ -26,7 +26,7 @@ def run_eval_episodes(
 
     if set_msg_budget_per_agent_for_eval:
         print(f"Setting MAC msg_budget_per_agent to {msg_budget_per_agent}")
-        runner.mac.msg_budget_per_agent = msg_budget_per_agent
+        runner.mac.msg_budget = msg_budget_per_agent
 
     # filename prefix includes task state and comms value when available
     prefix_parts = [video_prefix]
@@ -77,8 +77,8 @@ def run_eval_episodes(
         runner.env.terminate_on_task_completed = False
 
     if set_msg_budget_per_agent_for_eval:
-        print("Evaluation done, Setting MAC msg_budget_per_agent to default of 1.0")
-        runner.mac.msg_budget_per_agent = 1.0
+        print(f"Evaluation done, Setting MAC msg_budget_per_agent to default of n_agents - 1 = {args.n_agents-1}")
+        runner.mac.msg_budget = args.n_agents - 1
 
     return last_result
 
