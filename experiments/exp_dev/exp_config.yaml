@@ -6,11 +6,11 @@ parameters:
   ##################
   # seeds are grid-searched over and are haPndled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # use fixed seeds like this to enable reproducible results
-  # seed:
-  #   values: [101]
+  seed:
+    values: [101]
   # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
-  n_seeds:
-    values: [3]
+  # n_seeds:
+  #   values: [3]
 
   ##################
   # Project setup + logging
@@ -101,6 +101,9 @@ parameters:
 
   unique_policy_per_msg_budget:
     values: [False]
+
+  env_args.p_chosen_move:
+    values: [0.95]
 
   # hl_task:
   #   values: [[0 1], [1 2]]
