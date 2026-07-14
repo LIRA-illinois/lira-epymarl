@@ -1,7 +1,7 @@
-from logging import Logger
 import logging
 import sys
 import warnings
+from logging import Logger
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)

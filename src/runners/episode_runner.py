@@ -1,15 +1,17 @@
-from typing import Optional
 from collections import defaultdict
+from functools import partial
 from os import makedirs
 from os.path import join
-from functools import partial
-import numpy as np
-from torch import Tensor
-from numpy.typing import NDArray
+from typing import Optional
+
 import matplotlib.image as mpl_img
+import numpy as np
+from numpy.typing import NDArray
+from torch import Tensor
 
 from src.components.episode_buffer import EpisodeBatch
-from src.envs import REGISTRY as env_REGISTRY, register_smac, register_smacv2
+from src.envs import REGISTRY as env_REGISTRY
+from src.envs import register_smac, register_smacv2
 from src.utils.record_video import RecordVideoExtended
 
 
@@ -403,57 +405,57 @@ class EpisodeRunner:
         #     else:
         #         actions = np.array([[4, 0, 0]])
 
-            # if self.t == 0:
-            #     # all load, see if the fruit goes away
-            #     actions = np.array([[5, 5, 5]])
-            # elif self.t == 1:
-            #     # 2 load while 3rd moves down, see if the fruit goes away
-            #     actions = np.array([[5, 5, 2]])
-            # elif self.t == 2:
-            #     # all 3 load
-            #     actions = np.array([[5, 5, 5]])
-            #     # actions = np.array([[0, 0, 0]])
-            # else:
-            #     # actions = np.array([[5, 5, 5]])
-            #     actions = np.array([[0, 0, 0]])
+        # if self.t == 0:
+        #     # all load, see if the fruit goes away
+        #     actions = np.array([[5, 5, 5]])
+        # elif self.t == 1:
+        #     # 2 load while 3rd moves down, see if the fruit goes away
+        #     actions = np.array([[5, 5, 2]])
+        # elif self.t == 2:
+        #     # all 3 load
+        #     actions = np.array([[5, 5, 5]])
+        #     # actions = np.array([[0, 0, 0]])
+        # else:
+        #     # actions = np.array([[5, 5, 5]])
+        #     actions = np.array([[0, 0, 0]])
 
-            # if self.mac.msg_budget_per_agent == 0.0:
-            #     if self.t == 0:
-            #         # right
-            #         actions = np.array([[4, 4, 4]])
-            #     else:
-            #         # grab
-            #         actions = np.array([[5, 5, 5]])
+        # if self.mac.msg_budget_per_agent == 0.0:
+        #     if self.t == 0:
+        #         # right
+        #         actions = np.array([[4, 4, 4]])
+        #     else:
+        #         # grab
+        #         actions = np.array([[5, 5, 5]])
 
-            # elif self.mac.msg_budget_per_agent == 1.0:
-            #     # left
-            #     actions = np.array([[3, 3, 3]])
+        # elif self.mac.msg_budget_per_agent == 1.0:
+        #     # left
+        #     actions = np.array([[3, 3, 3]])
 
-            # if self.t in [2, 6]:
-            #     # grab
-            #     actions = np.array([[5, 5, 5]])
-            # else:
-            #     # right
-            #     actions = np.array([[4, 4, 4]])
+        # if self.t in [2, 6]:
+        #     # grab
+        #     actions = np.array([[5, 5, 5]])
+        # else:
+        #     # right
+        #     actions = np.array([[4, 4, 4]])
 
-            # actions = np.array([[3, 2, 3]])
+        # actions = np.array([[3, 2, 3]])
 
-            # right
-            # actions = np.array([[4, 4, 4]])
+        # right
+        # actions = np.array([[4, 4, 4]])
 
-            # if self.t < 5:
-            #     actions = np.array([[4, 4, 4]])
-            # else:
-            #     actions = np.array([[3, 3, 3]])
+        # if self.t < 5:
+        #     actions = np.array([[4, 4, 4]])
+        # else:
+        #     actions = np.array([[3, 3, 3]])
 
-            # cycle into the goals
-            # if self.t == 0:
-            #     actions = np.array([[4, 0, 4]])
-            # elif self.t == 1:
-            #     actions = np.array([[3, 4, 3]])
-            # elif self.t % 2 == 0:
-            #     actions = np.array([[4, 3, 4]])
-            # else:
-            #     actions = np.array([[3, 4, 3]])
+        # cycle into the goals
+        # if self.t == 0:
+        #     actions = np.array([[4, 0, 4]])
+        # elif self.t == 1:
+        #     actions = np.array([[3, 4, 3]])
+        # elif self.t % 2 == 0:
+        #     actions = np.array([[4, 3, 4]])
+        # else:
+        #     actions = np.array([[3, 4, 3]])
 
         return actions
