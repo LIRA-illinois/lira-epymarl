@@ -105,7 +105,7 @@ parameters:
     env_args.reward_config.failed_load_penalty:
         values: [-0.0005]
 
-    env_args.p_chosen_move:
+    env_args.chosen_move_prob:
         values: [1.0]
 
     # asymmetric obs for fruit, hoping to force comms between agents
