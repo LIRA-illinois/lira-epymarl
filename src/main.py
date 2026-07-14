@@ -6,6 +6,7 @@ from logging import Logger
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+print("hello")
 from collections.abc import Mapping
 from copy import deepcopy
 from os.path import abspath, dirname, join
