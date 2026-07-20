@@ -1,7 +1,9 @@
 import os
-import pandas as pd
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import pandas as pd
+
 
 def create_success_vs_cost_plot() -> None:
     # load data
