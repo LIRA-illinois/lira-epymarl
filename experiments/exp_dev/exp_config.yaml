@@ -130,6 +130,9 @@ parameters:
     success_rate_spec:
         values: [0.0]
 
+    action_selector:
+        values: [action_space]
+
     env_args.map_name:
         values: [1r_small]
         # values: [1r_small_agents_fruit_placed]
@@ -140,10 +143,12 @@ parameters:
     env_args.n_agents:
         values: [3]
     env_args.sight:
-        values: [1]
+        values: [7]
     env_args.max_episode_steps:
         # values: [30]
         values: [10]
+    env_args.max_agent_level:
+        values: [1]
     # env_args.min_fruit_level:
     #   values: [2]
     env_args.force_coop:
@@ -154,7 +159,7 @@ parameters:
     # values: [3]
 
     env_args.max_num_fruit:
-        values: [1]
+        values: [2]
     # values: [3]
     env_args.state_type:
         values: [multigrid_flattened]

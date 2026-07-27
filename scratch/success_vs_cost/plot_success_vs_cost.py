@@ -65,7 +65,7 @@ def create_success_vs_cost_plot() -> None:
     # place the arrow
     text_x = 0.95
     plt.annotate(
-        "",
+        "",xytext=
         xy=(0.975, 0.52),  # (x, y) coordinates where the arrow points
         xytext=(0.975, 0.73),  # (x, y) coordinates where the text is placed
         arrowprops=dict(color="red"),  # Makes the arrow red

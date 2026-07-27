@@ -1,6 +1,7 @@
-from gymnasium.core import ActType
 import os
+
 from gymnasium import logger
+from gymnasium.core import ActType
 from gymnasium.wrappers import RecordVideo
 
 
@@ -22,8 +23,8 @@ class RecordVideoExtended(RecordVideo):
         env,
         video_folder,
         episode_trigger,
-        name_prefix: str="rl-video",
-        disable_logger: bool=True,
+        name_prefix: str = "rl-video",
+        disable_logger: bool = True,
         output_formats: list[str] = ["mp4"],
     ) -> None:
         """Initialize RecordWebmVideo wrapper.
@@ -113,9 +114,13 @@ class RecordVideoExtended(RecordVideo):
 
             gc.collect()
 
-    def step(self, action: ActType, capture_before_step: bool=True):
-        """overrides parent's step(), gives option to capture the frame with the chosen action before the transition occurs
-        """
+    def step(
+        self,
+        action: ActType,
+        capture_before_step: bool = True,
+        capture_final_state: bool = True,
+    ):
+        """overrides parent's step(), gives option to capture the frame with the chosen action before the transition occurs"""
         # render a frame of the env with the chosen action before stepping
         if isinstance(action, dict) and action.get("hl_actions", False):
             self.env.set_wrapper_attr("_pre_step_hl_actions", action["hl_actions"])
@@ -137,7 +142,14 @@ class RecordVideoExtended(RecordVideo):
         if self.step_trigger and self.step_trigger(self.step_id):
             self.start_recording(f"{self.name_prefix}-step-{self.step_id}")
 
-        if not capture_before_step:
+        if (not capture_before_step) or (
+            capture_final_state and (terminated or truncated)
+        ):
+            self.env.set_wrapper_attr(
+                "_pre_step_actions", [None] * self.env.get_wrapper_attr("num_agents")
+            )
+            self.env.set_wrapper_attr("t_render", "Final")
+
             if self.recording:
                 self._capture_frame()
 

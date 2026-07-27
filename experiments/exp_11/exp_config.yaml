@@ -127,5 +127,3 @@ conditional_parameters:
         values: [4050000]
       env_args.max_fruit_level:
         values: [3, 4]
-
-
