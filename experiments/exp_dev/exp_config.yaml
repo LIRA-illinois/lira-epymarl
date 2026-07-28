@@ -97,16 +97,18 @@ parameters:
 
     unique_policy_per_msg_budget:
         values: [False]
+
     env_args.chosen_move_prob:
-        values: [0.95]
+        values: [1.0]
 
     env_args.asymmetric_fruit_obs:
         values: [different_sensors]
 
     env_args.num_agents_fruit_obs:
         values: [2]
+        # values: [0, 1, 2, 3]
 
-    env_args.fruit_obs_prob:
+    env_args.smacv2_fruit_obs_prob:
         values: [0.0]
 
     # hl_task:
