@@ -69,7 +69,7 @@ parameters:
         values: [hard_topk]
 
     msg_drop_rate:
-        values: [0.0, 0.5]
+        values: [0.0, 0.25, 0.5]
 
     ##################
     # Environment config
@@ -103,12 +103,12 @@ parameters:
         values: [0, 1, 2, 3]
     # asymmetric obs for fruit, hoping to force comms between agents
     env_args.asymmetric_fruit_obs:
-        values: [True]
+        values: [different_sensors]
 
     # reward config
     # this value worked well for 3 agents in exp 13
     env_args.reward_config.failed_load_penalty:
-        values: [-0.0005]
+        values: [-0.005, -0.01]
 
     env_args.chosen_move_prob:
         values: [1.0]
@@ -119,7 +119,10 @@ parameters:
 
     # experiment-specific env args
     env_args.max_num_fruit:
-        values: [1, 2]
+        values: [1]
+
+    env_args.action_blocking:
+        values: [True]
 
 ##################
 # Conditional parameters
