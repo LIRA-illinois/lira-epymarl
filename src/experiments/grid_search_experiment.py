@@ -362,21 +362,9 @@ class GridSearch(object):
             slurm_config_lines = get_slurm_config_lines(get_slurm_args(**slurm_config))
 
             # commands to run this project on the cluster
-            # TODO this logic can just be replaced by a call of getcwd()
-            project_name = getcwd().split("/")[-1]
-            match self.args.computer:
-                case "delta":
-                    cluster_project_dir = join("~", "dev", f"{project_name}")
-                case "campus":
-                    cluster_project_dir = join(
-                        "~", "my_trg_dir", "dev", f"{project_name}"
-                    )
-                case _:
-                    raise NotImplementedError
-
             project_setup_lines: list[str] = [
                 "# project setup",
-                f"cd {cluster_project_dir}",
+                f"cd {getcwd()}",
                 f"source {self.venv_activate_path}",
             ]
 
