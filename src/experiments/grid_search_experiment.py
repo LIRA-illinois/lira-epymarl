@@ -294,7 +294,7 @@ class GridSearch(object):
                 sacred_debug_suffix = ""
                 # sacred_debug_suffix = "-d --force"
 
-                python_cmd = f"python3 {self.script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)} {sacred_debug_suffix}"
+                python_cmd = f"python {self.script_path} {' '.join(options)} with {' '.join(updates)} {' '.join(run_updates)} {sacred_debug_suffix}"
                 run_params["cmd"] = python_cmd
                 run_setups.append(run_params)
 
@@ -353,11 +353,20 @@ class GridSearch(object):
         jobs = {i: [] for i in range(n_jobs)}
 
         # assign commands to jobs
-        for i, cmd in enumerate(python_cmds):
+        for i, python_cmd in enumerate(python_cmds):
             # run each python commmand in its own tmux session so you can check its progress if needed
             tmux_process_name = f"{self.args.experiment}_runner_{i + 1}"
             tmux_str = " ".join(self.tmux_prefix)
-            run_cmd = f"{tmux_str} {tmux_process_name} {cmd}"
+
+            cd_dir_cmd = f"cd {getcwd()}"
+            venv_activate_cmd = "source .venv/bin/activate"
+            module_load_cmd = (
+                f'{"module load cuda/12.4; " if self.args.computer == "campus" else ""}' +
+                "module load python"
+            )
+
+            cmd = f"{cd_dir_cmd}; {venv_activate_cmd}; {module_load_cmd}; {python_cmd}"
+            run_cmd = f"{tmux_str} {tmux_process_name} \"{cmd}\""
             jobs[i % n_jobs].append(run_cmd + " &")
 
         job_paths: list[str] = []
@@ -372,7 +381,6 @@ class GridSearch(object):
             slurm_config_lines = get_slurm_config_lines(get_slurm_args(**slurm_config))
 
             # commands to run this project on the cluster
-            # TODO this logic can just be replaced by a call of getcwd()
             project_setup_lines: list[str] = [
                 "# project setup",
                 f"cd {getcwd()}",
@@ -386,7 +394,7 @@ class GridSearch(object):
                 "echo 'Running on node with hostname:'",
                 "hostname -s",
                 "nvidia-smi",
-                "python3 src/experiments/node_test.py",
+                "python src/experiments/node_test.py",
             ]
 
             # save the slurm files to disk
@@ -569,7 +577,16 @@ class GridSearch(object):
 
             # need a "wait" at the end to run parallel commands with &,
             # otherwise the batch job immediately terminates
-            f.write("wait")
+            # if on campus computer
+            if self.args.computer in ["campus", "delta"]:
+                # need a short sleep before starting the checking loop for the tmux runs to start up
+                f.write("sleep 1;echo Runs started;")
+                f.write("\n")
+                f.write("while tmux ls &>/dev/null; do sleep 1; done;")
+                f.write("\n")
+                f.write("echo Runs finished")
+            else:
+                f.write("wait")
 
     def _gen_dict_combinations(self, d: dict):
         """Generate all combinations of nested dict values.
