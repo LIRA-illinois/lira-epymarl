@@ -33,34 +33,60 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
     ```
 
 1. Install the project's dependencies
+    - Lab computer instructions
+      ```bash
+      # cd to the project root
+      cd lira-epymarl
 
-    ```bash
-    # cd to the project root
-    cd lira-epymarl
+      # Install pyenv using instructions from github.com/pyenv/pyenv
+      # This project uses pyenv because it allows each user to easily control which versions of Python are used for each of their projects
 
-    # Install pyenv using instructions from github.com/pyenv/pyenv
-    # This project uses pyenv because it allows each user to easily control which versions of Python are used for each of their projects
+      # Install Python using pyenv
+      pyenv install 3.12 # (higher versions may have compatibility issues with Sacred)
+      pyenv local 3.12 # set the version of Python to be used for this project
 
-    # Install Python using pyenv
-    pyenv install 3.12 # (higher versions may have compatibility issues with Sacred)
-    pyenv local 3.12 # set the version of Python to be used for this project
+      # Install poetry inside this project's venv so it does not affect the global python installation
+      # NOTE: Use `python`, not `python3` here so pyenv uses this project's local version of Python set above
+      python -m venv .venv
 
-    # Install poetry inside this project's venv so it does not affect the global python installation
-    # NOTE: Use `python`, not `python3` here so pyenv uses this project's local version of Python set above
-    python -m venv .venv
+      # Activate the venv
+      source .venv/bin/activate
 
-    # Activate the venv
-    source .venv/bin/activate
+      # Install poetry inside the venv
+      # NOTE: this ensures that the pyenv version of python is used to set up the project
+      pip install poetry
 
-    # Install poetry inside the venv
-    # NOTE: this ensures that the pyenv version of python is used to set up the project
-    pip install poetry
+      # Create lock file and install Python packages
+      poetry lock
+      poetry install
 
-    # Create lock file and install Python packages
-    poetry lock
-    poetry install
+      ```
 
-    ```
+    - Campus cluster instructions
+      ```bash
+      # cd to the project root
+      cd lira-epymarl
+
+      # Python is already installed on the cluster, so just use that
+
+      # Install poetry inside this project's venv so it does not affect the global python installation
+      # NOTE: the command here is python3 and not python (compared to the lab computer setup)
+      python3 -m venv .venv
+
+      # and the rest of the steps are the same as the lab computer
+      # Activate the venv
+      source .venv/bin/activate
+
+      # Install poetry inside the venv
+      # NOTE: this ensures that the pyenv version of python is used to set up the project
+      pip install poetry
+
+      # Create lock file and install Python packages
+      poetry lock
+      poetry install
+
+      ```
+
 
 ### Makefile
 
