@@ -158,8 +158,8 @@ parameters:
     env_args.highlight_visible_cells:
         values: [True]
 
-    # env_args.action_blocking:
-    #     values: [False]
+    env_args.action_blocking:
+        values: [False]
 
     # hierarchical decision-making params for "project MDP"
     # env_args.hl_env_args.task_type:

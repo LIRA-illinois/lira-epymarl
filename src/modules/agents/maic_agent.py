@@ -1,16 +1,14 @@
-from typing import Callable
-from typing import Literal
 from collections import defaultdict
+from typing import Callable, Literal
 
 import torch as th
 import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
+from softtorch import topk as soft_topk
+from torch import topk as hard_topk
 from torch.distributions import kl_divergence
 from torch.types import Tensor
-
-from torch import topk as hard_topk
-from softtorch import topk as soft_topk
 
 
 class STEFunction(th.autograd.Function):
@@ -137,10 +135,10 @@ class MAICAgent(nn.Module):
 
             # average over the incoming messages for each agent to get a measure of "importance" for that agent for a given episode
             # log_data = th.sum(log_data, axis=0) / self.args.n_agents
-            msg_weights = msg_weights.detach().to(device="cpu")
-
-            agent_info["logs"]["msg_weights_in_mean"] = msg_weights.mean(axis=1)
-            agent_info["logs"]["msg_weights_out_mean"] = msg_weights.mean(axis=2)
+            # NOTE: commented out b/c was not needed and causing issues syncing w/ wandb
+            # msg_weights = msg_weights.detach().to(device="cpu")
+            # agent_info["logs"]["msg_weights_in_mean"] = msg_weights.mean(axis=1)
+            # agent_info["logs"]["msg_weights_out_mean"] = msg_weights.mean(axis=2)
 
             # update estimated Q-value using incentive messages from other agents
             msg_tot = th.sum(gated_msg, dim=1).view(bs * self.n_agents, self.n_actions)
