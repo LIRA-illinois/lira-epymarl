@@ -37,12 +37,16 @@ run_experiment:
 activate_venv:
 	bash -c 'source .venv/bin/activate; /bin/bash'
 
-screen_experiments:
-	screen -ls | grep "exp" | awk "{print $1}" | cut -d"	" -f 2
+tmux_experiments:
+	tmux list-panes -a -F "#{session_name}"
+
+
+# screen_experiments:
+# 	screen -ls | grep "exp" | awk "{print $1}" | cut -d"	" -f 2
 
 # find screen sesions with "exp" in them, use cut to grab the session names, adds a prefix and suffix to quit the session, puts commands in a txt file, and opens the txt file. Does NOT stop the experiments, user must choose which sessions to quit and copy + paste the commands into the terminal.
-screen_experiments_cancel:
-	@screen -ls | grep "exp" | awk "{print $1}" | cut -d"	" -f 2 | sed 's/^/screen -X -S /; s/$$/ quit/' > tmp.txt
+tmux_experiments_cancel:
+	@tmux list-panes -a -F "#{session_name}" | sed 's/^/tmux kill-session -t /; s/$$/ /' > tmp.txt
 	@nano tmp.txt
 	@sleep 0.25
 	@rm -r tmp.txt

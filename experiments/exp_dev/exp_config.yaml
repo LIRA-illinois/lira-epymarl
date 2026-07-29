@@ -54,7 +54,8 @@ parameters:
     lr:
         values: [0.00005]
     t_max:
-        values: [20]
+        values: [10000, 10001]
+        # values: [20, 30]
     test_interval:
         values: [10]
     save_model_interval:

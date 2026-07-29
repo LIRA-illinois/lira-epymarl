@@ -8,36 +8,43 @@ to allow greater control over running jobs compared to wandb which only allows r
 be stopped 1 at a time.
 """
 
-from pandas.core.frame import DataFrame
-from argparse import Namespace
-from typing import Literal
-from os import environ, makedirs, getcwd, walk
-from os.path import join
-from math import ceil
-from itertools import product
 import argparse
-import subprocess
 import datetime
-from random import SystemRandom
-import yaml
-import pandas as pd
-import numpy as np
 import shlex
+import subprocess
+from argparse import Namespace
+from itertools import product
+from math import ceil
+from os import environ, getcwd, makedirs, walk
+from os.path import join
+from random import SystemRandom
+from typing import Literal
 
-from src.main import main
+import numpy as np
+import pandas as pd
+import yaml
+from pandas.core.frame import DataFrame
+
 from src.experiments.slurm_config import (
     Computers,
-    get_slurm_config_lines,
     get_slurm_args,
+    get_slurm_config_lines,
 )
-from src.utils.utils import string_inputs_to_list, is_debugger_active
+from src.main import main
+from src.utils.utils import is_debugger_active, string_inputs_to_list
 
 
 class GridSearch(object):
     venv_activate_path = join(".venv", "bin", "activate")
     basic_config_params: list[str] = ["config", "env-config"]
 
-    bash_prefix = ["/bin/bash", "-c"]
+    tmux_prefix = [
+        "tmux",
+        "new",
+        "-d",
+        "-s",
+    ]
+
     script_path = join("src", "main.py")
 
     def __init__(self) -> None:
@@ -202,11 +209,12 @@ class GridSearch(object):
                     for i, scenario in enumerate(scenarios):
                         if scenario[outer_var] == inner_var:
                             for combo in conditional_combos:
-
                                 if combo.get("msg_budget_per_agent") and scenario.get(
                                     "unique_policy_per_msg_budget"
                                 ):
-                                    combo = string_inputs_to_list(combo, "msg_budget_per_agent", output_type=int)
+                                    combo = string_inputs_to_list(
+                                        combo, "msg_budget_per_agent", output_type=int
+                                    )
                                     for val in combo.pop("msg_budget_per_agent"):
                                         new_c = combo.copy()
                                         # format as a string in a list to work with parsing in main.py
@@ -311,11 +319,10 @@ class GridSearch(object):
 
         for i, runner_cmds in runners.items():
             env["CUDA_VISIBLE_DEVICES"] = f"{runner_gpus[i]}"
-            screen_name = f"{self.args.experiment}_runner_{i + 1}"
-            screen_prefix = ["screen", "-dmS", screen_name]
+            tmux_process_name = f"{self.args.experiment}_runner_{i + 1}"
             run_cmd = [
-                *screen_prefix,
-                *self.bash_prefix,
+                *self.tmux_prefix,
+                tmux_process_name,
                 runner_cmds,
             ]
 
@@ -347,10 +354,13 @@ class GridSearch(object):
 
         # assign commands to jobs
         for i, cmd in enumerate(python_cmds):
-            jobs[i % n_jobs].append(cmd + " &")
+            # run each python commmand in its own tmux session so you can check its progress if needed
+            tmux_process_name = f"{self.args.experiment}_runner_{i + 1}"
+            tmux_str = " ".join(self.tmux_prefix)
+            run_cmd = f"{tmux_str} {tmux_process_name} {cmd}"
+            jobs[i % n_jobs].append(run_cmd + " &")
 
         job_paths: list[str] = []
-
         print("Writing job files")
 
         # loop thru all jobs, get the slurm config args needed to generate the slurm file and generate the slurm file
@@ -362,6 +372,7 @@ class GridSearch(object):
             slurm_config_lines = get_slurm_config_lines(get_slurm_args(**slurm_config))
 
             # commands to run this project on the cluster
+            # TODO this logic can just be replaced by a call of getcwd()
             project_setup_lines: list[str] = [
                 "# project setup",
                 f"cd {getcwd()}",
@@ -517,9 +528,9 @@ class GridSearch(object):
                     f.write(f"{cmd}\n")
 
     def _print_hardware_info(self) -> None:
+        import psutil
         from torch.cuda import get_device_properties
         from torch.cuda.memory import mem_get_info
-        import psutil
 
         # available computer resources
         print(
@@ -581,6 +592,7 @@ class GridSearch(object):
             df_tmp = df_tmp.loc[df_tmp.seed == seed]
 
             for i, cmd in enumerate(df_tmp.cmd):
+                # TODO replace w/ tmux prefix if you ever come back to this
                 run_cmd = [*self.bash_prefix, cmd]
                 proc = subprocess.Popen(run_cmd)
                 processes.append(proc)
