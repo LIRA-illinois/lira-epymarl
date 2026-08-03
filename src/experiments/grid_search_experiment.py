@@ -82,6 +82,8 @@ class GridSearch(object):
             rng = SystemRandom()
             seeds = [rng.randint(0, 1000000) for _ in range(n_seeds)]
 
+        parameters_to_print = full_config.get("parameters_to_print")
+
         """
         # check if running bisimulation test
         if base_config.get("env_bisimulation_test", False):
@@ -111,7 +113,7 @@ class GridSearch(object):
         else:
             if self.args.computer in Computers.lab:
                 self._print_hardware_info()
-            self._print_exp_info(scenarios, run_setups)
+            self._print_exp_info(scenarios, run_setups, parameters_to_print)
 
             if self.args.computer in Computers.cluster:
                 # get config for slurm job on cluster
@@ -361,12 +363,12 @@ class GridSearch(object):
             cd_dir_cmd = f"cd {getcwd()}"
             venv_activate_cmd = "source .venv/bin/activate"
             module_load_cmd = (
-                f'{"module load cuda/12.4; " if self.args.computer == "campus" else ""}' +
-                "module load python"
+                f"{'module load cuda/12.4; ' if self.args.computer == 'campus' else ''}"
+                + "module load python"
             )
 
             cmd = f"{cd_dir_cmd}; {venv_activate_cmd}; {module_load_cmd}; {python_cmd}"
-            run_cmd = f"{tmux_str} {tmux_process_name} \"{cmd}\""
+            run_cmd = f'{tmux_str} {tmux_process_name} "{cmd}"'
             jobs[i % n_jobs].append(run_cmd + " &")
 
         job_paths: list[str] = []
@@ -473,6 +475,7 @@ class GridSearch(object):
         self,
         scenarios: list[dict],
         run_setups: pd.DataFrame,
+        parameters_to_print: list[str] | None = None,
     ) -> None:
         """print experiment summary in a markdown-formatted table"""
         spaces = " " * 4
@@ -494,30 +497,37 @@ class GridSearch(object):
         )
         print(table_header)
 
-        no_print_params: list[str] = [
-            "cmd",
-            "wandb_project",
-            "wandb_mode",
-            "use_wandb",
-            "save_model",
-            "save_model_interval",
-            "save_test_replays",
-            "use_sacred",
-            "save_replay_buffer",
-            "delete_local_models",
-            "live_render",
-            "save_model_interval",
-            "runner_log_interval",
-            "n_test_replays_save",
-        ]
-
         for scenario_idx, params in enumerate(scenarios):
             # print params to markdown table
             other_params = ""
 
             for k, v in params.items():
-                if k not in self.basic_config_params + no_print_params:
-                    other_params += f"{k}={v} "
+                if parameters_to_print is not None:
+                    if k in parameters_to_print["values"]:
+                        other_params += f"{k}={v} "
+
+                else:
+                    no_print_params: list[str] = [
+                        "cmd",
+                        "wandb_project",
+                        "wandb_mode",
+                        "wandb_save_model",
+                        "wandb_save_test_replays",
+                        "use_wandb",
+                        "save_model",
+                        "save_model_interval",
+                        "save_test_replays",
+                        "use_sacred",
+                        "save_replay_buffer",
+                        "delete_local_models",
+                        "live_render",
+                        "save_model_interval",
+                        "runner_log_interval",
+                        "n_test_replays_save",
+                    ]
+
+                    if k not in self.basic_config_params + no_print_params:
+                        other_params += f"{k}={v} "
 
             table_line = f"| {run_setups.scenario[scenario_idx * n_seeds]} | {params['config']} | {params['env-config']} | {other_params}|"
             print(table_line)

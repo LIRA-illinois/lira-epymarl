@@ -1,6 +1,10 @@
 # params to grid search over
 # all values assumed to be in lists
+parameters_to_print:
+    values: [msg_drop_rate, env_args.reward_config.failed_load_penalty, env_args.num_agents_fruit_obs]
+
 parameters:
+    # varied params you want to print in the config table
     ##################
     # Seeds
     ##################
