@@ -8,12 +8,16 @@ project_name=lira-epymarl
 nvidia:
 	watch -n 0.2 nvidia-smi
 
-# regular sync, kinda slow but almost always works
-# wandb sync --include-offline ./results/wandb/*-run-*
-sync_results_wandb:
+# legacy sync, kinda slow but almost always works
+# wandb sync --include-offline --legacy ./results/wandb/*-run-*
+
 # parallel syncing, very fast but can't set n too high due to API upload limits
-# throws errors sometimes
-	wandb beta sync -n 5 ./results/wandb/*-run-*
+# doesn't like to work when a run has crashed
+# 	wandb beta sync -n 5 ./results/wandb/*-run-*
+sync_results_wandb:
+	find ./results/wandb/ -type d -name "*-run-*" > wandb_runs.txt
+	xargs --arg-file wandb_runs.txt -n 1 -P 5 wandb sync --include-offline --legacy
+	rm wandb_runs.txt
 
 # default values for these params
 # pass in gpus as a space-delimited string like g="0 1 2"
