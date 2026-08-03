@@ -69,7 +69,7 @@ parameters:
         values: [[0 1 2]]
 
     unique_policy_per_msg_budget:
-        values: [False]
+        values: [True]
 
     # message filtering to model a constrained communication network
     msg_filter_type:

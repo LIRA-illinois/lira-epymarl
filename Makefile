@@ -23,8 +23,8 @@ sync_results_wandb:
 # pass in gpus as a space-delimited string like g="0 1 2"
 g ?= 0
 c ?= lab
-# at ~4 GB per run, 24 runs per job is about 100 GB, which works well for requested RAM of 128 GB while leaving some headroom
-m ?= 24
+# at ~4 GB per run, 20 runs per job is about 80 GB RAM, which works well for requested RAM of 128 GB while leaving plenty of headroom to avoid throttling the system
+m ?= 20
 r ?= 2
 # debugging
 d ?= False
