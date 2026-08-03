@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch as th
-import wandb
 
+import wandb
 from src.simulation.build import build_sim
 from src.simulation.evaluate import run_eval_episodes
 from src.utils.general_reward_support import test_alg_config_supports_reward
