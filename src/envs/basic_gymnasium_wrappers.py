@@ -1,12 +1,12 @@
 from typing import Any, Optional
-import numpy as np
-from numpy.typing import NDArray
-import gymnasium as gym
-from gymnasium.utils.env_checker import check_env
 
-import lbforaging as lbf
+import gymnasium as gym
 import join1
+import lbforaging as lbf
+import numpy as np
 from gym_multigrid.envs.mdp import ProjectMDP
+from gymnasium.utils.env_checker import check_env
+from numpy.typing import NDArray
 
 SUPPORTED_ENVS = ("foraging-v2", "join1-v0", "join1_original", "multigrid-lbf-v0")
 
@@ -235,7 +235,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         if "hl_start_state" in options:
             hl_options["hl_start_state"] = options["hl_start_state"]
-            ll_options["start_room"] = options["hl_start_state"]
+            ll_options["start_task"] = options["hl_start_state"]
 
         _, hl_info = self.hlmdp.reset(seed=seed, options=hl_options)
         ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)

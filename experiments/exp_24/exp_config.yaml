@@ -27,8 +27,6 @@ parameters:
         values: [comm_experiments]
     # use offline mode to avoid wandb API rate limits for many parallel runs
     # need to sync to wandb server after a run is finished
-    live_render:
-        values: [True]
     wandb_mode:
         values: [offline]
     use_wandb:
@@ -84,7 +82,8 @@ parameters:
         values: [0.0]
 
     hl_task:
-        values: [[0 1], [1 2]]
+        values: [[1 2]]
+        # values: [[0 1], [1 2]]
 
     ##################
     # Environment config
@@ -93,7 +92,8 @@ parameters:
     env-config:
         values: [multigrid-lbf-v0]
     env_args.map_name:
-        values: [3g_2r_very_small]
+        values: [3g_2r_very_small_agents_fruit_placed]
+        # values: [3g_2r_very_small]
     env_args.n_agents:
         values: [3]
     env_args.max_fruit_level:
