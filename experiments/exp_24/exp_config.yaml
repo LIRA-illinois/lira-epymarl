@@ -56,16 +56,16 @@ parameters:
     lr:
         values: [0.00005]
     t_max:
-        values: [2050000]
+        values: [3050000]
     test_nepisode:
         values: [50]
     n_test_replays_save:
         values: [5]
     test_interval:
-        values: [400000]
+        values: [300000]
     # set test_interval = save_model_interval so you can load the model from any eval for further processing
     save_model_interval:
-        values: [400000]
+        values: [300000]
     # all values in the space-delimited list will be evaluated in a single run
     # goes up to n_agents - 1 since we assume agents cannot send themselves a message
     msg_budget_per_agent:
@@ -82,8 +82,7 @@ parameters:
         values: [0.0]
 
     hl_task:
-        values: [[1 2]]
-        # values: [[0 1], [1 2]]
+        values: [[0 1], [1 2]]
 
     ##################
     # Environment config
@@ -92,8 +91,7 @@ parameters:
     env-config:
         values: [multigrid-lbf-v0]
     env_args.map_name:
-        values: [3g_2r_very_small_agents_fruit_placed]
-        # values: [3g_2r_very_small]
+        values: [3g_2r_very_small]
     env_args.n_agents:
         values: [3]
     env_args.max_fruit_level:
