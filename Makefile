@@ -16,7 +16,7 @@ nvidia:
 # 	wandb beta sync -n 5 ./results/wandb/*-run-*
 sync_results_wandb:
 	find ./results/wandb/ -type d -name "*-run-*" > wandb_runs.txt
-	xargs --arg-file wandb_runs.txt -n 1 -P 5 wandb sync --include-offline --legacy
+	xargs --arg-file wandb_runs.txt -n 1 -P 5 wandb sync --include-offline
 	rm wandb_runs.txt
 
 # default values for these params

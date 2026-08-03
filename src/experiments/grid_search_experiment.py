@@ -320,8 +320,9 @@ class GridSearch(object):
         env = dict(environ.items())
 
         for i, runner_cmds in runners.items():
-            env["CUDA_VISIBLE_DEVICES"] = f"{runner_gpus[i]}"
             tmux_process_name = f"{self.args.experiment}_runner_{i + 1}"
+            runner_cmds = f"export CUDA_VISIBLE_DEVICES={runner_gpus[i]};" + runner_cmds
+
             run_cmd = [
                 *self.tmux_prefix,
                 tmux_process_name,
