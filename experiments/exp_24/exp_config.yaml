@@ -3,10 +3,9 @@
 parameters_to_print:
     values:
         [
+            hl_task,
             env_args.reward_config.failed_load_penalty,
-            env_args.num_agents_fruit_obs,
-            unique_policy_per_msg_budget,
-            msg_budget_per_agent,
+            env_args.action_blocking,
         ]
 
 parameters:
@@ -28,6 +27,8 @@ parameters:
         values: [comm_experiments]
     # use offline mode to avoid wandb API rate limits for many parallel runs
     # need to sync to wandb server after a run is finished
+    live_render:
+        values: [True]
     wandb_mode:
         values: [offline]
     use_wandb:
@@ -63,17 +64,17 @@ parameters:
     n_test_replays_save:
         values: [5]
     test_interval:
-        values: [300000]
+        values: [400000]
     # set test_interval = save_model_interval so you can load the model from any eval for further processing
     save_model_interval:
-        values: [300000]
+        values: [400000]
     # all values in the space-delimited list will be evaluated in a single run
     # goes up to n_agents - 1 since we assume agents cannot send themselves a message
     msg_budget_per_agent:
         values: [[0 1 2]]
 
     unique_policy_per_msg_budget:
-        values: [True]
+        values: [False]
 
     # message filtering to model a constrained communication network
     msg_filter_type:
@@ -82,6 +83,9 @@ parameters:
     msg_drop_rate:
         values: [0.0]
 
+    hl_task:
+        values: [[0 1], [1 2]]
+
     ##################
     # Environment config
     ##################
@@ -89,7 +93,7 @@ parameters:
     env-config:
         values: [multigrid-lbf-v0]
     env_args.map_name:
-        values: [1r_very_small]
+        values: [3g_2r_very_small]
     env_args.n_agents:
         values: [3]
     env_args.max_fruit_level:
@@ -111,14 +115,15 @@ parameters:
     env_args.observe_other_agents:
         values: [False]
     env_args.num_agents_fruit_obs:
-        values: [0, 1, 2, 3]
+        values: [1]
     # asymmetric obs for fruit, hoping to force comms between agents
     env_args.asymmetric_fruit_obs:
         values: [True]
 
     # reward config
+    # these values should allow for training w/ no problems
     env_args.reward_config.failed_load_penalty:
-        values: [-0.02, -0.05, -0.1]
+        values: [-0.001, -0.01]
 
     env_args.chosen_move_prob:
         values: [1.0]
@@ -128,7 +133,7 @@ parameters:
         values: [True]
 
     # experiment-specific env args
-    env_args.max_num_fruit:
+    env_args.max_num_fruit_per_room:
         values: [1]
 
     env_args.action_blocking:
