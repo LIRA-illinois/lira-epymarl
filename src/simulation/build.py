@@ -1,6 +1,7 @@
 # sim_build.py
-from typing import Any, Optional
 from types import SimpleNamespace as SN
+from typing import Any, Optional
+
 import torch as th
 
 from ..components.episode_buffer import ReplayBuffer
@@ -18,7 +19,10 @@ def build_sim(
     agent_state_dict: Optional[dict] = None,
 ) -> tuple[SN, Any, ReplayBuffer, Any]:
     # update env args with comms values to be used in HLMDP model
-    if hasattr(args, "msg_budget_per_agent") and args.env_args.get("hierarchical") is not None:
+    if (
+        hasattr(args, "msg_budget_per_agent")
+        and args.env_args.get("hierarchical") is not None
+    ):
         args.env_args["msg_budget_per_agent"] = args.msg_budget_per_agent
 
     args, runner, env_info, scheme, groups, preprocess = _build_env_spec(args, logger)

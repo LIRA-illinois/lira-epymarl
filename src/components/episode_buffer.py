@@ -1,9 +1,10 @@
+import json
 from os import makedirs
 from os.path import join
-import torch as th
-import numpy as np
 from types import SimpleNamespace as SN
-import json
+
+import numpy as np
+import torch as th
 
 
 class EpisodeBatch:
@@ -74,10 +75,10 @@ class EpisodeBatch:
                 vshape = (vshape,)
 
             if group:
-                assert (
-                    group in groups
-                ), "Group {} must have its number of members defined in _groups_".format(
-                    group
+                assert group in groups, (
+                    "Group {} must have its number of members defined in _groups_".format(
+                        group
+                    )
                 )
                 shape = (groups[group], *vshape)
             else:
@@ -100,7 +101,7 @@ class EpisodeBatch:
             self.groups if groups is None else groups,
             self.batch_size,
             self.max_seq_length,
-            self.preprocess
+            self.preprocess,
         )
 
     def to(self, device):
@@ -112,6 +113,7 @@ class EpisodeBatch:
 
     def update(self, data, bs=slice(None), ts=slice(None), mark_filled=True):
         slices = self._parse_slices((bs, ts))
+
         for k, v in data.items():
             if k in self.data.transition_data:
                 target = self.data.transition_data

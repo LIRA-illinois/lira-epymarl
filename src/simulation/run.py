@@ -34,8 +34,6 @@ class Simulation:
         self.n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
 
     def run(self) -> None:
-        # hierarchical: bool = getattr(self.args, "factored_hierarchical_policy", False)
-
         if self.args.evaluate:
             self._load_checkpoint()
 

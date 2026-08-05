@@ -1,9 +1,15 @@
 # params to grid search over
 # all values assumed to be in lists
 parameters_to_print:
-    values: [env_args.reward_config.failed_load_penalty, env_args.num_agents_fruit_obs, msg_budget_per_agent, env_args.action_blocking]
+    values:
+        [
+            msg_drop_rate,
+            env_args.reward_config.failed_load_penalty,
+            env_args.num_agents_fruit_obs,
+        ]
 
 parameters:
+    # varied params you want to print in the config table
     ##################
     # Seeds
     ##################
@@ -44,28 +50,30 @@ parameters:
     ##################
     # MARL alg config
     ##################
-    config:
-        values: [maic]
+    # config:
+    #     values: [maic]
     mixer:
         values: [vdn]
     lr:
         values: [0.00005]
     t_max:
-        values: [2050000]
+        # values: [2050000]
+        values: [100]
     test_nepisode:
-        values: [50]
+        values: [2]
+        # values: [50]
     n_test_replays_save:
         values: [5]
     test_interval:
-        values: [300000]
-    # set test_interval = save_model_interval so you can load the model from any eval for further processing
+        # values: [300000]
+        values: [50]
     save_model_interval:
         values: [300000]
+
     # all values in the space-delimited list will be evaluated in a single run
     # goes up to n_agents - 1 since we assume agents cannot send themselves a message
     msg_budget_per_agent:
         values: [[0 1 2]]
-
     unique_policy_per_msg_budget:
         values: [False]
 
@@ -73,60 +81,77 @@ parameters:
     msg_filter_type:
         values: [hard_topk]
 
-    msg_drop_rate:
-        values: [0.0]
-
     ##################
     # Environment config
     ##################
     # basic env config
     env-config:
         values: [multigrid-lbf-v0]
-    env_args.map_name:
-        values: [1r_very_small]
+    env_args.force_coop:
+        values: [True]
+    env_args.max_episode_steps:
+        values: [10]
+        #     values: [50]
     env_args.n_agents:
         values: [3]
     env_args.max_fruit_level:
         values: [3]
     env_args.max_agent_level:
         values: [1]
-    env_args.force_coop:
+
+    ##########
+    # specific setup for single-room env
+    # env_args.map_name:
+    #     values: [1r_very_small]
+    # env_args.max_num_fruit:
+    #     values: [1]
+
+    ##########
+    # config for multiroom / multi-task env
+    config:
+        values: [maic_comm_opt]
+    env_args.map_name:
+        values: [3g_2r_very_small]
+    env_args.max_num_fruit_per_room:
+        values: [1]
+    terminate_on_task_completed:
         values: [True]
-    env_args.max_episode_steps:
-        values: [50]
+    hl_task:
+        values: [[1 2]]
+        # values: [[0 1], [1 2]]
+    env_args.hierarchical:
+        values: [True]
+    ##########
+
+    # dynamics config
+    env_args.chosen_move_prob:
+        values: [1.0]
+    env_args.action_blocking:
+        values: [True, False]
 
     # obs config
     env_args.state_type:
         values: [multigrid_flattened]
-    env_args.sight:
-        values: [7]
     env_args.obs_type:
         values: [multigrid_flattened]
+    env_args.sight:
+        values: [8]
     env_args.observe_other_agents:
         values: [False]
-    env_args.num_agents_fruit_obs:
-        values: [0, 1, 2, 3]
     # asymmetric obs for fruit, hoping to force comms between agents
     env_args.asymmetric_fruit_obs:
-        values: [True]
+        values: [different_sensors]
+    env_args.num_agents_fruit_obs:
+        values: [2]
+        # values: [0, 1, 2, 3]
 
     # reward config
     env_args.reward_config.failed_load_penalty:
-        values: [-0.02, -0.05, -0.1]
-
-    env_args.chosen_move_prob:
-        values: [1.0]
+        values: [-0.01]
 
     # rendering
     env_args.highlight_visible_cells:
         values: [True]
-
-    # experiment-specific env args
-    env_args.max_num_fruit:
-        values: [1]
-
-    env_args.action_blocking:
-        values: [True, False]
 
 ##################
 # Conditional parameters
@@ -134,3 +159,7 @@ parameters:
 # don't make these too complex or nest these deeper, it'll probably break something
 ##################
 conditional_parameters:
+    config:
+        maic:
+            mixer:
+                values: [vdn]

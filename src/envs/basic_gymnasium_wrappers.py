@@ -235,7 +235,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         if "hl_start_state" in options:
             hl_options["hl_start_state"] = options["hl_start_state"]
-            ll_options["start_task"] = options["hl_start_state"]
+            ll_options["hl_start_state"] = options["hl_start_state"]
 
         _, hl_info = self.hlmdp.reset(seed=seed, options=hl_options)
         ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)

@@ -275,6 +275,7 @@ class EpisodeRunner:
         data = defaultdict(list)
 
         state = self.env.state
+
         if isinstance(state, dict):
             data["hl_state"].append(state["hl_state"])
             data["state"].append(state["ll_state"])

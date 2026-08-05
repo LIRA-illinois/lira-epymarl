@@ -1,12 +1,7 @@
 # params to grid search over
 # all values assumed to be in lists
 parameters_to_print:
-    values:
-        [
-            hl_task,
-            env_args.reward_config.failed_load_penalty,
-            env_args.action_blocking,
-        ]
+    values: [env_args.reward_config.failed_load_penalty, env_args.num_agents_fruit_obs, msg_budget_per_agent, env_args.action_blocking]
 
 parameters:
     ##################
@@ -56,7 +51,7 @@ parameters:
     lr:
         values: [0.00005]
     t_max:
-        values: [3050000]
+        values: [2050000]
     test_nepisode:
         values: [50]
     n_test_replays_save:
@@ -81,9 +76,6 @@ parameters:
     msg_drop_rate:
         values: [0.0]
 
-    hl_task:
-        values: [[0 1], [1 2]]
-
     ##################
     # Environment config
     ##################
@@ -91,7 +83,7 @@ parameters:
     env-config:
         values: [multigrid-lbf-v0]
     env_args.map_name:
-        values: [3g_2r_very_small]
+        values: [1r_very_small]
     env_args.n_agents:
         values: [3]
     env_args.max_fruit_level:
@@ -113,15 +105,14 @@ parameters:
     env_args.observe_other_agents:
         values: [False]
     env_args.num_agents_fruit_obs:
-        values: [1]
+        values: [0, 1, 2, 3]
     # asymmetric obs for fruit, hoping to force comms between agents
     env_args.asymmetric_fruit_obs:
         values: [True]
 
     # reward config
-    # these values should allow for training w/ no problems
     env_args.reward_config.failed_load_penalty:
-        values: [-0.001, -0.01]
+        values: [-0.02, -0.05, -0.1]
 
     env_args.chosen_move_prob:
         values: [1.0]
@@ -131,7 +122,7 @@ parameters:
         values: [True]
 
     # experiment-specific env args
-    env_args.max_num_fruit_per_room:
+    env_args.max_num_fruit:
         values: [1]
 
     env_args.action_blocking:

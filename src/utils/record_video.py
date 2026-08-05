@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 from gymnasium import logger
 from gymnasium.core import ActType
 from gymnasium.wrappers import RecordVideo
@@ -145,8 +146,10 @@ class RecordVideoExtended(RecordVideo):
         if (not capture_before_step) or (
             capture_final_state and (terminated or truncated)
         ):
+            num_agents = self.env.get_wrapper_attr("num_agents")
             self.env.set_wrapper_attr(
-                "_pre_step_actions", [None] * self.env.get_wrapper_attr("num_agents")
+                "_pre_step_actions",
+                np.full(num_agents, None),
             )
             self.env.set_wrapper_attr("t_render", "Final")
 
