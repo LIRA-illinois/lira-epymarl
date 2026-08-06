@@ -1,12 +1,7 @@
 # params to grid search over
 # all values assumed to be in lists
 parameters_to_print:
-    values:
-        [
-            msg_drop_rate,
-            env_args.reward_config.failed_load_penalty,
-            env_args.num_agents_fruit_obs,
-        ]
+    values: [env_args.num_agents_fruit_obs, hl_task, env_args.map_name]
 
 parameters:
     # varied params you want to print in the config table
@@ -50,23 +45,18 @@ parameters:
     ##################
     # MARL alg config
     ##################
-    # config:
-    #     values: [maic]
     mixer:
         values: [vdn]
     lr:
         values: [0.00005]
     t_max:
-        # values: [2050000]
-        values: [100]
+        values: [3050000]
     test_nepisode:
-        values: [2]
-        # values: [50]
+        values: [50]
     n_test_replays_save:
         values: [5]
     test_interval:
-        # values: [300000]
-        values: [50]
+        values: [300000]
     save_model_interval:
         values: [300000]
 
@@ -90,8 +80,7 @@ parameters:
     env_args.force_coop:
         values: [True]
     env_args.max_episode_steps:
-        values: [10]
-        #     values: [50]
+        values: [50]
     env_args.n_agents:
         values: [3]
     env_args.max_fruit_level:
@@ -101,6 +90,8 @@ parameters:
 
     ##########
     # specific setup for single-room env
+    # config:
+    #     values: [maic]
     # env_args.map_name:
     #     values: [1r_very_small]
     # env_args.max_num_fruit:
@@ -110,15 +101,14 @@ parameters:
     # config for multiroom / multi-task env
     config:
         values: [maic_comm_opt]
-    env_args.map_name:
-        values: [3g_2r_very_small]
-    env_args.max_num_fruit_per_room:
-        values: [1]
     terminate_on_task_completed:
         values: [True]
+    env_args.map_name:
+        values: [3ga_2r_very_small, 3ga_2r_small]
+    env_args.max_num_fruit_per_room:
+        values: [1]
     hl_task:
-        values: [[1 2]]
-        # values: [[0 1], [1 2]]
+        values: [[0 1], [1 2]]
     env_args.hierarchical:
         values: [True]
     ##########
@@ -126,8 +116,6 @@ parameters:
     # dynamics config
     env_args.chosen_move_prob:
         values: [1.0]
-    env_args.action_blocking:
-        values: [True, False]
 
     # obs config
     env_args.state_type:
@@ -142,8 +130,7 @@ parameters:
     env_args.asymmetric_fruit_obs:
         values: [different_sensors]
     env_args.num_agents_fruit_obs:
-        values: [2]
-        # values: [0, 1, 2, 3]
+        values: [0, 1, 2, 3]
 
     # reward config
     env_args.reward_config.failed_load_penalty:
