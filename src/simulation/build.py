@@ -42,6 +42,7 @@ def build_sim(
         learner = factored_le_REGISTRY[args.factored_learner](
             mac, buffer.scheme, logger, args
         )
+
     else:
         mac = mac_REGISTRY[args.mac](buffer.scheme, groups, args)
         learner = le_REGISTRY[args.learner](mac, buffer.scheme, logger, args)

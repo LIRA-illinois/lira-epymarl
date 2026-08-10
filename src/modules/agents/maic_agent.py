@@ -44,7 +44,7 @@ class MAICAgent(nn.Module):
         self.latent_dim = args.latent_dim
         self.n_actions = args.n_actions
         # default to unconstrained comms
-        self._msg_budget: int = self.n_agents - 1
+        self._msg_budget_per_agent: int = self.n_agents - 1
 
         activation_func = nn.LeakyReLU()
 
@@ -102,12 +102,12 @@ class MAICAgent(nn.Module):
         return self.fc1.weight.new(1, self.args.hidden_dim).zero_()
 
     @property
-    def msg_budget(self):
-        return self._msg_budget
+    def msg_budget_per_agent(self):
+        return self._msg_budget_per_agent
 
-    @msg_budget.setter
-    def msg_budget(self, value: int):
-        self._msg_budget = value
+    @msg_budget_per_agent.setter
+    def msg_budget_per_agent(self, value: int):
+        self._msg_budget_per_agent = value
 
     def forward(
         self,
@@ -296,7 +296,7 @@ class MAICAgent(nn.Module):
 
     def _msg_filter_hard_topk(self, alpha: Tensor, _):
         # keep only the top-k message weights and zero out the rest
-        _, top_k_idx = hard_topk(alpha, k=self._msg_budget, dim=2)
+        _, top_k_idx = hard_topk(alpha, k=self._msg_budget_per_agent, dim=2)
 
         mask = th.zeros_like(alpha, dtype=th.bool)
         mask.scatter_(2, top_k_idx, True)
@@ -307,7 +307,7 @@ class MAICAgent(nn.Module):
     def _msg_filter_soft_topk(self, alpha: Tensor, compute_loss: bool):
         # only keep K messages with the highest attention values, 0 out the rest
         # based on the current message budget for the team
-        top_k_vals, top_k_idx = soft_topk(alpha, k=self._msg_budget, dim=2)
+        top_k_vals, top_k_idx = soft_topk(alpha, k=self._msg_budget_per_agent, dim=2)
 
         # Build a soft mask over the selected entries
         mask = top_k_idx.sum(dim=2)
@@ -329,7 +329,7 @@ class MAICAgent(nn.Module):
         # 0.025 seems about right to get the sharpening you want for the 5-agent case
         # 0.05 allows more messages than you want
         # probably needs be tuned for other n_agents too
-        temperature = self.args.soft_topk_base_temperature * self._msg_budget
+        temperature = self.args.soft_topk_base_temperature * self._msg_budget_per_agent
         alpha = F.softmax(alpha / temperature, dim=2)
 
         return alpha

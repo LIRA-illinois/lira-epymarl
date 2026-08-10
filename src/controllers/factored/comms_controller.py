@@ -1,11 +1,11 @@
-from torch.nn.parameter import Parameter
-from src.modules.agents.rnn_agent import RNNAgent
 from torch import Tensor
+from torch.nn.parameter import Parameter
 
+from src.components.action_selectors import CommsActionSelector
 from src.components.episode_buffer import EpisodeBatch
 from src.controllers import REGISTRY as mac_REGISTRY
 from src.modules.agents import REGISTRY as agent_REGISTRY
-from src.components.action_selectors import CommsActionSelector
+from src.modules.agents.rnn_agent import RNNAgent
 
 
 class CommsMAC:
@@ -94,7 +94,7 @@ class CommsMAC:
 
     @msg_budget_per_agent.setter
     def msg_budget_per_agent(self, value) -> None:
-        self.msg_budget_per_agent = value
+        self.env_mac.msg_budget_per_agent = value
 
     def forward(
         self, ep_batch: EpisodeBatch, t, test_mode: bool = False, **kwargs

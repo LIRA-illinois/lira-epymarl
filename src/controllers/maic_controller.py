@@ -1,8 +1,9 @@
-from typing import Literal, Optional
+from typing import Literal
+
 import torch as th
 
-from src.modules.agents import REGISTRY as agent_REGISTRY
 from src.components.action_selectors import REGISTRY as action_REGISTRY
+from src.modules.agents import REGISTRY as agent_REGISTRY
 
 
 # This multi-agent controller shares parameters between agents
@@ -42,7 +43,6 @@ class MAICMAC:
 
         # Softmax the agent outputs if they're policy logits
         if self.agent_output_type == "pi_logits":
-
             if getattr(self.args, "mask_before_softmax", True):
                 # Make the logits for unavailable actions very negative to minimise their affect on the softmax
                 reshaped_avail_actions = avail_actions.reshape(
@@ -99,13 +99,13 @@ class MAICMAC:
         if isinstance(path, str):
             self.agent.load_state_dict(
                 th.load(
-                    "{}/agent.th".format(path), map_location=lambda storage, loc: storage
+                    "{}/agent.th".format(path),
+                    map_location=lambda storage, loc: storage,
                 )
             )
         elif isinstance(path, dict):
             state_dict = path
             self.agent.load_state_dict(state_dict)
-
 
     def _build_agents(self, input_shape):
         self.agent = agent_REGISTRY[self.args.agent](input_shape, self.args)
@@ -141,9 +141,9 @@ class MAICMAC:
         return input_shape
 
     @property
-    def msg_budget(self):
-        return self.agent.msg_budget
+    def msg_budget_per_agent(self):
+        return self.agent.msg_budget_per_agent
 
-    @msg_budget.setter
-    def msg_budget(self, value: int):
-        self.agent.msg_budget = value
+    @msg_budget_per_agent.setter
+    def msg_budget_per_agent(self, value: int):
+        self.agent.msg_budget_per_agent = value
