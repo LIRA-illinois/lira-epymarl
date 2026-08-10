@@ -82,8 +82,6 @@ class GridSearch(object):
             rng = SystemRandom()
             seeds = [rng.randint(0, 1000000) for _ in range(n_seeds)]
 
-        parameters_to_print = full_config.get("parameters_to_print")
-
         """
         # check if running bisimulation test
         if base_config.get("env_bisimulation_test", False):
@@ -97,7 +95,9 @@ class GridSearch(object):
             env_bisimulation_test = False
         """
 
-        scenarios, scenario_names = self._get_scenarios(config, conditional_config)
+        scenarios, scenario_names, varied_params = self._get_scenarios(
+            config, conditional_config
+        )
 
         run_setups = self._get_run_setups(
             scenarios=scenarios,
@@ -113,7 +113,7 @@ class GridSearch(object):
         else:
             if self.args.computer in Computers.lab:
                 self._print_hardware_info()
-            self._print_exp_info(scenarios, run_setups, parameters_to_print)
+            self._print_exp_info(scenarios, run_setups, varied_params)
 
             if self.args.computer in Computers.cluster:
                 # get config for slurm job on cluster
@@ -176,7 +176,7 @@ class GridSearch(object):
     def _get_scenarios(
         self, base_config: dict, conditional_config: dict | None = None
     ) -> tuple[list[dict], list[str]]:
-        scenarios: list[dict] = [*self._gen_dict_combinations(base_config)]
+        scenarios, varied_param_names = self._gen_dict_combinations(base_config)
 
         # handle comms budgets when a unique policy per comms value is requested
         # expand scenarios so each comms value becomes its own scenario
@@ -204,7 +204,7 @@ class GridSearch(object):
             for outer_var, conditional_vars in conditional_config.items():
                 # loop over config (EX: maic, qmix) and env-config (EX: join1-v0 and join1_original)
                 for inner_var, varied_params in conditional_vars.items():
-                    conditional_combos = [*self._gen_dict_combinations(varied_params)]
+                    conditional_combos, _ = self._gen_dict_combinations(varied_params)
 
                     updated_scenarios = []
                     indices_remove = []
@@ -237,7 +237,7 @@ class GridSearch(object):
             f"{scenario_idx + 1}".zfill(2) for scenario_idx, _ in enumerate(scenarios)
         ]
 
-        return scenarios, scenario_names
+        return scenarios, scenario_names, varied_param_names
 
     def _get_run_setups(
         self,
@@ -476,7 +476,7 @@ class GridSearch(object):
         self,
         scenarios: list[dict],
         run_setups: pd.DataFrame,
-        parameters_to_print: list[str] | None = None,
+        parameters_to_print: list[str],
     ) -> None:
         """print experiment summary in a markdown-formatted table"""
         spaces = " " * 4
@@ -493,8 +493,14 @@ class GridSearch(object):
 
         print(f"{spaces}- Seeds: {seeds}\n{spaces}- time_id: {time_id}\n")
 
+        # n_cols = 3 + len(parameters_to_print)
+        param_string = ""
+        for i in parameters_to_print:
+            param_string += f" {i} |"
+
         table_header = (
-            "| Scenario Name | Alg | Env | Params|" + "\n|----| ---- | ---- | ---- |"
+            f"| Scenario Name | Alg | Env | {param_string}"
+            + f"\n|----| ---- | ---- | {'---- |' * len(parameters_to_print)}"
         )
         print(table_header)
 
@@ -504,8 +510,8 @@ class GridSearch(object):
 
             for k, v in params.items():
                 if parameters_to_print is not None:
-                    if k in parameters_to_print["values"]:
-                        other_params += f"{k}={v} "
+                    if k in parameters_to_print:
+                        other_params += f" {v} |"
 
                 else:
                     no_print_params: list[str] = [
@@ -530,7 +536,7 @@ class GridSearch(object):
                     if k not in self.basic_config_params + no_print_params:
                         other_params += f"{k}={v} "
 
-            table_line = f"| {run_setups.scenario[scenario_idx * n_seeds]} | {params['config']} | {params['env-config']} | {other_params}|"
+            table_line = f"| {run_setups.scenario[scenario_idx * n_seeds]} | {params['config']} | {params['env-config']} | {other_params}"
             print(table_line)
 
         print("")
@@ -603,13 +609,24 @@ class GridSearch(object):
         """Generate all combinations of nested dict values.
         See: https://stackoverflow.com/questions/50606454/cartesian-product-of-nested-dictionaries-of-lists
         """
+        varied_vals = []
+        varied_param_names: list[str] = []
+        for k, v in d.items():
+            param_vals = self._gen_combinations(v)
+            if len(param_vals) > 1:
+                varied_param_names.append(k)
+            varied_vals.append(param_vals)
 
-        def gen_combinations(nested_dict):
-            for combo in product(*nested_dict.values()):
-                yield combo[0]
+        combos = list(product(*varied_vals))
+        combo_dicts = [dict(zip(d.keys(), combo)) for combo in combos]
 
-        for combo in product(*(gen_combinations(v) for v in d.values())):
-            yield dict(zip(d.keys(), combo))
+        # stop these from being tuples, otherwise it works great
+        return combo_dicts, varied_param_names
+
+    def _gen_combinations(self, nested_dict: dict):
+        # [0] converts from tuple to the value
+        combos = [combo[0] for combo in product(*nested_dict.values())]
+        return combos
 
     def _run_bisimulation_test(self, run_setups: pd.DataFrame) -> None:
         # get the commands for the two envs you want to compare

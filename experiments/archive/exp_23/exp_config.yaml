@@ -1,13 +1,5 @@
 # params to grid search over
 # all values assumed to be in lists
-parameters_to_print:
-    values:
-        [
-            env_args.reward_config.failed_load_penalty,
-            env_args.num_agents_fruit_obs,
-            unique_policy_per_msg_budget,
-            msg_budget_per_agent,
-        ]
 
 parameters:
     ##################

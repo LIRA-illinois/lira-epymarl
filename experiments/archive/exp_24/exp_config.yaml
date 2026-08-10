@@ -1,12 +1,5 @@
 # params to grid search over
 # all values assumed to be in lists
-parameters_to_print:
-    values:
-        [
-            hl_task,
-            env_args.reward_config.failed_load_penalty,
-            env_args.action_blocking,
-        ]
 
 parameters:
     ##################

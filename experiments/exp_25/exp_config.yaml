@@ -1,7 +1,5 @@
 # params to grid search over
 # all values assumed to be in lists
-parameters_to_print:
-    values: [msg_budget_per_agent]
 
 parameters:
     ##################

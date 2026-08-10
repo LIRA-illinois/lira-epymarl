@@ -1,7 +1,5 @@
 # params to grid search over
 # all values assumed to be in lists
-parameters_to_print:
-    values: [env_args.num_agents_fruit_obs, hl_task, env_args.map_name]
 
 parameters:
     # varied params you want to print in the config table
