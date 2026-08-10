@@ -185,6 +185,9 @@ class GridSearch(object):
             if scenario.get("msg_budget_per_agent") and scenario.get(
                 "unique_policy_per_msg_budget"
             ):
+                if "msg_budget_per_agent" not in varied_param_names:
+                    varied_param_names.append("msg_budget_per_agent")
+
                 scenario = string_inputs_to_list(
                     scenario, "msg_budget_per_agent", output_type=int
                 )
