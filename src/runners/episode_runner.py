@@ -383,14 +383,11 @@ class EpisodeRunner:
 
         print(f"Using manual policy - self.t: {self._t}")
         if self.t == 0:
-            # go right
-            actions = np.array([[4, 4, 4]])
-        if self.t == 1:
             # agent 0 loads, other two null action
-            actions = np.array([[5, 0, 0]])
+            actions["env_actions"] = np.array([[5, 0, 0]])
         else:
             # go right
-            actions = np.array([[4, 4, 4]])
+            actions["env_actions"] = np.array([[4, 4, 4]])
 
         # if isinstance(actions, dict):
         #     if self.mac.msg_budget_per_agent == 0.0:
