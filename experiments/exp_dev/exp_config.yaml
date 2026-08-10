@@ -29,8 +29,8 @@ parameters:
     #   values: [True]
     # delete_local_models:
     #   values: [True]
-    live_render:
-        values: [True]
+    # live_render:
+    #     values: [True]
 
     # everything off
     # use_wandb:
@@ -54,8 +54,8 @@ parameters:
     lr:
         values: [0.00005]
     t_max:
-        values: [10000, 10001]
-        # values: [20, 30]
+        # values: [10000, 10001]
+        values: [20, 30]
     test_interval:
         values: [10]
     save_model_interval:
@@ -78,10 +78,10 @@ parameters:
     # load_step:
     #   values: [60, 120]
 
-    # post_processing:
-    #   values: [aggregate_runs]
-    # time_id:
-    #   values: [exp_dev_26-06-26_13-10-53]
+    post_processing:
+        values: [aggregate_runs]
+    time_id:
+        values: [exp_22_26-08-03_14-49-16]
 
     ##################
     # Environment config
@@ -91,11 +91,8 @@ parameters:
     manual_policy:
         values: [True]
 
-    # comms allocation params
-    # all values in the space-delimited list will be evaluated in a single run
-    # comms_values:
-    #   values: [[0 1 2]]
-
+    msg_budget_per_agent:
+        values: [[0 1 2]]
     unique_policy_per_msg_budget:
         values: [False]
 
@@ -112,8 +109,8 @@ parameters:
     env_args.smacv2_fruit_obs_prob:
         values: [0.0]
 
-    # hl_task:
-    #   values: [[0 1], [1 2]]
+    hl_task:
+        values: [[0 1], [1 2]]
 
     # message filtering to model a constrained communication network
     msg_filter_type:
@@ -127,10 +124,10 @@ parameters:
         values: [action_space]
 
     env_args.map_name:
-        values: [1r_very_small]
+        # values: [1r_very_small]
         # values: [1r_small]
         # values: [1r_small_agents_fruit_placed]
-        # values: [3ga_2r_small]
+        values: [3ga_2r_small]
         # values: [3ga_2r_small_agents_placed]
         # values: [3ga_2r_small_agents_fruit_placed]
         # values: [3ga_2r_small]
@@ -166,12 +163,10 @@ parameters:
 
 conditional_parameters:
     # example of how you would do the comms values for these different settings
-    env_args.n_agents:
-        3:
-            # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-            msg_budget_per_agent:
-                values: [[0 1 2]]
-        # 5:
-        #   # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-        #   msg_budget_per_agent:
-        #     values: [[0 1 2 3 4]]
+    # env_args.n_agents:
+    # 3:
+    # goes up to n_agents - 1 since we assume agents cannot send themselves a message
+    # 5:
+    #   # goes up to n_agents - 1 since we assume agents cannot send themselves a message
+    #   msg_budget_per_agent:
+    #     values: [[0 1 2 3 4]]

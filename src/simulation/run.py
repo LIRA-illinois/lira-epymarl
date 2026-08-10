@@ -79,6 +79,17 @@ class Simulation:
                     .reset_index()
                 )
 
+                for scenario in np.unique(df_data.scenario):
+                    df_tmp = df_data.loc[df_data.scenario == scenario]
+                    n_seeds_per_run = df_tmp[
+                        ["t_env_rounded", "scenario", "msg_budget_per_agent"]
+                    ].value_counts()
+                    # since some runs may not finish, just report the min and max seeds per data point
+                    min_n_seeds, max_n_seeds = (
+                        min(n_seeds_per_run),
+                        max(n_seeds_per_run),
+                    )
+
                 for idx, (scenario, df_scenario) in enumerate(
                     df_avg.groupby("scenario"), start=np.min(df_avg.scenario)
                 ):
@@ -105,6 +116,7 @@ class Simulation:
                         scenario_table,
                         t=np.max(df_avg.t_env_rounded),
                         wandb_run=wandb_run,
+                        info_str=f"Min Seeds: {min_n_seeds}, Max Seeds: {max_n_seeds}",
                     )
 
                     wandb_run.finish()
@@ -460,6 +472,7 @@ class Simulation:
         data_table: wandb.Table,
         t: int,
         wandb_run=None,
+        info_str: str = "",
     ) -> None:
         """Make plots for comms evaluation.
 
@@ -481,6 +494,7 @@ class Simulation:
 
         for col in cols:
             plt.figure()
+
             for idx, msg_budget_per_agent in enumerate(msg_budget_per_agents):
                 df_plot = df[
                     df.get("msg_budget_per_agent") == msg_budget_per_agent
@@ -498,7 +512,12 @@ class Simulation:
                     alpha=1.0,
                     label=label,
                 )
-                legend_title = f"samples={n_samples}"
+
+                if col == "test_task_completed_mean":
+                    plt.ylim(-0.05, 1.05)
+                legend_title = f"samples={n_samples} (per seed)"
+                if info_str != "":
+                    legend_title += f"\n{info_str}"
 
             plt.xlabel("t_env")
             plt.ylabel(col)
@@ -596,18 +615,24 @@ class Simulation:
         for i, wandb_run in enumerate(runs):
             print(f"Run {i} / {len(runs)}")
 
-            data = api.artifact(
-                name=join(
-                    wandb_run.entity,
-                    wandb_run.project,
-                    f"run-{wandb_run.id}-{art_name}:{art_version}",
-                ),
-                type=art_type,
-            ).get(art_name)
+            try:
+                data = api.artifact(
+                    name=join(
+                        wandb_run.entity,
+                        wandb_run.project,
+                        f"run-{wandb_run.id}-{art_name}:{art_version}",
+                    ),
+                    type=art_type,
+                ).get(art_name)
 
-            df = data.get_dataframe()
-            df["scenario"] = int(wandb_run.config["scenario"])
-            dfs.append(df)
+                df = data.get_dataframe()
+                df["scenario"] = int(wandb_run.config["scenario"])
+                dfs.append(df)
+
+            except wandb.CommError:
+                # artifact is missing or deleted
+                # run may have died early, no scenario data to load
+                continue
 
         df_data = pd.concat(dfs, ignore_index=True)
         # round to the nearest eval time since different seeds eval at slightly different times
