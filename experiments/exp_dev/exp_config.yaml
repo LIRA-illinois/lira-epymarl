@@ -45,12 +45,21 @@ parameters:
     ##################
     # MARL alg config
     ##################
-    # config:
-    #   values: [maic_comm_opt]
-    # env_args.hierarchical:
-    #   values: [True]
     config:
-        values: [maic]
+        values: [maic_comm_opt]
+    terminate_on_task_completed:
+        values: [True]
+    env_args.map_name:
+        values: [3ga_2r_very_small]
+    env_args.max_num_fruit_per_room:
+        values: [1]
+    hl_task:
+        values: [[0 1], [1 2]]
+    env_args.hierarchical:
+        values: [True]
+
+    # config:
+    #     values: [maic]
     lr:
         values: [0.00005]
     t_max:
@@ -79,17 +88,18 @@ parameters:
     #   values: [60, 120]
 
     post_processing:
-        values: [aggregate_runs]
+        values: [optimize_high_level_policy]
+        # values: [aggregate_runs]
     time_id:
-        values: [exp_22_26-08-03_14-49-16]
+        values: [exp_24_26-08-03_16-59-11]
 
     ##################
     # Environment config
     ##################
     env-config:
         values: [multigrid-lbf-v0]
-    manual_policy:
-        values: [True]
+    # manual_policy:
+    #     values: [True]
 
     msg_budget_per_agent:
         values: [[0 1 2]]
@@ -109,9 +119,6 @@ parameters:
     env_args.smacv2_fruit_obs_prob:
         values: [0.0]
 
-    hl_task:
-        values: [[0 1], [1 2]]
-
     # message filtering to model a constrained communication network
     msg_filter_type:
         values: [hard_topk]
@@ -120,8 +127,8 @@ parameters:
     success_rate_spec:
         values: [0.0]
 
-    action_selector:
-        values: [action_space]
+    # action_selector:
+    #     values: [action_space]
 
     env_args.map_name:
         # values: [1r_very_small]

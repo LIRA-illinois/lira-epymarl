@@ -57,7 +57,7 @@ class Simulation:
                 self.logger.info("Optimizing High-Level Policy", log_header=True)
                 self._train_high_level_policy(df_data)
                 print(self.runner.mac.comms_agent.policy.task_policy)
-                print(self.runner.mac.comms_agent.policy.comms_policy)
+                print(self.runner.mac.comms_agent.policy.comms_budget_policy)
                 self.runner.close_env()
                 return
 
@@ -633,7 +633,6 @@ class Simulation:
                 # artifact is missing or deleted
                 # run may have died early, no scenario data to load
                 continue
-
         df_data = pd.concat(dfs, ignore_index=True)
         # round to the nearest eval time since different seeds eval at slightly different times
         df_data["t_env_rounded"] = (

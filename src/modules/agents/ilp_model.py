@@ -1,17 +1,18 @@
-import pandas as pd
+import sys
 from dataclasses import dataclass, field
 from typing import Dict, Tuple
 
+import numpy as np
+import pandas as pd
+from gurobipy import GRB
 from gym_multigrid.envs.mdp import ProjectMDP
 
 from src.components.episode_buffer import EpisodeBatch
 from src.modules.gurobi_opt import (
     OptimizationProblem,
-    VariablesBase,
     SolutionBase,
+    VariablesBase,
 )
-
-from gurobipy import GRB
 
 
 @dataclass
@@ -84,13 +85,11 @@ class ILPModel(OptimizationProblem):
             print(
                 "High-level policy optimization did not find an optimal solution. Problem may be infeasible, try a lower success rate spec."
             )
-            import sys
-
             sys.exit("Exiting")
 
         # print(self.hlmdp.transition_probs)
         # print(self.policy.task_policy)
-        # print(self.policy.comms_policy)
+        # print(self.policy.comms_budget_policy)
 
         return policy
 
@@ -144,10 +143,13 @@ class ILPModel(OptimizationProblem):
     def _build_variables(self) -> None:
         # state-action occupancy variables (continuous)
         # action = "next state" action
+        # the trans agenda is here bwahaha >:D
         df_trans = self._hlmdp.transition_probs
         for _, row in df_trans.iterrows():
             if row.next_state == self._hlmdp.fail_state:
                 continue
+            print("Breakpoint ")
+            __import__("ipdb").set_trace(context=5)
 
             state, next_state, message_budget = row.state, row.action[0], row.action[1]
 
@@ -160,7 +162,7 @@ class ILPModel(OptimizationProblem):
             self.opt_vars.message_budget[state, next_state, message_budget] = (
                 self.model.addVar(
                     vtype=GRB.BINARY,
-                    name=f"action_ss'c={state,next_state,message_budget}",
+                    name=f"action_ss'c={state, next_state, message_budget}",
                 )
             )
 
@@ -180,7 +182,9 @@ class ILPModel(OptimizationProblem):
 
             constraint = 0
             for message_budget in message_budgets:
-                constraint += self.opt_vars.message_budget[state, next_state, message_budget]
+                constraint += self.opt_vars.message_budget[
+                    state, next_state, message_budget
+                ]
 
             self.model.addConstr(
                 constraint == 1.0,
@@ -228,7 +232,6 @@ class ILPModel(OptimizationProblem):
                     message_budgets = [action[1] for action in pred_actions]
 
                     for budget in message_budgets:
-
                         comms_action = self.opt_vars.message_budget[
                             pred_state, state, budget
                         ]
@@ -264,17 +267,27 @@ class ILPModel(OptimizationProblem):
         df_trans = self._hlmdp._transition_probs
 
         for state, next_state in self.opt_vars.task_occupancy:
+            if state == next_state:
+                # skip self-transition for goal state
+                continue
+
             # get the relevant comms values for this transition
             actions = df_trans.loc[
                 (df_trans.state == state) & (df_trans.next_state == next_state)
             ].action
-            message_budgets = [action[1] for action in actions]
 
-            for budget in message_budgets:
+            # scale network costs to the interval [0, 1]
+            # assume costs scale linearly w/ the number of messages sent per agent
+            message_budgets = np.array([action[1] for action in actions])
+            network_costs = message_budgets / np.max(message_budgets)
+
+            for message_budget, cost in zip(message_budgets, network_costs):
+                print(state, next_state)
+                print(message_budget, cost)
                 objective += (
                     self.opt_vars.task_occupancy[state, next_state]
-                    * self.opt_vars.message_budget[state, next_state, budget]
-                    * budget
+                    * self.opt_vars.message_budget[state, next_state, message_budget]
+                    * cost
                 )
 
         self.model.setObjective(objective, GRB.MINIMIZE)
@@ -290,7 +303,11 @@ class ILPModel(OptimizationProblem):
                 {"state": state, "next_state": next_state, "occupancy": var.X}
             )
 
-        for (state, next_state, message_budget), var in self.opt_vars.message_budget.items():
+        for (
+            state,
+            next_state,
+            message_budget,
+        ), var in self.opt_vars.message_budget.items():
             comms_data.append(
                 {
                     "state": state,
