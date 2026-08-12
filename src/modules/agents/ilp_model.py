@@ -148,8 +148,6 @@ class ILPModel(OptimizationProblem):
         for _, row in df_trans.iterrows():
             if row.next_state == self._hlmdp.fail_state:
                 continue
-            print("Breakpoint ")
-            __import__("ipdb").set_trace(context=5)
 
             state, next_state, message_budget = row.state, row.action[0], row.action[1]
 

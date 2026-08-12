@@ -81,17 +81,17 @@ parameters:
     #   values: [1]
 
     # evaluate:
-    #   values: [True]
+    #     values: [True]
     # eval_run_id:
-    #   values: [orhckkhh]
+    # values: []
     # load_step:
     #   values: [60, 120]
 
-    post_processing:
-        values: [optimize_high_level_policy]
-        # values: [aggregate_runs]
-    time_id:
-        values: [exp_24_26-08-03_16-59-11]
+    # post_processing:
+    #     values: [optimize_high_level_policy]
+    #     # values: [aggregate_runs]
+    # time_id:
+    #     values: [exp_24_26-08-03_16-59-11]
 
     ##################
     # Environment config
@@ -110,11 +110,6 @@ parameters:
         values: [1.0]
 
     env_args.asymmetric_fruit_obs:
-        values: [different_sensors]
-
-    env_args.num_agents_fruit_obs:
-        values: [2]
-        # values: [0, 1, 2, 3]
 
     env_args.smacv2_fruit_obs_prob:
         values: [0.0]
@@ -131,13 +126,7 @@ parameters:
     #     values: [action_space]
 
     env_args.map_name:
-        # values: [1r_very_small]
-        # values: [1r_small]
-        # values: [1r_small_agents_fruit_placed]
-        values: [3ga_2r_small]
-        # values: [3ga_2r_small_agents_placed]
-        # values: [3ga_2r_small_agents_fruit_placed]
-        # values: [3ga_2r_small]
+        values: [3ga_1r_small]
     env_args.n_agents:
         values: [3]
     env_args.sight:
@@ -152,7 +141,7 @@ parameters:
         values: [3]
 
     env_args.max_num_fruit:
-        values: [2]
+        values: [0]
 
     env_args.state_type:
         values: [multigrid_flattened]
@@ -160,6 +149,9 @@ parameters:
         values: [multigrid_flattened]
     env_args.observe_other_agents:
         values: [False]
+    env_args.num_agents_fruit_obs:
+        values: [2]
+        # values: [0, 1, 2, 3]
 
     env_args.highlight_visible_cells:
         values: [True]

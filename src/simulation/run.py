@@ -2,6 +2,7 @@ import datetime
 import multiprocessing as mp
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from os import listdir, makedirs, walk
 from os.path import abspath, isdir, join, splitext
 from shutil import rmtree
@@ -49,7 +50,7 @@ class Simulation:
             ]
 
             if self.args.post_processing == "optimize_high_level_policy":
-                df_data = self._load_experiment_artifacts(
+                df_data = self._load_experiment_table_artifact(
                     art_name="eval_stats",
                     art_version="latest",
                     art_type="run_table",
@@ -62,7 +63,7 @@ class Simulation:
                 return
 
             elif self.args.post_processing == "aggregate_runs":
-                df_data, runs = self._load_experiment_artifacts(
+                df_data, runs = self._load_experiment_table_artifact(
                     art_name="eval_stats",
                     art_version="latest",
                     art_type="run_table",
@@ -587,7 +588,7 @@ class Simulation:
         if self.args.delete_local_models:
             rmtree(model_dir, ignore_errors=True)
 
-    def _load_experiment_artifacts(
+    def _load_experiment_table_artifact(
         self,
         art_name: str = "eval_stats",
         art_version: str = "latest",
@@ -612,29 +613,32 @@ class Simulation:
 
         dfs = []
 
-        for i, wandb_run in enumerate(runs):
-            print(f"Run {i} / {len(runs)}")
-
+        # parallel download
+        def get_wandb_data(wandb_run):
             try:
-                data = api.artifact(
-                    name=join(
-                        wandb_run.entity,
-                        wandb_run.project,
-                        f"run-{wandb_run.id}-{art_name}:{art_version}",
-                    ),
+                art_info = f"run-{wandb_run.id}-{art_name}:{art_version}"
+                artifact = api.artifact(
+                    name=join(wandb_run.entity, wandb_run.project, art_info),
                     type=art_type,
-                ).get(art_name)
-
+                )
+                data = artifact.get(art_name)
                 df = data.get_dataframe()
                 df["scenario"] = int(wandb_run.config["scenario"])
-                dfs.append(df)
+                return df
 
             except wandb.CommError:
-                # artifact is missing or deleted
-                # run may have died early, no scenario data to load
-                continue
+                # artifact is missing or deleted, run may have died early
+                return
+
+        with ThreadPoolExecutor() as ex:
+            dfs = ex.map(
+                get_wandb_data,
+                [run for run in runs],
+            )
+
         df_data = pd.concat(dfs, ignore_index=True)
-        # round to the nearest eval time since different seeds eval at slightly different times
+        # round to the
+        # nearest eval time since different seeds eval at slightly different times
         df_data["t_env_rounded"] = (
             df_data["t_env"] / wandb_run.config.get("test_interval")
         ).round() * wandb_run.config.get("test_interval")
