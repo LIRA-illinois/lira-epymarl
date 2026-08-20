@@ -362,7 +362,7 @@ class EpisodeRunner:
         #     print()
 
     def _live_render(self, file_name: str, actions: Optional[dict] = None) -> None:
-        render_save_dir = join("results", "live_renders", f"zzz_{self.args.env}")
+        render_save_dir = join("results", "live_renders", f"{self.args.env}")
         makedirs(render_save_dir, exist_ok=True)
         mpl_img.imsave(
             join(render_save_dir, f"{self._t}_{file_name}.png"), self.env.render()
@@ -383,11 +383,22 @@ class EpisodeRunner:
 
         print(f"Using manual policy - self.t: {self._t}")
         if self.t == 0:
-            # agent 0 loads, other two null action
-            actions["env_actions"] = np.array([[5, 0, 0]])
-        else:
-            # go right
-            actions["env_actions"] = np.array([[4, 4, 4]])
+            actions = np.array([[0, 4, 0]])
+        elif 1 <= self.t <= 8:
+            actions = np.array([[0, 0, 0]])
+        elif self.t == 9:
+            actions = np.array([[4, 0, 0]])
+
+        # go right
+        # actions = np.array([[4, 4, 4]])
+        # go left
+        # actions = np.array([[3, 3, 3]])
+        # if self.t == 0:
+        #     # agent 0 loads, other two null action
+        #     actions["env_actions"] = np.array([[5, 0, 0]])
+        # else:
+        #     # go right
+        #     actions["env_actions"] = np.array([[4, 4, 4]])
 
         # if isinstance(actions, dict):
         #     if self.mac.msg_budget_per_agent == 0.0:

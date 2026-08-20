@@ -29,8 +29,8 @@ parameters:
     #   values: [True]
     # delete_local_models:
     #   values: [True]
-    # live_render:
-    #     values: [True]
+    live_render:
+        values: [True]
 
     # everything off
     # use_wandb:
@@ -97,8 +97,8 @@ parameters:
     ##################
     env-config:
         values: [multigrid-lbf-v0]
-    # manual_policy:
-    #     values: [True]
+    manual_policy:
+        values: [True]
 
     msg_budget_per_agent:
         values: [[0 1 2]]
@@ -119,11 +119,12 @@ parameters:
     success_rate_spec:
         values: [0.0]
 
-    # action_selector:
+    # for:
     #     values: [action_space]
 
     env_args.map_name:
-        values: [3ga_1r_small]
+        values: [3ga_1r_very_small]
+        # values: [3ga_1r_small]
     env_args.n_agents:
         values: [3]
     env_args.sight:
@@ -139,13 +140,17 @@ parameters:
 
     # if fruit = 0, just use nav actions to simplify some things
     env_args.action_set:
-        values: [NavigationActions]
+        values: [LBFNavigationActions]
     env_args.max_num_fruit:
         values: [0]
 
     # different task definition, speical reward function based on agent timing
     env_args.goal_type:
         values: [simultaneous_arrival]
+
+    env_args.reward_config.simultaneous_goal_reward_type:
+        values: [during_episode]
+        # values: [terminal]
 
     env_args.state_type:
         values: [multigrid_flattened]

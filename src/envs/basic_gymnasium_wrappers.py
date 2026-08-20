@@ -18,7 +18,7 @@ class GymnasiumEnvWrapper(gym.Env):
         self.env = env
         self.env_args = env_args
 
-        self.episode_limit = self.env_args.get("max_episode_steps")
+        self._episode_limit = self.env_args.get("max_episode_steps")
 
     def get_env_info(self) -> dict[str, Any]:
         info: dict = self.env.get_env_info()
@@ -37,6 +37,10 @@ class GymnasiumEnvWrapper(gym.Env):
     @property
     def obs(self) -> NDArray:
         return self.env.obs
+
+    @property
+    def episode_limit(self):
+        return self._episode_limit
 
     def step(self, actions: NDArray) -> tuple[NDArray, float, bool, bool, dict]:
         """
@@ -62,20 +66,23 @@ class BasicGymnasiumWrapper(gym.Wrapper):
     """
 
     def __init__(self, env_args: dict) -> None:
-        self.env_name: str = env_args.pop("key")
-        self.seed: int = env_args.pop("seed")
-        self.env_args: dict = env_args
+        env_name: str = env_args.pop("key")
+        seed: int = env_args.pop("seed")
+        self._episode_limit = env_args.get("max_episode_steps")
 
-        self.episode_limit = self.env_args.get("max_episode_steps")
+        # hacky way to pass episode_limit into the env class for internal use
+        # make() prevents max_episode_steps from being passed to the
+        # env's __init__ and creates a TimeLimit wrapper instead
+        env_args["episode_limit"] = env_args.get("max_episode_steps")
 
         # register envs, get ID
         self._register_envs()
 
         # make the env
-        self.env = self._build_env()
+        self.env = self._build_env(env_name, env_args)
 
         # initialize the env's PRNG
-        self._set_env_seed()
+        self._set_env_seed(seed)
 
         # run basic checks to ensure the env follows the Gymnasium API
         # and does not have obvious issues
@@ -84,25 +91,25 @@ class BasicGymnasiumWrapper(gym.Wrapper):
         # init as a proper env wrapper
         super().__init__(self.env)
 
-    def _build_env(self) -> gym.Env:
-        if self.env_name in ["foraging-v2"]:
+    def _build_env(self, env_name: str, env_args: dict) -> gym.Env:
+        if env_name in ["foraging-v2"]:
             # special way for envs that pre-register their envs with kwargs under specific names
             # normal way that follows the Gymnasium website's example
-            env_id = self._get_env_id(self.env_name, self.env_args)
-            return gym.make(env_id, max_episode_steps=self.episode_limit)
+            env_id = self._get_env_id(env_name, env_args)
+            return gym.make(env_id, max_episode_steps=self._episode_limit)
 
-        elif self.env_name in NON_GYMNASIUM_ENVS:
+        elif env_name in NON_GYMNASIUM_ENVS:
             # for envs that do not meet the Gymnasium API standards on their own
-            env = NON_GYMNASIUM_ENVS[self.env_name](**self.env_args)
-            return GymnasiumEnvWrapper(env, self.env_args)
+            env = NON_GYMNASIUM_ENVS[env_name](**env_args)
+            return GymnasiumEnvWrapper(env, env_args)
 
         else:
             # normal way that follows Gymnasium's example
-            return gym.make(self.env_name, **self.env_args)
+            return gym.make(env_name, **env_args)
 
     def _register_envs(self) -> None:
         # register envs supported by this wrapper
-        lbf.register_envs(max_episode_steps=self.episode_limit)
+        lbf.register_envs(max_episode_steps=self._episode_limit)
         join1.register_envs()
 
     def _get_env_id(self, env_name: str, env_args: dict) -> str:
@@ -130,9 +137,9 @@ class BasicGymnasiumWrapper(gym.Wrapper):
 
         return env_id
 
-    def _set_env_seed(self) -> None:
-        # print(f"Setting env seed to {self.seed}")
-        self.env.reset(seed=self.seed)
+    def _set_env_seed(self, seed: int) -> None:
+        # print(f"Setting env seed to {seed}")
+        self.env.reset(seed=seed)
 
     def _check_env(self) -> None:
         try:
@@ -142,7 +149,7 @@ class BasicGymnasiumWrapper(gym.Wrapper):
 
     def get_env_info(self) -> dict[str, Any]:
         info: dict = self.env.unwrapped.get_env_info()
-        info["episode_limit"] = self.episode_limit
+        info["episode_limit"] = self._episode_limit
         return info
 
     @property
@@ -162,7 +169,6 @@ class BasicGymnasiumWrapper(gym.Wrapper):
     @property
     def avail_actions(self) -> list:
         return self.env.get_wrapper_attr("avail_actions")
-        # return self.env.unwrapped.get_avail_actions()
 
     @property
     def obs(self) -> NDArray:
@@ -173,10 +179,13 @@ class BasicGymnasiumWrapper(gym.Wrapper):
             team obs with shape (n_samples=1, n_agents, n_obs_features)
         """
         obs = self.env.get_wrapper_attr("obs")
-        # obs = self.env.unwrapped.get_obs()
 
         # expand 0th dimension to be size (n_samples=1, n_agents, n_obs_features)
         return np.expand_dims(obs, 0)
+
+    @property
+    def episode_limit(self):
+        return self._episode_limit
 
     def step(self, actions: NDArray) -> tuple[NDArray, float, bool, bool, dict]:
         """
@@ -209,7 +218,6 @@ class HLMDPEnvWrapper(gym.Wrapper):
         self.terminate_on_task_completed: bool = env_args.pop(
             "terminate_on_task_completed", False
         )
-        self.env_args: dict = env_args
 
         # low-level environment
         self.env = BasicGymnasiumWrapper(env_args=env_args)
