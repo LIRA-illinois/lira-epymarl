@@ -123,10 +123,12 @@ parameters:
     #     values: [action_space]
 
     env_args.map_name:
-        values: [3ga_1r_very_small]
+        values: [4ga_1r_very_small]
+        # values: [3ga_1r_very_small]
         # values: [3ga_1r_small]
     env_args.n_agents:
-        values: [3]
+        values: [4]
+        # values: [3]
     env_args.sight:
         values: [7]
     env_args.max_episode_steps:
