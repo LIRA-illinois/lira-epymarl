@@ -12,7 +12,7 @@ parameters:
     #   values: [101]
     # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
     n_seeds:
-        values: [3]
+        values: [2]
 
     ##################
     # Project setup + logging
@@ -39,9 +39,6 @@ parameters:
     # everything on except Sacred cuz it suuucks
     use_sacred:
         values: [False]
-
-    manual_policy:
-        values: [True]
 
     ##################
     # MARL alg config
