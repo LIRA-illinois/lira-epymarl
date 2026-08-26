@@ -12,7 +12,7 @@ parameters:
     #   values: [101]
     # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
     n_seeds:
-        values: [2]
+        values: [3]
 
     ##################
     # Project setup + logging
@@ -48,26 +48,15 @@ parameters:
     lr:
         values: [0.00005]
     t_max:
-        values: [3050000]
+        values: [5050000]
     test_nepisode:
         values: [50]
     n_test_replays_save:
         values: [5]
     test_interval:
-        values: [300000]
+        values: [500000]
     save_model_interval:
-        values: [300000]
-
-    # all values in the space-delimited list will be evaluated in a single run
-    # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-    msg_budget_per_agent:
-        values: [[0 1 2]]
-    unique_policy_per_msg_budget:
-        values: [True]
-
-    # message filtering to model a constrained communication network
-    msg_filter_type:
-        values: [hard_topk]
+        values: [500000]
 
     ##################
     # Environment config
@@ -87,7 +76,7 @@ parameters:
         values: [1]
 
     config:
-        values: [maic]
+        values: [qmix]
     env_args.map_name:
         values: [3ga_1r_small]
     # if fruit = 0, just use nav actions to simplify learning
@@ -95,7 +84,6 @@ parameters:
         values: [LBFNavigationActions]
     env_args.max_num_fruit:
         values: [0]
-
     # task definition, speical reward function based on agent timing
     env_args.goal_type:
         values: [simultaneous_arrival]
@@ -115,11 +103,6 @@ parameters:
         values: [8]
     env_args.observe_other_agents:
         values: [True, False]
-    # this only makes sense if observe_other_agents=False. Otherwise the agents can just see each other directly
-    # msg_drop_rate:
-    #     values: [0.0, 0.2]
-
-    # reward config
 
     # rendering
     env_args.highlight_visible_cells:

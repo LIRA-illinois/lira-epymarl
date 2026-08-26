@@ -8,7 +8,12 @@ from gym_multigrid.envs.mdp import ProjectMDP
 from gymnasium.utils.env_checker import check_env
 from numpy.typing import NDArray
 
-SUPPORTED_ENVS = ("foraging-v2", "join1-v0", "join1_original", "multigrid-lbf-v0")
+SUPPORTED_ENVS = (
+    "foraging-v2",
+    "join1-v0",
+    "join1_original",
+    "multigrid-lbf-extended-v0",
+)
 
 NON_GYMNASIUM_ENVS = {"join1_original": join1.Join1EnvOriginal}
 
