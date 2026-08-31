@@ -81,7 +81,7 @@ parameters:
         values: [3ga_1r_small]
     # if fruit = 0, just use nav actions to simplify learning
     env_args.action_set:
-        values: [LBFNavigationActions]
+        values: [AlternativeNavigationActions]
     env_args.max_num_fruit:
         values: [0]
     # task definition, speical reward function based on agent timing

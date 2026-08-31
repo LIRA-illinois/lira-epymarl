@@ -70,8 +70,9 @@ def run_eval_episodes(
     last_result["log_stats"]["t_env"] = t_env
 
     # log stuff like current HL task and comms action
-    for k, v in reset_options.items():
-        last_result["log_stats"][k] = v
+    if reset_options is not None:
+        for k, v in reset_options.items():
+            last_result["log_stats"][k] = v
 
     # restore terminate_on_task_completed to False after evaluation
     if hasattr(runner.env, "terminate_on_task_completed"):

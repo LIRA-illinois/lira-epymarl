@@ -13,6 +13,7 @@ SUPPORTED_ENVS = (
     "join1-v0",
     "join1_original",
     "multigrid-lbf-extended-v0",
+    "multigrid-team-navigation-v0",
 )
 
 NON_GYMNASIUM_ENVS = {"join1_original": join1.Join1EnvOriginal}

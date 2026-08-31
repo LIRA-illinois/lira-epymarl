@@ -20,7 +20,7 @@ sync_results_wandb:
 	rm wandb_runs.txt
 
 # default values for these params
-# pass in gpus as a space-delimited string like g="0 1 2"
+# pass in gpus as a space-	 string like g="0 1 2"
 g ?= 0
 c ?= lab
 # at ~4 GB per run, 20 runs per job is about 80 GB RAM, which works well for requested RAM of 128 GB while leaving plenty of headroom to avoid throttling the system
@@ -39,7 +39,7 @@ run_experiment:
 	bash -c 'source .venv/bin/activate; ${cmd} src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${debug}'
 
 activate_venv:
-	bash -c 'source .venv/bin/activate; /bin/bash'
+	bash -c 'source .venv/bin/activate
 
 tmux_experiments:
 	tmux list-panes -a -F "#{session_name}"

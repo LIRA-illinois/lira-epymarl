@@ -95,8 +95,11 @@ parameters:
     ##################
     # Environment config
     ##################
+    # env-config:
+    #     values: [multigrid-lbf-v0]
     env-config:
-        values: [multigrid-lbf-v0]
+        values: [multigrid-team-navigation-v0]
+
     manual_policy:
         values: [True]
 
@@ -108,8 +111,8 @@ parameters:
     env_args.chosen_move_prob:
         values: [1.0]
 
-    env_args.smacv2_fruit_obs_prob:
-        values: [0.0]
+    # env_args.smacv2_fruit_obs_prob:
+    #     values: [0.0]
 
     # message filtering to model a constrained communication network
     msg_filter_type:
@@ -123,28 +126,22 @@ parameters:
     #     values: [action_space]
 
     env_args.map_name:
-        values: [4ga_1r_very_small]
-        # values: [3ga_1r_very_small]
-        # values: [3ga_1r_small]
+        values: [3ga_1r_small]
     env_args.n_agents:
-        values: [4]
-        # values: [3]
+        values: [3]
     env_args.sight:
         values: [7]
     env_args.max_episode_steps:
         values: [10]
-    env_args.max_agent_level:
-        values: [1]
-    env_args.force_coop:
-        values: [True]
-    env_args.max_fruit_level:
-        values: [3]
+    # env_args.max_agent_level:
+    #     values: [1]
+    # env_args.force_coop:
+    #     values: [True]
+    # env_args.max_fruit_level:
+    #     values: [3]
 
-    # if fruit = 0, just use nav actions to simplify some things
-    env_args.action_set:
-        values: [LBFNavigationActions]
-    env_args.max_num_fruit:
-        values: [0]
+    # env_args.max_num_fruit:
+    #     values: [0]
 
     # different task definition, speical reward function based on agent timing
     env_args.goal_type:
@@ -158,11 +155,11 @@ parameters:
         values: [multigrid_flattened]
     env_args.obs_type:
         values: [multigrid_flattened]
-    env_args.observe_other_agents:
-        values: [False]
-    env_args.num_agents_fruit_obs:
-        values: [2]
-        # values: [0, 1, 2, 3]
+    # env_args.observe_other_agents:
+    #     values: [False]
+    # env_args.num_agents_fruit_obs:
+    #     values: [2]
+    # values: [0, 1, 2, 3]
 
     env_args.highlight_visible_cells:
         values: [True]

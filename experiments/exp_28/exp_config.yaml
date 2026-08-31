@@ -48,22 +48,22 @@ parameters:
     lr:
         values: [0.00005]
     t_max:
-        values: [3050000]
+        values: [5050000]
     test_nepisode:
         values: [50]
     n_test_replays_save:
         values: [5]
     test_interval:
-        values: [300000]
+        values: [500000]
     save_model_interval:
-        values: [300000]
+        values: [500000]
 
     # all values in the space-delimited list will be evaluated in a single run
     # goes up to n_agents - 1 since we assume agents cannot send themselves a message
     msg_budget_per_agent:
         values: [[0 1 2]]
     unique_policy_per_msg_budget:
-        values: [True]
+        values: [False]
 
     # message filtering to model a constrained communication network
     msg_filter_type:
@@ -74,27 +74,16 @@ parameters:
     ##################
     # basic env config
     env-config:
-        values: [multigrid-lbf-extended-v0]
-    env_args.force_coop:
-        values: [True]
+        values: [multigrid-team-navigation-v0]
     env_args.max_episode_steps:
         values: [50]
     env_args.n_agents:
         values: [3]
-    env_args.max_fruit_level:
-        values: [3]
-    env_args.max_agent_level:
-        values: [1]
 
     config:
         values: [maic]
     env_args.map_name:
         values: [3ga_1r_small]
-    # if fruit = 0, just use nav actions to simplify learning
-    env_args.action_set:
-        values: [LBFNavigationActions]
-    env_args.max_num_fruit:
-        values: [0]
 
     # task definition, speical reward function based on agent timing
     env_args.goal_type:
@@ -107,10 +96,6 @@ parameters:
         values: [1.0]
 
     # obs config
-    env_args.state_type:
-        values: [multigrid_flattened]
-    env_args.obs_type:
-        values: [multigrid_flattened]
     env_args.sight:
         values: [8]
     env_args.observe_other_agents:
