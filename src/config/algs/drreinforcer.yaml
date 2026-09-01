@@ -1,6 +1,7 @@
 # --- Dr.ReinforceR specific parameters ---
 
 action_selector: "multinomial"
+test_greedy: False
 epsilon_start: .5
 epsilon_finish: .01
 epsilon_anneal_time: 100000
