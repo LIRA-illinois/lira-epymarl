@@ -392,7 +392,7 @@ class EpisodeRunner:
         #     actions = np.array([[0, 0]])
 
         # 3 agents
-        actions = np.array([[4, 4, 4]])
+        actions = np.array([[2, 2, 2]])
 
         # if self.t == 0:
         #     actions = np.array([[4, 0, 0]])
