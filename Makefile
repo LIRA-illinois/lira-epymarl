@@ -44,6 +44,10 @@ activate_venv:
 tmux_experiments:
 	tmux list-panes -a -F "#{session_name}"
 
+# Clear W&B offline sync cache and any synced models / data
+clean_wandb_cache:
+	rm -rf ~/.wandb/cache/*
+	rm -rf ~/.cache/wandb
 
 # screen_experiments:
 # 	screen -ls | grep "exp" | awk "{print $1}" | cut -d"	" -f 2

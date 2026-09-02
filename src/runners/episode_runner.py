@@ -392,14 +392,16 @@ class EpisodeRunner:
         #     actions = np.array([[0, 0]])
 
         # 3 agents
-        if self.t == 0:
-            actions = np.array([[4, 0, 0]])
-        elif self.t == 4:
-            actions = np.array([[3, 4, 0]])
-        elif self.t == 9:
-            actions = np.array([[0, 0, 4]])
-        else:
-            actions = np.array([[0, 0, 0]])
+        actions = np.array([[4, 4, 4]])
+
+        # if self.t == 0:
+        #     actions = np.array([[4, 0, 0]])
+        # elif self.t == 4:
+        #     actions = np.array([[3, 4, 0]])
+        # elif self.t == 9:
+        #     actions = np.array([[0, 0, 4]])
+        # else:
+        #     actions = np.array([[0, 0, 0]])
 
         # 4 agents
         # 1 goes right, the others stay until you finish the task

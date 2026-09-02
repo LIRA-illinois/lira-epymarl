@@ -58,17 +58,6 @@ parameters:
     save_model_interval:
         values: [500000]
 
-    # all values in the space-delimited list will be evaluated in a single run
-    # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-    msg_budget_per_agent:
-        values: [[0 1 2]]
-    unique_policy_per_msg_budget:
-        values: [False]
-
-    # message filtering to model a constrained communication network
-    msg_filter_type:
-        values: [hard_topk]
-
     ##################
     # Environment config
     ##################
@@ -81,9 +70,9 @@ parameters:
         values: [3]
 
     config:
-        values: [maic]
+        values: [maic, qmix]
     env_args.map_name:
-        values: [3ga_1r_small]
+        values: [3ga_1r_small, 3ga_1r_very_small]
 
     # task definition, speical reward function based on agent timing
     env_args.goal_type:
@@ -115,4 +104,15 @@ parameters:
 # use conditional params to specify single values to use for a given setup specified in "parameters" above
 # don't make these too complex or nest these deeper, it'll probably break something
 ##################
-# conditional_parameters:
+conditional_parameters:
+    config:
+        maic:
+            # all values in the space-delimited list will be evaluated in a single run
+            # goes up to n_agents - 1 since we assume agents cannot send themselves a message
+            msg_budget_per_agent:
+                values: [[0 1 2]]
+            unique_policy_per_msg_budget:
+                values: [False]
+            # message filtering to model a constrained communication network
+            msg_filter_type:
+                values: [hard_topk]
