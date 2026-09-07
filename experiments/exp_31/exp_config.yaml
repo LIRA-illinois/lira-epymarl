@@ -91,7 +91,7 @@ parameters:
 
     # obs config
     env_args.sight:
-        values: [6]
+        values: [5]
     env_args.observe_other_agents:
         values: [True, False]
     # this only makes sense if observe_other_agents=False. Otherwise the agents can just see each other directly
