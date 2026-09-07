@@ -239,6 +239,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # this thing's action space should be a Cartesian product of the low-level env's and the MDP action space
         # you can use a dict to represent that since they're factored and different structure
         # similar for the obs space
+        self._awaiting_next_navigation_task = False
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         if options is None:
@@ -251,11 +252,16 @@ class HLMDPEnvWrapper(gym.Wrapper):
             hl_options["hl_start_state"] = options["hl_start_state"]
             ll_options["hl_start_state"] = options["hl_start_state"]
 
+        if "hl_task" in options:
+            hl_task = options["hl_task"]
+            ll_options["navigation_task_state"] = int(hl_task[1])
+
         _, hl_info = self.hlmdp.reset(seed=seed, options=hl_options)
         ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)
 
         # only used for rendering HLMDP actions
         self._pre_step_hl_actions = None
+        self._awaiting_next_navigation_task = False
 
         ll_info.update(hl_info)
         return ll_obs, ll_info
@@ -274,6 +280,16 @@ class HLMDPEnvWrapper(gym.Wrapper):
         hl_actions = actions["hl_actions"]
         ll_actions = actions["env_actions"]
 
+        if self._awaiting_next_navigation_task:
+            next_state, _ = self.hlmdp.get_action_tuple(hl_actions)
+            try:
+                activate_task = self.env.get_wrapper_attr("activate_navigation_task")
+            except AttributeError:
+                activate_task = None
+            if activate_task is not None:
+                activate_task(next_state)
+            self._awaiting_next_navigation_task = False
+
         # Advance the team MDP to the next goal state
         # hl_reward: float
         # I think this would just be =1 if you reach the goal state, but we're not modeling reward so not necessary
@@ -286,6 +302,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # stop showing the action since the agent just reached a new state the HLMDP
         if ll_info["task_completed"]:
             self._pre_step_hl_actions = None
+            self._awaiting_next_navigation_task = True
             # may want to end the episode at task completion, like during evaluation
             if self.terminate_on_task_completed:
                 ll_terminated = True

@@ -64,6 +64,17 @@ class GridSearch(object):
         config = full_config["parameters"]
         conditional_config = full_config.get("conditional_parameters", None)
 
+        if self.args.debug:
+            debug_values = {
+                "t_max": 100,
+                "test_nepisode": 1,
+                "n_test_replays": 1,
+                "test_interval": 50,
+                "env_args.max_episode_steps": 20,
+            }
+            for parameter, value in debug_values.items():
+                config[parameter] = {"values": [value]}
+
         # generate a unique time id for this experiment
         if config.get("time_id", False):
             time_id = config.get("time_id")["values"][0]
@@ -511,31 +522,30 @@ class GridSearch(object):
             # print params to markdown table
             other_params = ""
 
-            for k, v in params.items():
-                if parameters_to_print is not None:
-                    if k in parameters_to_print:
-                        other_params += f" {v} |"
+            if parameters_to_print is not None:
+                for parameter in parameters_to_print:
+                    other_params += f" {params[parameter]} |"
+            else:
+                no_print_params: list[str] = [
+                    "cmd",
+                    "wandb_project",
+                    "wandb_mode",
+                    "wandb_save_model",
+                    "wandb_save_test_replays",
+                    "use_wandb",
+                    "save_model",
+                    "save_model_interval",
+                    "save_test_replays",
+                    "use_sacred",
+                    "save_replay_buffer",
+                    "delete_local_models",
+                    "live_render",
+                    "save_model_interval",
+                    "runner_log_interval",
+                    "n_test_replays_save",
+                ]
 
-                else:
-                    no_print_params: list[str] = [
-                        "cmd",
-                        "wandb_project",
-                        "wandb_mode",
-                        "wandb_save_model",
-                        "wandb_save_test_replays",
-                        "use_wandb",
-                        "save_model",
-                        "save_model_interval",
-                        "save_test_replays",
-                        "use_sacred",
-                        "save_replay_buffer",
-                        "delete_local_models",
-                        "live_render",
-                        "save_model_interval",
-                        "runner_log_interval",
-                        "n_test_replays_save",
-                    ]
-
+                for k, v in params.items():
                     if k not in self.basic_config_params + no_print_params:
                         other_params += f"{k}={v} "
 

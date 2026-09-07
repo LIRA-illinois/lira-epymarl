@@ -43,6 +43,8 @@ parameters:
     ##################
     # MARL alg config
     ##################
+    config:
+        values: [maic, qmix]
     mixer:
         values: [qmix]
     lr:
@@ -58,42 +60,43 @@ parameters:
     save_model_interval:
         values: [500000]
 
+    # all values in the space-delimited list will be evaluated in a single run
+    # goes up to n_agents - 1 since we assume agents cannot send themselves a message
+    msg_budget_per_agent:
+        values: [[0 1 2]]
+    unique_policy_per_msg_budget:
+        values: [False]
+    # message filtering to model a constrained communication network
+    msg_filter_type:
+        values: [hard_topk]
+
     ##################
     # Environment config
     ##################
     # basic env config
     env-config:
         values: [multigrid-team-navigation-v0]
+    env_args.map_name:
+        values: [3ga_1r_small_hall]
     env_args.max_episode_steps:
-        values: [50]
+        values: [25]
     env_args.n_agents:
         values: [3]
-
-    config:
-        values: [maic, qmix]
-    env_args.map_name:
-        values: [3ga_1r_small, 3ga_1r_very_small]
 
     # task definition, speical reward function based on agent timing
     env_args.goal_type:
         values: [simultaneous_arrival]
     env_args.reward_config.simultaneous_goal_reward_type:
-        values: [during_episode, terminal]
-
-    # dynamics config
-    env_args.chosen_move_prob:
-        values: [1.0]
+        values: [terminal_sparse, terminal_shaped, dense_shaped]
 
     # obs config
     env_args.sight:
-        values: [8]
+        values: [6]
     env_args.observe_other_agents:
         values: [True, False]
     # this only makes sense if observe_other_agents=False. Otherwise the agents can just see each other directly
-    # msg_drop_rate:alskdfjalskjflkjsadflkjasdflkj
+    # msg_drop_rate:
     #     values: [0.0, 0.2]
-
-    # reward config``
 
     # rendering
     env_args.highlight_visible_cells:
@@ -104,15 +107,4 @@ parameters:
 # use conditional params to specify single values to use for a given setup specified in "parameters" above
 # don't make these too complex or nest these deeper, it'll probably break something
 ##################
-conditional_parameters:
-    config:
-        maic:
-            # all values in the space-delimited list will be evaluated in a single run
-            # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-            msg_budget_per_agent:
-                values: [[0 1 2]]
-            unique_policy_per_msg_budget:
-                values: [False]
-            # message filtering to model a constrained communication network
-            msg_filter_type:
-                values: [hard_topk]
+# conditional_parameters:
