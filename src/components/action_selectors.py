@@ -1,10 +1,11 @@
 from typing import Any
+
+import gymnasium as gym
 import torch as th
 from torch.distributions import Categorical
 from torch.distributions.one_hot_categorical import OneHotCategorical
-from .epsilon_schedules import DecayThenFlatSchedule
-import gymnasium as gym
 
+from .epsilon_schedules import DecayThenFlatSchedule
 
 REGISTRY = {}
 
@@ -30,7 +31,6 @@ REGISTRY["comms_selector"] = CommsActionSelector
 
 
 class MultinomialActionSelector:
-
     def __init__(self, args):
         self.args = args
 
@@ -61,9 +61,13 @@ REGISTRY["multinomial"] = MultinomialActionSelector
 
 
 class EpsilonGreedyActionSelector:
-
     def __init__(self, args):
         self.args = args
+
+        self.correlated_exploration = getattr(args, "correlated_exploration", False)
+        self.correlated_exploration_prob = getattr(
+            args, "correlated_exploration_prob", 0.5
+        )
 
         self.schedule = DecayThenFlatSchedule(
             args.epsilon_start,
@@ -88,9 +92,45 @@ class EpsilonGreedyActionSelector:
             "inf"
         )  # should never be selected!
 
-        random_numbers = th.rand_like(agent_inputs[:, :, 0])
-        pick_random = (random_numbers < self.epsilon).long()
-        random_actions = Categorical(avail_actions.float()).sample().long()
+        # Choose the exploration mode per team, without enumerating joint actions.
+        independent_pick_random = (
+            th.rand_like(agent_inputs[:, :, 0]) < self.epsilon
+        ).long()
+        independent_actions = Categorical(avail_actions.float()).sample().long()
+
+        if self.correlated_exploration:
+            # multi-agent coorrelated exploration, instead of each agent independently choosing
+            # to take a random action with epsilon probability at each time step,
+            # the entire team chooses a random action at the same time with prob correlated_exploration_prob
+            use_correlated = (
+                th.rand(agent_inputs.shape[0], device=agent_inputs.device)
+                < self.correlated_exploration_prob
+            ).unsqueeze(1)
+
+            correlated_pick_random = (
+                (
+                    th.rand(agent_inputs.shape[0], device=agent_inputs.device)
+                    < self.epsilon
+                )
+                .long()
+                .unsqueeze(1)
+            )
+            shared_random_rank = th.rand(
+                agent_inputs.shape[0], device=agent_inputs.device
+            )
+            correlated_actions = self._sample_correlated_actions(
+                avail_actions, shared_random_rank
+            )
+
+            pick_random = th.where(
+                use_correlated, correlated_pick_random, independent_pick_random
+            )
+            random_actions = th.where(
+                use_correlated, correlated_actions, independent_actions
+            )
+        else:
+            pick_random = independent_pick_random
+            random_actions = independent_actions
 
         picked_actions = (
             pick_random * random_actions
@@ -98,12 +138,39 @@ class EpsilonGreedyActionSelector:
         )
         return picked_actions
 
+    @staticmethod
+    def _sample_correlated_actions(avail_actions, shared_random_rank):
+        """Sample correlated random actions without enumerating joint actions.
+
+        Parameters
+        ----------
+        avail_actions : Tensor
+            Binary availability mask with shape ``(batch, agents, actions)``.
+        shared_random_rank : Tensor
+            One uniform random value in ``[0, 1)`` per batch item, with shape
+            ``(batch,)``. The same value is used for every agent in that item.
+
+        Returns
+        -------
+        Tensor
+            Action indices with shape ``(batch, agents)``. Each agent selects
+            the available action at the shared rank in its own ordered list.
+            Therefore identical availability masks produce identical random
+            actions, while different masks remain valid for each agent.
+        """
+        available_counts = avail_actions.sum(dim=2).long()
+        rank = th.floor(
+            shared_random_rank.unsqueeze(1) * available_counts.float()
+        ).long()
+        cumulative_counts = avail_actions.long().cumsum(dim=2)
+        selected = cumulative_counts > rank.unsqueeze(2)
+        return selected.float().argmax(dim=2)
+
 
 REGISTRY["epsilon_greedy"] = EpsilonGreedyActionSelector
 
 
 class SoftPoliciesSelector:
-
     def __init__(self, args):
         self.args = args
 
@@ -118,7 +185,6 @@ REGISTRY["soft_policies"] = SoftPoliciesSelector
 
 # The following functions are adapted from https://github.com/mzho7212/LICA.git
 class GumbelSoftmaxMultinomialActionSelector:
-
     def __init__(self, args):
         self.args = args
 
@@ -149,7 +215,6 @@ REGISTRY["gumbel"] = GumbelSoftmaxMultinomialActionSelector
 
 
 class GumbelSoftmax(OneHotCategorical):
-
     def __init__(self, logits, probs=None, temperature=1):
         super(GumbelSoftmax, self).__init__(logits=logits, probs=probs)
         self.eps = 1e-20
