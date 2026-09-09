@@ -75,7 +75,7 @@ parameters:
     ##################
     # basic env config
     env-config:
-        values: [multigrid-team-navigation-v0]
+        values: [team-nav-v0]
     env_args.map_name:
         values: [3ga_1r_small_hall]
     env_args.max_episode_steps:

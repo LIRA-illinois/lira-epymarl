@@ -1,4 +1,4 @@
-env: multigrid-team-navigation-v0
+env: team-nav-v0
 
 env_args:
     # size of the area accessible by the agents

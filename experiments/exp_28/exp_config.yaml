@@ -63,7 +63,7 @@ parameters:
     ##################
     # basic env config
     env-config:
-        values: [multigrid-team-navigation-v0]
+        values: [team-nav-v0]
     env_args.max_episode_steps:
         values: [50]
     env_args.n_agents:

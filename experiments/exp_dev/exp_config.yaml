@@ -98,7 +98,7 @@ parameters:
     # env-config:
     #     values: [multigrid-lbf-v0]
     env-config:
-        values: [multigrid-team-navigation-v0]
+        values: [team-nav-v0]
 
     manual_policy:
         values: [True]

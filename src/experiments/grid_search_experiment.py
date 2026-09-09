@@ -218,21 +218,41 @@ class GridSearch(object):
             for outer_var, conditional_vars in conditional_config.items():
                 # loop over config (EX: maic, qmix) and env-config (EX: join1-v0 and join1_original)
                 for inner_var, varied_params in conditional_vars.items():
-                    conditional_combos, _ = self._gen_dict_combinations(varied_params)
+                    conditional_combos, conditional_varied_param_names = (
+                        self._gen_dict_combinations(varied_params)
+                    )
+
+                    for parameter_name in conditional_varied_param_names:
+                        if parameter_name not in varied_param_names:
+                            varied_param_names.append(parameter_name)
 
                     updated_scenarios = []
                     indices_remove = []
                     for i, scenario in enumerate(scenarios):
                         if scenario[outer_var] == inner_var:
                             for combo in conditional_combos:
-                                if combo.get("msg_budget_per_agent") and scenario.get(
-                                    "unique_policy_per_msg_budget"
+                                unique_policy_per_msg_budget = combo.get(
+                                    "unique_policy_per_msg_budget",
+                                    scenario.get("unique_policy_per_msg_budget", False),
+                                )
+                                if (
+                                    combo.get("msg_budget_per_agent")
+                                    and unique_policy_per_msg_budget
                                 ):
-                                    combo = string_inputs_to_list(
-                                        combo, "msg_budget_per_agent", output_type=int
+                                    if "msg_budget_per_agent" not in varied_param_names:
+                                        varied_param_names.append(
+                                            "msg_budget_per_agent"
+                                        )
+
+                                    combo_with_budget = string_inputs_to_list(
+                                        combo.copy(),
+                                        "msg_budget_per_agent",
+                                        output_type=int,
                                     )
-                                    for val in combo.pop("msg_budget_per_agent"):
-                                        new_c = combo.copy()
+                                    for val in combo_with_budget.pop(
+                                        "msg_budget_per_agent"
+                                    ):
+                                        new_c = combo_with_budget.copy()
                                         # format as a string in a list to work with parsing in main.py
                                         new_c["msg_budget_per_agent"] = [f"{val}"]
                                         updated_scenarios.append(scenario | new_c)
@@ -513,8 +533,8 @@ class GridSearch(object):
             param_string += f" {i} |"
 
         table_header = (
-            f"| Scenario Name | Alg | Env | {param_string}"
-            + f"\n|----| ---- | ---- | {'---- |' * len(parameters_to_print)}"
+            f"| Scenario Name | Alg | Env | Map | {param_string}"
+            + f"\n|----| ---- | ---- | ---- | {'---- |' * len(parameters_to_print)}"
         )
         print(table_header)
 
@@ -524,7 +544,7 @@ class GridSearch(object):
 
             if parameters_to_print is not None:
                 for parameter in parameters_to_print:
-                    other_params += f" {params[parameter]} |"
+                    other_params += f" {params.get(parameter, '-')} |"
             else:
                 no_print_params: list[str] = [
                     "cmd",
@@ -549,7 +569,11 @@ class GridSearch(object):
                     if k not in self.basic_config_params + no_print_params:
                         other_params += f"{k}={v} "
 
-            table_line = f"| {run_setups.scenario[scenario_idx * n_seeds]} | {params['config']} | {params['env-config']} | {other_params}"
+            table_line = (
+                f"| {run_setups.scenario[scenario_idx * n_seeds]} | "
+                f"{params['config']} | {params['env-config']} | "
+                f"{params.get('env_args.map_name', '-')} | {other_params}"
+            )
             print(table_line)
 
         print("")
