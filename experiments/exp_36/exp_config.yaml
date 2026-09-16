@@ -12,7 +12,7 @@ parameters:
     #   values: [101]
     # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
     n_seeds:
-        values: [3]
+        values: [2]
 
     ##################
     # Project setup + logging
@@ -40,17 +40,11 @@ parameters:
     use_sacred:
         values: [False]
 
-    # post_processing for after the run is done
-    # post_processing:
-    #     values: [aggregate_runs]
-    # time_id:
-    #     values: [exp_34_26-09-14_10-50-44]
-
     ##################
     # MARL alg config
     ##################
     config:
-        values: [maic]
+        values: [maic, qmix]
     mixer:
         values: [qmix]
     lr:
@@ -73,16 +67,6 @@ parameters:
     correlated_exploration_prob:
         values: [0.5]
 
-    unique_policy_per_msg_budget:
-        values: [True]
-    # all values in the space-delimited list will be evaluated in a single run
-    # goes up to n_agents - 1 since we assume agents cannot send themselves a message
-    msg_budget_per_agent:
-        values: [[0 1 2]]
-    # message filtering to model a constrained communication network
-    msg_filter_type:
-        values: [hard_topk]
-
     ##################
     # Environment config
     ##################
@@ -90,9 +74,22 @@ parameters:
     env-config:
         values: [team-nav-v0]
     env_args.map_name:
-        values: [3ga_1r_very_small_hall]
+        values: [3ga_1r_small]
+    # Shared directed HL graph and per-transition navigation tasks.
+    env_args.navigation_config:
+        values:
+            [
+                submodules/gym-multigrid/gym_multigrid/envs/maps/navigation_branching.yaml,
+            ]
+    env_args.hierarchical:
+        values: [True]
+    # Train each directed subtask as an independent low-level scenario.
+    hl_task:
+        values: [[0 1], [0 2], [1 3], [2 3]]
+    terminate_on_task_completed:
+        values: [True]
     env_args.max_episode_steps:
-        values: [15]
+        values: [50]
     env_args.n_agents:
         values: [3]
 
@@ -100,7 +97,7 @@ parameters:
     env_args.goal_type:
         values: [simultaneous_arrival]
     env_args.reward_config.simultaneous_goal_reward_type:
-        values: [per_step_arrival_group_size]
+        values: ["per_step_arrival_group_size"]
 
     # obs config
     env_args.state_type:
@@ -108,15 +105,26 @@ parameters:
     env_args.obs_type:
         values: [simple_navigation_features]
 
-    msg_drop_rate:
-        values: [0.0, 0.5]
-
     env_args.agent_0_delay_prob:
-        values: [0.25, 0.5]
+        values: [0.5]
 
 ##################
 # Conditional parameters
 # use conditional params to specify single values to use for a given setup specified in "parameters" above
 # don't make these too complex or nest these deeper, it'll probably break something
 ##################
-# conditional_parameters:
+conditional_parameters:
+    config:
+        maic:
+            unique_policy_per_msg_budget:
+                values: [True]
+            # all values in the space-delimited list will be evaluated in a single run
+            # goes up to n_agents - 1 since we assume agents cannot send themselves a message
+            msg_budget_per_agent:
+                values: [[0 1 2]]
+            # message filtering to model a constrained communication network
+            msg_filter_type:
+                values: [hard_topk]
+
+            msg_drop_rate:
+                values: [0.0, 0.25, 0.5]

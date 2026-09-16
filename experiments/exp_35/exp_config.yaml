@@ -78,7 +78,7 @@ parameters:
     env_args.max_episode_steps:
         values: [15]
     env_args.n_agents:
-        values: [1]
+        values: [3]
 
     # task definition, speical reward function based on agent timing
     env_args.goal_type:

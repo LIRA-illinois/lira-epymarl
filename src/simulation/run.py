@@ -70,57 +70,141 @@ class Simulation:
                     return_runs=True,
                 )
 
-                # average results across seeds within each scenario
-                df_avg = (
-                    df_data.groupby(
-                        ["scenario", "msg_budget_per_agent", "t_env_rounded"],
-                        dropna=False,
+                # Group scenarios by all configuration parameters except seed,
+                # scenario, and communication budget. This keeps parameters such
+                # as msg_drop_rate as separate plot groups.
+                ignored_config_keys = {
+                    "_wandb",
+                    "msg_budget_per_agent",
+                    "scenario",
+                    "seed",
+                }
+
+                def without_seed(value):
+                    if isinstance(value, dict):
+                        return {
+                            key: without_seed(item)
+                            for key, item in value.items()
+                            if key != "seed"
+                        }
+                    if isinstance(value, (list, tuple)):
+                        return type(value)(without_seed(item) for item in value)
+                    return value
+
+                scenario_groups = {}
+                group_runs = {}
+                for run in runs:
+                    scenario_value = run.config.get("scenario")
+                    try:
+                        scenario = int(scenario_value)
+                    except (TypeError, ValueError):
+                        continue
+
+                    group_key = tuple(
+                        sorted(
+                            (key, repr(without_seed(value)))
+                            for key, value in run.config.items()
+                            if key not in ignored_config_keys
+                        )
                     )
-                    .mean(numeric_only=True)
-                    .reset_index()
+                    scenario_groups[scenario] = group_key
+                    group_runs.setdefault(group_key, run)
+
+                df_data["scenario_group"] = df_data["scenario"].map(scenario_groups)
+                df_data = df_data.loc[df_data["scenario_group"].notna()]
+
+                source_run = next(iter(group_runs.values()), runs[0])
+
+                postprocess_name = f"{self.args.time_id}_postprocess"
+                api = wandb.Api()
+                existing_postprocess_run = next(
+                    (
+                        run
+                        for run in api.runs(
+                            self.args.wandb_project,
+                            filters={"config.time_id": self.args.time_id},
+                        )
+                        if getattr(run, "name", "") == postprocess_name
+                    ),
+                    None,
                 )
 
-                for scenario in np.unique(df_data.scenario):
-                    df_tmp = df_data.loc[df_data.scenario == scenario]
-                    n_seeds_per_run = df_tmp[
+                if existing_postprocess_run is not None:
+                    self.logger.info(
+                        f"Resuming existing post-processing run {existing_postprocess_run.id}"
+                    )
+                    wandb_run = wandb.init(
+                        entity=getattr(existing_postprocess_run, "entity", None),
+                        project=getattr(existing_postprocess_run, "project", None),
+                        id=existing_postprocess_run.id,
+                        resume="allow",
+                    )
+                else:
+                    # Use a dedicated online run for aggregate images.
+                    wandb_run = wandb.init(
+                        entity=getattr(source_run, "entity", None),
+                        project=getattr(source_run, "project", None),
+                        name=postprocess_name,
+                        config={
+                            "experiment": self.args.experiment,
+                            "scenario": "postprocess",
+                            "time_id": self.args.time_id,
+                            "post_processing": self.args.post_processing,
+                        },
+                        mode="online",
+                    )
+
+                for group_idx, (group_key, df_group) in enumerate(
+                    df_data.groupby("scenario_group", sort=True), start=1
+                ):
+                    group_columns = [
+                        "msg_budget_per_agent",
+                        "t_env_rounded",
+                    ]
+                    df_avg = (
+                        df_group.groupby(group_columns, dropna=False)
+                        .mean(numeric_only=True)
+                        .reset_index()
+                    )
+                    df_avg["t_env"] = df_avg["t_env_rounded"]
+
+                    n_seeds_per_run = df_group[
                         ["t_env_rounded", "scenario", "msg_budget_per_agent"]
                     ].value_counts()
-                    # since some runs may not finish, just report the min and max seeds per data point
                     min_n_seeds, max_n_seeds = (
                         min(n_seeds_per_run),
                         max(n_seeds_per_run),
                     )
 
-                for idx, (scenario, df_scenario) in enumerate(
-                    df_avg.groupby("scenario"), start=np.min(df_avg.scenario)
-                ):
+                    parameter_info = ", ".join(
+                        f"{key}={value}" for key, value in group_key
+                    )
+                    scenario_indices = sorted(
+                        {
+                            int(scenario)
+                            for scenario in df_group["scenario"].dropna().unique()
+                        }
+                    )
+                    scenario_label = "_".join(
+                        str(scenario) for scenario in scenario_indices
+                    )
                     self.logger.info(
-                        f"Plotting aggregated eval stats for scenario {scenario}",
+                        f"Plotting aggregated eval stats for group {group_idx}: "
+                        f"{parameter_info}"
                     )
-                    scenario_table = wandb.Table(dataframe=df_scenario)
-
-                    # choose a run from this scenario to resume and log the plot
-                    scenario_runs = [
-                        run
-                        for run in runs
-                        if int(run.config.get("scenario", -1)) == int(scenario)
-                    ]
-
-                    wandb_run = wandb.init(
-                        entity=getattr(scenario_runs[0], "entity", None),
-                        project=getattr(scenario_runs[0], "project", None),
-                        id=scenario_runs[0].id,
-                        resume="allow",
-                    )
-
+                    aggregate_table = wandb.Table(dataframe=df_avg)
                     self._make_comms_eval_plots(
-                        scenario_table,
+                        aggregate_table,
                         t=np.max(df_avg.t_env_rounded),
                         wandb_run=wandb_run,
-                        info_str=f"Min Seeds: {min_n_seeds}, Max Seeds: {max_n_seeds}",
+                        info_str=(
+                            f"Group {group_idx}; Min Seeds: {min_n_seeds}, "
+                            f"Max Seeds: {max_n_seeds}"
+                        ),
+                        plot_group=f"scenarios_{scenario_label}",
                     )
 
-                    wandb_run.finish()
+                wandb_run.finish()
 
                 return
 
@@ -474,6 +558,7 @@ class Simulation:
         t: int,
         wandb_run=None,
         info_str: str = "",
+        plot_group: str = "",
     ) -> None:
         """Make plots for comms evaluation.
 
@@ -481,7 +566,12 @@ class Simulation:
         (or provided in `msg_budget_per_agents`) and logs images to wandb if enabled.
         """
         df = data_table.get_dataframe()
+        df["msg_budget_per_agent"] = pd.to_numeric(
+            df["msg_budget_per_agent"], errors="coerce"
+        )
         save_dir = abspath(join(self.logger.dir, "images", f"t_{t}"))
+        if plot_group:
+            save_dir = join(save_dir, plot_group)
         makedirs(save_dir, exist_ok=True)
 
         # Columns to plot (exclude t_env as it's the x axis)
@@ -491,7 +581,7 @@ class Simulation:
             "test_task_completed_mean",
             "test_ep_length_mean",
         ]
-        msg_budget_per_agents = sorted(df["msg_budget_per_agent"].unique())
+        msg_budget_per_agents = sorted(df["msg_budget_per_agent"].dropna().unique())
 
         for col in cols:
             plt.figure()
@@ -534,13 +624,16 @@ class Simulation:
 
         # log all images in the image dir
         if wandb_run is not None:
+            log_prefix = "comms_eval_aggregated"
+            if plot_group:
+                log_prefix = f"{log_prefix}/{plot_group}"
             for _, _, files in walk(save_dir):
                 for file in files:
                     data = log_setup(self.logger.step_metric, t)
                     path = join(save_dir, file)
-                    fn = (splitext(file)[0],)
-                    data[f"comms_eval_aggregated/{fn}{self.logger.log_suffix}"] = (
-                        wandb.Image(path)
+                    fn = splitext(file)[0]
+                    data[f"{log_prefix}/{fn}{self.logger.log_suffix}"] = wandb.Image(
+                        path
                     )
                     wandb_run.log(data=data)
             return
@@ -602,6 +695,11 @@ class Simulation:
             self.args.wandb_project,
             filters={"config.time_id": self.args.time_id},
         )
+        runs = [
+            run
+            for run in runs
+            if "_postprocess" not in (getattr(run, "name", "") or "")
+        ]
 
         if len(runs) == 0:
             self.logger.info(f"No wandb runs found for time_id={self.args.time_id}")
@@ -624,6 +722,26 @@ class Simulation:
                 data = artifact.get(art_name)
                 df = data.get_dataframe()
                 df["scenario"] = int(wandb_run.config["scenario"])
+                configured_budget = wandb_run.config.get("msg_budget_per_agent")
+                if (
+                    isinstance(configured_budget, (list, tuple))
+                    and len(configured_budget) == 1
+                ):
+                    configured_budget = configured_budget[0]
+                if configured_budget is not None:
+                    if wandb_run.config.get("unique_policy_per_msg_budget", False):
+                        # For one-policy-per-budget runs, the run config is the
+                        # authoritative budget even if the table has stale values.
+                        df["msg_budget_per_agent"] = configured_budget
+                    elif "msg_budget_per_agent" not in df:
+                        df["msg_budget_per_agent"] = configured_budget
+                    else:
+                        df["msg_budget_per_agent"] = df["msg_budget_per_agent"].fillna(
+                            configured_budget
+                        )
+                df["test_interval"] = wandb_run.config.get(
+                    "test_interval", self.args.test_interval
+                )
                 return df
 
             except wandb.CommError:
@@ -640,8 +758,9 @@ class Simulation:
         # round to the
         # nearest eval time since different seeds eval at slightly different times
         df_data["t_env_rounded"] = (
-            df_data["t_env"] / wandb_run.config.get("test_interval")
-        ).round() * wandb_run.config.get("test_interval")
+            df_data["t_env"] / df_data["test_interval"]
+        ).round() * df_data["test_interval"]
+        df_data.drop(columns=["test_interval"], inplace=True)
 
         df_data.sort_values("scenario").reset_index(drop=True, inplace=True)
 

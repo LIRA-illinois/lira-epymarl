@@ -85,6 +85,15 @@ class GridSearch(object):
         else:
             time_id = f"{self.args.experiment}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')[2:]}"
 
+        post_processing = config.get("post_processing")
+        if post_processing is not None and post_processing.get("values"):
+            self._run_post_processing(
+                config=config,
+                conditional_config=conditional_config,
+                time_id=time_id,
+            )
+            return
+
         # get seeds
         if config.get("seed"):
             seeds = config.pop("seed")["values"]
@@ -169,6 +178,39 @@ class GridSearch(object):
             print("Exiting without running experiment")
             return
 
+    def _run_post_processing(
+        self,
+        config: dict,
+        conditional_config: dict | None,
+        time_id: str,
+    ) -> None:
+        if not config.get("time_id", {}).get("values"):
+            raise ValueError(
+                "post_processing requires a time_id in the experiment config"
+            )
+
+        post_processing_config = config.copy()
+        seed_values = post_processing_config.pop("seed", {}).get("values", [0])
+        post_processing_config.pop("n_seeds", None)
+        post_processing_config["use_wandb"] = {"values": [False]}
+
+        scenarios, _, _ = self._get_scenarios(
+            post_processing_config,
+            conditional_config,
+        )
+        if not scenarios:
+            raise ValueError("No configuration was generated for post-processing")
+
+        seed = seed_values[0] if seed_values else 0
+        run_setup = self._get_run_setups(
+            scenarios=[scenarios[0]],
+            seeds=[seed],
+            scenario_names=["00"],
+            time_id=time_id,
+        ).iloc[0]
+
+        main(shlex.split(run_setup.cmd)[1:])
+
     def _run_debug(self, run_setups: DataFrame) -> None:
         # just run the first command in run_setups
         for cmd in run_setups.cmd:
@@ -186,7 +228,7 @@ class GridSearch(object):
 
     def _get_scenarios(
         self, base_config: dict, conditional_config: dict | None = None
-    ) -> tuple[list[dict], list[str]]:
+    ) -> tuple[list[dict], list[str], list[str]]:
         scenarios, varied_param_names = self._gen_dict_combinations(base_config)
 
         # handle comms budgets when a unique policy per comms value is requested
@@ -533,7 +575,7 @@ class GridSearch(object):
             param_string += f" {i} |"
 
         table_header = (
-            f"| Scenario Name | Alg | Env | Map | {param_string}"
+            f"| Scen | Alg | Env | Map | {param_string}"
             + f"\n|----| ---- | ---- | ---- | {'---- |' * len(parameters_to_print)}"
         )
         print(table_header)
