@@ -13,6 +13,7 @@ gymnasium = { version = ">=0.28", extras = ["other"] } # [other] includes extra 
 gurobipy = ">=13.0.0"
 matplotlib = ">=3.10.6"
 networkx = "*"
+pygraphviz = "*"
 numpy = ">=2.3.2"
 pandas = ">=3.0.0"
 psutil = "*"

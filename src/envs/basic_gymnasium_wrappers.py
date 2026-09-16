@@ -4,6 +4,7 @@ import gymnasium as gym
 import join1
 import lbforaging as lbf
 import numpy as np
+import yaml
 from gym_multigrid.envs.mdp import ProjectMDP
 from gymnasium.utils.env_checker import check_env
 from numpy.typing import NDArray
@@ -225,6 +226,19 @@ class HLMDPEnvWrapper(gym.Wrapper):
             "terminate_on_task_completed", False
         )
 
+        navigation_config_path = env_args.pop("navigation_config", None)
+        navigation_config = {}
+        if navigation_config_path is not None:
+            with open(navigation_config_path) as config_file:
+                navigation_config = yaml.safe_load(config_file) or {}
+            env_args["navigation_tasks"] = navigation_config.get("tasks", [])
+
+        mdp_config = navigation_config.get("mdp", navigation_config)
+        transitions = [
+            (int(transition["from_state"]), int(transition["to_state"]))
+            for transition in mdp_config.get("transitions", [])
+        ] or None
+
         # low-level environment
         self.env = BasicGymnasiumWrapper(env_args=env_args)
         super().__init__(self.env)
@@ -233,13 +247,17 @@ class HLMDPEnvWrapper(gym.Wrapper):
         self.hlmdp = ProjectMDP(
             num_rooms=self.num_rooms,
             msg_budget_per_agent=msg_budget_per_agent,
-            # task_type=self.task_type,
+            transitions=transitions,
+            states=mdp_config.get("states"),
+            initial_state=int(mdp_config.get("initial_state", 0)),
+            goal_states=mdp_config.get("goal_states"),
         )
 
         # this thing's action space should be a Cartesian product of the low-level env's and the MDP action space
         # you can use a dict to represent that since they're factored and different structure
         # similar for the obs space
         self._awaiting_next_navigation_task = False
+        self._active_navigation_task: tuple[int, int] | None = None
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         if options is None:
@@ -254,7 +272,14 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         if "hl_task" in options:
             hl_task = options["hl_task"]
-            ll_options["navigation_task_state"] = int(hl_task[1])
+            self._active_navigation_task = (
+                int(hl_task[0]),
+                int(hl_task[1]),
+            )
+            ll_options["navigation_task_transition"] = (
+                int(hl_task[0]),
+                int(hl_task[1]),
+            )
 
         _, hl_info = self.hlmdp.reset(seed=seed, options=hl_options)
         ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)
@@ -266,7 +291,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
         ll_info.update(hl_info)
         return ll_obs, ll_info
 
-    def step(self, actions: dict) -> tuple[NDArray, float, bool, bool, dict]:
+    def step(self, actions: dict | NDArray) -> tuple[NDArray, float, bool, bool, dict]:
         """
         Execute one step of the environment.
 
@@ -276,18 +301,31 @@ class HLMDPEnvWrapper(gym.Wrapper):
             High-level actions from agents, shape (n_agents,)
             Action indices into the MDP's action space
         """
-        # All agents share the same high-level action
-        hl_actions = actions["hl_actions"]
-        ll_actions = actions["env_actions"]
+        # Hierarchical controllers return both actions; ordinary controllers
+        # return only the low-level joint action for an independently selected task.
+        if isinstance(actions, dict):
+            hl_actions = actions["hl_actions"]
+            ll_actions = actions["env_actions"]
+        else:
+            if self._active_navigation_task is None:
+                raise RuntimeError(
+                    "A low-level-only action requires an active navigation task."
+                )
+            hl_actions = {
+                "chosen_next_state": self._active_navigation_task[1],
+                "comms_budget": 0.0,
+            }
+            ll_actions = actions
 
         if self._awaiting_next_navigation_task:
             next_state, _ = self.hlmdp.get_action_tuple(hl_actions)
+            from_state = self.hlmdp.agent.state
             try:
                 activate_task = self.env.get_wrapper_attr("activate_navigation_task")
             except AttributeError:
                 activate_task = None
             if activate_task is not None:
-                activate_task(next_state)
+                activate_task(from_state=from_state, to_state=next_state)
             self._awaiting_next_navigation_task = False
 
         # Advance the team MDP to the next goal state

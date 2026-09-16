@@ -43,6 +43,8 @@ parameters:
     ##################
     # MARL alg config
     ##################
+    config:
+        values: [maic_comm_opt]
     mixer:
         values: [vdn]
     lr:
@@ -54,9 +56,9 @@ parameters:
     n_test_replays_save:
         values: [5]
     test_interval:
-        values: [300000]
+        values: [100000]
     save_model_interval:
-        values: [300000]
+        values: [100000]
 
     # all values in the space-delimited list will be evaluated in a single run
     # goes up to n_agents - 1 since we assume agents cannot send themselves a message
@@ -74,42 +76,24 @@ parameters:
     ##################
     # basic env config
     env-config:
-        values: [multigrid-lbf-v0]
-    env_args.force_coop:
-        values: [True]
-    env_args.max_episode_steps:
-        values: [50]
-    env_args.n_agents:
-        values: [3]
-    env_args.max_fruit_level:
-        values: [3]
-    env_args.max_agent_level:
-        values: [1]
-
-    ##########
-    # specific setup for single-room env
-    # config:
-    #     values: [maic]
-    # env_args.map_name:
-    #     values: [1r_very_small]
-    # env_args.max_num_fruit:
-    #     values: [1]
-
-    ##########
-    # config for multiroom / multi-task env
-    config:
-        values: [maic_comm_opt]
-    terminate_on_task_completed:
-        values: [True]
+        values: [team-nav-v0]
     env_args.map_name:
-        values: [3ga_2r_very_small, 3ga_2r_small]
-    env_args.max_num_fruit_per_room:
-        values: [1]
-    hl_task:
-        values: [[0 1], [1 2]]
+        values: [3ga_1r_small_hall]
+    env_args.navigation_config:
+        values:
+            [
+                submodules/gym-multigrid/gym_multigrid/envs/maps/navigation_branching_small_hall.yaml,
+            ]
     env_args.hierarchical:
         values: [True]
-    ##########
+    env_args.terminate_on_task_completed:
+        values: [True]
+    env_args.max_episode_steps:
+        values: [20]
+    env_args.n_agents:
+        values: [3]
+    hl_task:
+        values: [[0 1], [0 2], [1 3], [2 3], [3 4]]
 
     # dynamics config
     env_args.chosen_move_prob:
@@ -117,26 +101,18 @@ parameters:
 
     # obs config
     env_args.state_type:
-        values: [multigrid_flattened]
+        values: [simple_navigation_features]
     env_args.obs_type:
-        values: [multigrid_flattened]
-    env_args.sight:
-        values: [8]
-    env_args.observe_other_agents:
-        values: [False]
-    # asymmetric obs for fruit, hoping to force comms between agents
-    env_args.asymmetric_fruit_obs:
-        values: [different_sensors]
-    env_args.num_agents_fruit_obs:
-        values: [0, 1, 2, 3]
+        values: [simple_navigation_features]
 
-    # reward config
-    env_args.reward_config.failed_load_penalty:
-        values: [-0.01]
+    env_args.goal_type:
+        values: [simultaneous_arrival]
+    env_args.reward_config.simultaneous_goal_reward_type:
+        values: [per_step_arrival_group_size]
 
     # rendering
     env_args.highlight_visible_cells:
-        values: [True]
+        values: [False]
 
 ##################
 # Conditional parameters

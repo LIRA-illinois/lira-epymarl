@@ -87,7 +87,7 @@ def _build_env_spec(args: SN, logger):
     else:
         scheme["reward"] = {"vshape": (args.n_agents,)}
 
-    if hasattr(args, "factored_hierarchical_policy"):
+    if "hl_state_shape" in env_info:
         scheme["hl_state"] = {"vshape": env_info["hl_state_shape"]}
 
     groups = {"agents": args.n_agents}
