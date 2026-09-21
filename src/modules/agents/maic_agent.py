@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from softtorch import topk as soft_topk
 from torch import topk as hard_topk
-from torch.distributions import kl_divergence
 from torch.types import Tensor
 
 
@@ -363,10 +362,8 @@ class MAICAgent(nn.Module):
             bs * self.n_agents, 2, self.n_agents, self.latent_dim
         )
 
-        teammate_conditional_dist = D.Normal(
-            loc=latent_embed[:, 0, :, :].reshape(-1, self.latent_dim),
-            scale=latent_embed[:, 1, :, :].reshape(-1, self.latent_dim) ** (1 / 2),
-        )
+        conditional_mean = latent_embed[:, 0, :, :].reshape(-1, self.latent_dim)
+        conditional_variance = latent_embed[:, 1, :, :].reshape(-1, self.latent_dim)
 
         # get the variational distribution which includes the other agent's action
         # q_{\xi}(z_{ij} | \tau_i, a_j, d_j)
@@ -395,13 +392,25 @@ class MAICAgent(nn.Module):
             th.exp(latent_infer[:, self.latent_dim :]), min=self.args.var_floor
         )
 
-        teammate_variational_dist = D.Normal(
-            loc=latent_infer[:, : self.latent_dim],
-            scale=latent_infer[:, self.latent_dim :] ** (1 / 2),
-        )
+        variational_mean = latent_infer[:, : self.latent_dim]
+        variational_variance = latent_infer[:, self.latent_dim :]
 
+        # Replaces the original Normal/kl_divergence calls with the equivalent
+        # diagonal-Gaussian formula. The second half remains a positive variance
+        # (exp + clamp), converted to scale only when sampling above.
         mi_loss = (
-            kl_divergence(teammate_conditional_dist, teammate_variational_dist)
+            (
+                0.5
+                * (
+                    th.log(variational_variance / conditional_variance)
+                    + (
+                        conditional_variance
+                        + (conditional_mean - variational_mean).square()
+                    )
+                    / variational_variance
+                    - 1
+                )
+            )
             .sum(-1)
             .mean()
         )

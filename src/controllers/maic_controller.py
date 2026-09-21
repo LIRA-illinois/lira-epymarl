@@ -18,6 +18,7 @@ class MAICMAC:
         self.action_selector = action_REGISTRY[args.action_selector](args)
 
         self.hidden_states = None
+        self._agent_ids = None
 
     def select_actions(self, ep_batch, t_ep, t_env, bs=slice(None), test_mode=False):
         # Only select actions for the selected batch elements in bs
@@ -122,11 +123,9 @@ class MAICMAC:
             else:
                 inputs.append(batch["actions_onehot"][:, t - 1])
         if self.args.obs_agent_id:
-            inputs.append(
-                th.eye(self.n_agents, device=batch.device)
-                .unsqueeze(0)
-                .expand(bs, -1, -1)
-            )
+            if self._agent_ids is None or self._agent_ids.device != batch.device:
+                self._agent_ids = th.eye(self.n_agents, device=batch.device)
+            inputs.append(self._agent_ids.unsqueeze(0).expand(bs, -1, -1))
 
         inputs = th.cat([x.reshape(bs * self.n_agents, -1) for x in inputs], dim=1)
         return inputs
