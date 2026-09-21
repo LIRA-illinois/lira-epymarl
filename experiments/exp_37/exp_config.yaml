@@ -12,7 +12,7 @@ parameters:
     #   values: [101]
     # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
     n_seeds:
-        values: [3]
+        values: [2]
 
     ##################
     # Project setup + logging
@@ -39,12 +39,6 @@ parameters:
     # everything on except Sacred cuz it suuucks
     use_sacred:
         values: [False]
-
-    # post_processing for after the run is done
-    post_processing:
-        values: [aggregate_runs]
-    time_id:
-        values: [exp_34_26-09-16_11-19-48]
 
     ##################
     # MARL alg config
@@ -83,6 +77,9 @@ parameters:
     msg_filter_type:
         values: [hard_topk]
 
+    msg_drop_rate:
+        values: [0.0, 0.5]
+
     ##################
     # Environment config
     ##################
@@ -90,7 +87,20 @@ parameters:
     env-config:
         values: [team-nav-v0]
     env_args.map_name:
-        values: [3ga_1r_very_small_hall]
+        values: [3ga_1r_small_hall]
+    # Shared directed HL graph and per-transition navigation tasks.
+    env_args.navigation_config:
+        values:
+            [
+                submodules/gym-multigrid/gym_multigrid/envs/maps/navigation_branching_small_hall.yaml,
+            ]
+    env_args.hierarchical:
+        values: [True]
+    # Train each directed subtask as an independent low-level scenario.
+    hl_task:
+        values: [[0 1], [0 2], [1 3], [2 3], [3, 4]]
+    env_args.terminate_on_task_completed:
+        values: [True]
     env_args.max_episode_steps:
         values: [15]
     env_args.n_agents:
@@ -100,7 +110,7 @@ parameters:
     env_args.goal_type:
         values: [simultaneous_arrival]
     env_args.reward_config.simultaneous_goal_reward_type:
-        values: [per_step_arrival_group_size]
+        values: ["per_step_arrival_group_size"]
 
     # obs config
     env_args.state_type:
@@ -108,11 +118,8 @@ parameters:
     env_args.obs_type:
         values: [simple_navigation_features]
 
-    msg_drop_rate:
-        values: [0.0, 0.5]
-
     env_args.agent_0_delay_prob:
-        values: [0.25, 0.5]
+        values: [0.5]
 
 ##################
 # Conditional parameters

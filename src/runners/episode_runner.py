@@ -6,6 +6,7 @@ from typing import Optional
 
 import matplotlib.image as mpl_img
 import numpy as np
+import torch as th
 from numpy.typing import NDArray
 from torch import Tensor
 
@@ -37,6 +38,7 @@ class EpisodeRunner:
 
         self.episode_limit = self.env.episode_limit
         self._t = 0
+        self._pending_obs = None
 
         self.t_env = 0
 
@@ -224,7 +226,8 @@ class EpisodeRunner:
 
     def _reset(self, options: dict | None = None) -> None:
         self.batch = self.new_batch()
-        self.env.reset(options=options)
+        obs, info = self.env.reset(options=options)
+        self._pending_obs = obs
         self._t = 0
 
     def _select_actions(self, test_mode: bool) -> NDArray | tuple:
@@ -240,9 +243,10 @@ class EpisodeRunner:
             actions = np.expand_dims(np.array(self.env.action_space.sample()), 0)
 
         else:
-            actions = self.mac.select_actions(
-                self.batch, t_ep=self._t, t_env=self.t_env, test_mode=test_mode
-            )
+            with th.no_grad():
+                actions = self.mac.select_actions(
+                    self.batch, t_ep=self._t, t_env=self.t_env, test_mode=test_mode
+                )
 
             if hasattr(self.args, "manual_policy"):
                 actions = self._manual_policy(actions)
@@ -269,6 +273,7 @@ class EpisodeRunner:
         else:
             obs, reward, terminated, truncated, env_info = self.env.step(actions[0])
 
+        self._pending_obs = obs
         return obs, reward, terminated, truncated, env_info
 
     def _get_pre_transition_data(self) -> dict:
@@ -283,7 +288,10 @@ class EpisodeRunner:
             data["state"].append(state)
 
         data["avail_actions"].append(self.env.avail_actions)
-        data["obs"].append(self.env.obs)
+        if self._pending_obs is None:
+            self._pending_obs = self.env.obs
+        data["obs"].append(self._pending_obs)
+        self._pending_obs = None
 
         return data
 
