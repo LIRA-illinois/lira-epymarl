@@ -38,7 +38,6 @@ class EpisodeRunner:
 
         self.episode_limit = self.env.episode_limit
         self._t = 0
-        self._pending_obs = None
 
         self.t_env = 0
 
@@ -75,7 +74,6 @@ class EpisodeRunner:
         t_env: Optional[int] = None,
     ) -> None:
         # use env in parallel comms eval when the new runners don't have updated t_env
-
         # get video folder from wandb logger
         # make the video dir
 
@@ -227,7 +225,6 @@ class EpisodeRunner:
     def _reset(self, options: dict | None = None) -> None:
         self.batch = self.new_batch()
         obs, info = self.env.reset(options=options)
-        self._pending_obs = obs
         self._t = 0
 
     def _select_actions(self, test_mode: bool) -> NDArray | tuple:
@@ -263,7 +260,7 @@ class EpisodeRunner:
 
     def _step(self, actions):
         if self.args.live_render:
-            self._live_render(file_name="pre_step")
+            self._live_render(file_name="pre_transition")
 
         if self.env.has_wrapper_attr("t_render"):
             self.env.set_wrapper_attr("t_render", self.t)
@@ -273,7 +270,6 @@ class EpisodeRunner:
         else:
             obs, reward, terminated, truncated, env_info = self.env.step(actions[0])
 
-        self._pending_obs = obs
         return obs, reward, terminated, truncated, env_info
 
     def _get_pre_transition_data(self) -> dict:
@@ -288,10 +284,7 @@ class EpisodeRunner:
             data["state"].append(state)
 
         data["avail_actions"].append(self.env.avail_actions)
-        if self._pending_obs is None:
-            self._pending_obs = self.env.obs
-        data["obs"].append(self._pending_obs)
-        self._pending_obs = None
+        data["obs"].append(self.env.obs)
 
         return data
 

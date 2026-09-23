@@ -198,6 +198,9 @@ class MainLogger:
         video_prefix: str = "replay",
     ) -> None:
         """logs all videos in a given directory to a wandb run, then removes the original directory to avoid replicated data on disk"""
+        if not os.path.isdir(dir):
+            return
+
         if self.use_wandb:
             # log all replays in a directory to a wandb run, concat videos
             # to a list then log the list for better visualization on the website
@@ -221,7 +224,8 @@ class MainLogger:
                 path_delete = join("/", *path[:-1])
 
             # needs an absolute path to work correctly
-            rmtree(path_delete)
+            if os.path.isdir(path_delete):
+                rmtree(path_delete)
 
     def log_table(self, key: str, value: pd.DataFrame, t: int) -> None:
         """Log accumulated evaluation statistics as a wandb table"""

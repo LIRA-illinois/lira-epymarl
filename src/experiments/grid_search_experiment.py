@@ -46,6 +46,7 @@ class GridSearch(object):
     ]
 
     script_path = join("src", "main.py")
+    default_table_params: set[str] = {"env_args.map_name"}
 
     def __init__(self) -> None:
         self.args = self._parse_args()
@@ -66,10 +67,10 @@ class GridSearch(object):
 
         if self.args.debug:
             debug_values = {
-                "t_max": 100,
+                "t_max": 500,
                 "test_nepisode": 1,
                 "n_test_replays": 1,
-                "test_interval": 50,
+                "test_interval": 250,
                 "env_args.max_episode_steps": 20,
             }
             for parameter, value in debug_values.items():
@@ -230,6 +231,11 @@ class GridSearch(object):
         self, base_config: dict, conditional_config: dict | None = None
     ) -> tuple[list[dict], list[str], list[str]]:
         scenarios, varied_param_names = self._gen_dict_combinations(base_config)
+        varied_param_names = [
+            parameter_name
+            for parameter_name in varied_param_names
+            if parameter_name not in self.default_table_params
+        ]
 
         # handle comms budgets when a unique policy per comms value is requested
         # expand scenarios so each comms value becomes its own scenario
@@ -265,13 +271,21 @@ class GridSearch(object):
                     )
 
                     for parameter_name in conditional_varied_param_names:
-                        if parameter_name not in varied_param_names:
+                        if (
+                            parameter_name not in self.default_table_params
+                            and parameter_name not in varied_param_names
+                        ):
                             varied_param_names.append(parameter_name)
 
                     updated_scenarios = []
                     indices_remove = []
                     for i, scenario in enumerate(scenarios):
-                        if scenario[outer_var] == inner_var:
+                        scenario_value = scenario[outer_var]
+                        if scenario_value == inner_var or (
+                            isinstance(scenario_value, list)
+                            and len(scenario_value) == 1
+                            and scenario_value[0] == inner_var
+                        ):
                             for combo in conditional_combos:
                                 unique_policy_per_msg_budget = combo.get(
                                     "unique_policy_per_msg_budget",

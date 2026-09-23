@@ -6,6 +6,7 @@ from torch.distributions import Categorical
 from torch.distributions.one_hot_categorical import OneHotCategorical
 
 from .epsilon_schedules import DecayThenFlatSchedule
+from .mapf_planner import PrioritizedBFSPlanner
 
 REGISTRY = {}
 
@@ -168,6 +169,53 @@ class EpsilonGreedyActionSelector:
 
 
 REGISTRY["epsilon_greedy"] = EpsilonGreedyActionSelector
+
+
+class MAPFEpsilonGreedyActionSelector(EpsilonGreedyActionSelector):
+    """Blend prioritized BFS actions into epsilon-greedy exploration early on."""
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.env = None
+        self.planner = PrioritizedBFSPlanner(getattr(args, "mapf_seed", 0))
+        self.mapf_start_steps = getattr(args, "mapf_start_steps", 0)
+        self.mapf_end_steps = getattr(args, "mapf_end_steps", 1_000_000)
+        self.mapf_probability = 1.0
+
+    def set_env(self, env):
+        self.env = env
+
+    def select_action(self, agent_inputs, avail_actions, t_env, test_mode=False):
+        actions = super().select_action(
+            agent_inputs, avail_actions, t_env, test_mode=test_mode
+        )
+        if test_mode or self.env is None:
+            return actions
+
+        if t_env <= self.mapf_start_steps:
+            planner_probability = 1.0
+        elif t_env >= self.mapf_end_steps:
+            planner_probability = 0.0
+        else:
+            planner_probability = 1.0 - (
+                (t_env - self.mapf_start_steps)
+                / (self.mapf_end_steps - self.mapf_start_steps)
+            )
+        self.mapf_probability = planner_probability
+
+        if planner_probability <= 0.0 or agent_inputs.shape[0] != 1:
+            return actions
+        if self.planner.random.random() >= planner_probability:
+            return actions
+
+        planned = self.planner.actions(self.env)
+        planned_tensor = th.tensor(planned, device=actions.device, dtype=actions.dtype)
+        planned_tensor = planned_tensor.unsqueeze(0)
+        valid = avail_actions.gather(2, planned_tensor.unsqueeze(-1)).squeeze(-1).bool()
+        return th.where(valid, planned_tensor, actions)
+
+
+REGISTRY["mapf_epsilon_greedy"] = MAPFEpsilonGreedyActionSelector
 
 
 class SoftPoliciesSelector:

@@ -1,6 +1,6 @@
 import copy
 from collections import defaultdict
-from typing import Literal
+from typing import Literal, cast
 
 import pandas as pd
 import torch as th
@@ -19,7 +19,11 @@ class MAICLearner:
 
         self.params = list(mac.parameters())
 
-        self.last_target_update_episode = 0
+        self.last_target_update_t_env = 0
+        episode_limit = getattr(args, "episode_limit", None)
+        if episode_limit is None:
+            episode_limit = args.env_args.get("max_episode_steps", 1)
+        self.target_update_interval_steps = args.target_update_interval * episode_limit
 
         self.mixer = None
         if args.mixer is not None:
@@ -50,8 +54,8 @@ class MAICLearner:
         )
 
         update_target_network = (
-            episode_num - self.last_target_update_episode
-        ) / self.args.target_update_interval >= 1.0
+            t_env - self.last_target_update_t_env
+        ) >= self.target_update_interval_steps
 
         # total loss for this training epoch
         loss = 0
@@ -76,7 +80,7 @@ class MAICLearner:
         loss += aux_loss
 
         # take an optimization step
-        self.optimiser.zero_grad()
+        self.optimiser.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm = th.nn.utils.clip_grad_norm_(self.params, self.args.grad_norm_clip)
         self.optimiser.step()
@@ -84,7 +88,7 @@ class MAICLearner:
         # update target network
         if update_target_network:
             self._update_target_network()
-            self.last_target_update_episode = episode_num
+            self.last_target_update_t_env = t_env
 
         # logging
         if prepare_for_logging:
@@ -148,7 +152,7 @@ class MAICLearner:
         terminated = batch["terminated"][:, :-1].float()
         mask = batch["filled"][:, :-1].float()
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
-        avail_actions = batch["avail_actions"]
+        avail_actions = cast(th.Tensor, batch["avail_actions"])
 
         # Pick the Q-Values for the actions taken by each agent
         chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(
@@ -161,10 +165,11 @@ class MAICLearner:
         with th.no_grad():
             for t in range(batch.max_seq_length):
                 target_agent_outs, _ = self.target_mac.forward(batch, t=t)
-                target_mac_out.append(target_agent_outs)
+                # We don't need the first timestep's Q-Value estimate for calculating targets
+                if t > 0:
+                    target_mac_out.append(target_agent_outs)
 
-            # We don't need the first timesteps Q-Value estimate for calculating targets
-            target_mac_out = th.stack(target_mac_out[1:], dim=1)  # Concat across time
+            target_mac_out = th.stack(target_mac_out, dim=1)  # Concat across time
 
             # Mask out unavailable actions
             target_mac_out[avail_actions[:, 1:] == 0] = -9999999
@@ -172,8 +177,9 @@ class MAICLearner:
             # Max over target Q-Values
             if self.args.double_q:
                 # Get actions that maximise live Q (for double q-learning)
-                mac_out_detach = mac_out.detach().clone()
-                mac_out_detach[avail_actions == 0] = -9999999
+                mac_out_detach = mac_out.detach().masked_fill(
+                    avail_actions == 0, -9999999.0
+                )
                 cur_max_actions = mac_out_detach[:, 1:].max(dim=3, keepdim=True)[1]
                 target_mac_max_qvals = th.gather(
                     target_mac_out, 3, cur_max_actions

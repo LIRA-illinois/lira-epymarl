@@ -129,7 +129,7 @@ class EpisodeBatch:
 
             dtype = self.scheme[k].get("dtype", th.float32)
             if isinstance(v, (list, tuple)):
-                v = np.array(v)
+                v = np.asarray(v)
             v = th.as_tensor(v, dtype=dtype, device=self.device)
 
             self._check_safe_view(v, target[k][_slices])
@@ -248,7 +248,10 @@ class EpisodeBatch:
         return parsed
 
     def max_t_filled(self):
-        return th.sum(self.data.transition_data["filled"], 1).max(0)[0]
+        # ``filled`` has a singleton feature dimension; avoid reducing it.
+        return (
+            self.data.transition_data["filled"][:, :, 0].sum(1).max(0)[0].unsqueeze(0)
+        )
 
     def __repr__(self):
         return "EpisodeBatch. Batch Size:{} Max_seq_len:{} Keys:{} Groups:{}".format(
@@ -274,16 +277,7 @@ class ReplayBuffer(EpisodeBatch):
 
     def insert_episode_batch(self, ep_batch):
         if self.buffer_index + ep_batch.batch_size <= self.buffer_size:
-            self.update(
-                ep_batch.data.transition_data,
-                slice(self.buffer_index, self.buffer_index + ep_batch.batch_size),
-                slice(0, ep_batch.max_seq_length),
-                mark_filled=False,
-            )
-            self.update(
-                ep_batch.data.episode_data,
-                slice(self.buffer_index, self.buffer_index + ep_batch.batch_size),
-            )
+            self._insert_contiguous(ep_batch)
             self.buffer_index = self.buffer_index + ep_batch.batch_size
             self.episodes_in_buffer = max(self.episodes_in_buffer, self.buffer_index)
             self.buffer_index = self.buffer_index % self.buffer_size
@@ -292,6 +286,23 @@ class ReplayBuffer(EpisodeBatch):
             buffer_left = self.buffer_size - self.buffer_index
             self.insert_episode_batch(ep_batch[0:buffer_left, :])
             self.insert_episode_batch(ep_batch[buffer_left:, :])
+
+    def _insert_contiguous(self, ep_batch):
+        start = self.buffer_index
+        stop = start + ep_batch.batch_size
+        time_stop = ep_batch.max_seq_length
+
+        for key, target in self.data.transition_data.items():
+            source = ep_batch.data.transition_data[key]
+            target[start:stop, :time_stop].copy_(
+                source.to(device=target.device, dtype=target.dtype)
+            )
+
+        for key, target in self.data.episode_data.items():
+            source = ep_batch.data.episode_data[key]
+            target[start:stop].copy_(
+                source.to(device=target.device, dtype=target.dtype)
+            )
 
     def can_sample(self, batch_size):
         return self.episodes_in_buffer >= batch_size

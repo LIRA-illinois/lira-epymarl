@@ -15,7 +15,7 @@ nvidia:
 # doesn't like to work when a run has crashed
 # 	wandb beta sync -n 5 ./results/wandb/*-run-*
 sync_results_wandb:
-	find ./results/wandb/ -type d -name "*-run-*" | xargs -n 1 -P 10 wandb sync --include-offline
+	find ./results/wandb/ -type d -name "*-run-*" | xargs -n 1 -P 5 wandb sync --include-offline
 
 # default values for these params
 # pass in gpus as a space-	 string like g="0 1 2"

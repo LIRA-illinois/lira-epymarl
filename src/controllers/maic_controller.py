@@ -11,6 +11,8 @@ class MAICMAC:
     def __init__(self, scheme, groups, args):
         self.n_agents = args.n_agents
         self.args = args
+        self._obs_last_action = args.obs_last_action
+        self._obs_agent_id = args.obs_agent_id
         input_shape = self._get_input_shape(scheme)
         self._build_agents(input_shape)
         self.agent_output_type = args.agent_output_type
@@ -115,26 +117,34 @@ class MAICMAC:
         # Assumes homogenous agents with flat observations.
         # Other MACs might want to e.g. delegate building inputs to each agent
         bs = batch.batch_size
-        inputs = []
-        inputs.append(batch["obs"][:, t])  # b1av
-        if self.args.obs_last_action:
+        obs = batch["obs"][:, t].reshape(bs * self.n_agents, -1)
+
+        if self._obs_last_action:
             if t == 0:
-                inputs.append(th.zeros_like(batch["actions_onehot"][:, t]))
+                last_action = th.zeros_like(batch["actions_onehot"][:, t])
             else:
-                inputs.append(batch["actions_onehot"][:, t - 1])
-        if self.args.obs_agent_id:
+                last_action = batch["actions_onehot"][:, t - 1]
+            last_action = last_action.reshape(bs * self.n_agents, -1)
+
+        if self._obs_agent_id:
             if self._agent_ids is None or self._agent_ids.device != batch.device:
                 self._agent_ids = th.eye(self.n_agents, device=batch.device)
-            inputs.append(self._agent_ids.unsqueeze(0).expand(bs, -1, -1))
+            agent_ids = self._agent_ids.unsqueeze(0).expand(bs, -1, -1)
+            agent_ids = agent_ids.reshape(bs * self.n_agents, -1)
 
-        inputs = th.cat([x.reshape(bs * self.n_agents, -1) for x in inputs], dim=1)
-        return inputs
+        if self._obs_last_action and self._obs_agent_id:
+            return th.cat((obs, last_action, agent_ids), dim=1)
+        if self._obs_last_action:
+            return th.cat((obs, last_action), dim=1)
+        if self._obs_agent_id:
+            return th.cat((obs, agent_ids), dim=1)
+        return obs
 
     def _get_input_shape(self, scheme):
         input_shape = scheme["obs"]["vshape"]
-        if self.args.obs_last_action:
+        if self._obs_last_action:
             input_shape += scheme["actions_onehot"]["vshape"][0]
-        if self.args.obs_agent_id:
+        if self._obs_agent_id:
             input_shape += self.n_agents
 
         return input_shape

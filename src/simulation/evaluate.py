@@ -37,16 +37,11 @@ def run_eval_episodes(
         prefix_parts.append(f"msg_budget_{msg_budget_per_agent:.2f}")
     file_name_prefix = "-".join(prefix_parts)
 
-    # If the runner's env supports terminating on task completion, enable it for evaluation
-    if hasattr(runner.env, "terminate_on_task_completed"):
+    # Process-backed runners expose environment controls through runner methods.
+    if hasattr(runner, "set_env_attr"):
+        runner.set_env_attr("terminate_on_task_completed", True)
+    elif hasattr(runner.env, "terminate_on_task_completed"):
         runner.env.terminate_on_task_completed = True
-
-    if args.save_test_replays:
-        runner.start_recording(
-            n_test_replays_save=args.n_test_replays_save,
-            video_prefix=file_name_prefix,
-            t_env=t_env,
-        )
 
     last_result = None
     for i in range(n_eval_eps):
@@ -62,9 +57,26 @@ def run_eval_episodes(
             reset_options=reset_options,
         )
 
-        # Stop recording after some episodes
-        # -1 b/c i is 0 indexed
-        if args.save_test_replays and i == args.n_test_replays_save - 1:
+    # Replay generation separate from metric evaluation so the
+    # normal evaluation loop does not render or encode video frames.
+    if (
+        args.save_test_replays
+        and args.n_test_replays_save > 0
+        and hasattr(runner, "start_recording")
+    ):
+        runner.start_recording(
+            n_test_replays_save=args.n_test_replays_save,
+            video_prefix=file_name_prefix,
+            t_env=t_env,
+        )
+        try:
+            for _ in range(args.n_test_replays_save):
+                runner.run(
+                    test_mode=True,
+                    return_log_stats=False,
+                    reset_options=reset_options,
+                )
+        finally:
             runner.stop_recording(t_env=t_env, video_prefix=file_name_prefix)
 
     last_result["log_stats"]["t_env"] = t_env
@@ -74,8 +86,10 @@ def run_eval_episodes(
         for k, v in reset_options.items():
             last_result["log_stats"][k] = v
 
-    # restore terminate_on_task_completed to False after evaluation
-    if hasattr(runner.env, "terminate_on_task_completed"):
+    # Restore terminate_on_task_completed to False after evaluation.
+    if hasattr(runner, "set_env_attr"):
+        runner.set_env_attr("terminate_on_task_completed", False)
+    elif hasattr(runner.env, "terminate_on_task_completed"):
         runner.env.terminate_on_task_completed = False
 
     if set_msg_budget_per_agent_for_eval:

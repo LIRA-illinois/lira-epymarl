@@ -23,6 +23,11 @@ learner_log_interval: 2000 # Log training stats every {} timesteps
 parallel_comms_eval: False # Whether to evaluate different comms values in parallel, if False evaluate sequentially
 
 t_max: 10000 # Stop running after this many timesteps
+early_stopping: False # Stop when training reward stabilizes
+early_stopping_window: 500000 # Timesteps used to assess reward stabilization
+early_stopping_min_delta: 0.01 # Maximum mean-reward change considered stable
+early_stopping_min_success_lcb: null # Optional lower confidence bound required for stopping
+early_stopping_confidence: 0.95 # Confidence level for the success-rate lower bound
 use_cuda: True # Use gpu by default unless it isn't available
 buffer_cpu_only: True # If true we won't keep all of the replay buffer in vram
 

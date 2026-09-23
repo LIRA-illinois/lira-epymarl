@@ -2,7 +2,6 @@ from collections import defaultdict
 from typing import Callable, Literal
 
 import torch as th
-import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 from softtorch import topk as soft_topk
@@ -205,13 +204,13 @@ class MAICAgent(nn.Module):
         if test_mode:
             latent = latent_embed[:, : self.n_agents * self.latent_dim]
         else:
-            teammate_embed_dist = D.Normal(
-                loc=latent_embed[:, : self.n_agents * self.latent_dim],
-                scale=(latent_embed[:, self.n_agents * self.latent_dim :]) ** (1 / 2),
-            )
-
-            # shape: (bs * self.n_agents, self.n_agents * self.latent_dim)
-            latent = teammate_embed_dist.rsample()
+            loc = latent_embed[:, : self.n_agents * self.latent_dim]
+            variance = latent_embed[:, self.n_agents * self.latent_dim :]
+            # Reparameterized diagonal-Gaussian sample. The network predicts
+            # variance, so convert it to standard deviation before sampling.
+            # This is equivalent to Normal(loc, sqrt(variance)).rsample()
+            # without constructing a distribution object on every forward pass.
+            latent = loc + th.sqrt(variance) * th.randn_like(loc)
         latent = latent.reshape(bs * self.n_agents * self.n_agents, self.latent_dim)
 
         return latent, latent_embed

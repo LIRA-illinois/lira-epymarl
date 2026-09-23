@@ -17,6 +17,7 @@ def render_navigation_tasks(
     output_path: Path,
     seed: int,
     dpi: int,
+    map_name: str,
 ) -> None:
     sys.path.insert(0, str(REPO_ROOT / "submodules" / "gym-multigrid"))
     from gym_multigrid.envs.team_navigation import TeamNavigationEnv
@@ -26,7 +27,7 @@ def render_navigation_tasks(
     transitions = [(task["from_state"], task["to_state"]) for task in tasks]
 
     env = TeamNavigationEnv(
-        map_name="3ga_1r_small_hall",
+        map_name=map_name,
         n_agents=len(tasks[0]["goal_positions"]),
         navigation_tasks=tasks,
     )
@@ -83,11 +84,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output",
         type=Path,
-        default=REPO_ROOT / "tmp/navigation_branching_small_hall.png",
+        default=REPO_ROOT / "tmp/navigation_branching.png",
     )
+    parser.add_argument("--map-name", default="3ga_1r_small_hall")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--dpi", type=int, default=160)
     args = parser.parse_args()
 
-    render_navigation_tasks(args.config, args.output, args.seed, args.dpi)
+    render_navigation_tasks(
+        args.config,
+        args.output,
+        args.seed,
+        args.dpi,
+        args.map_name,
+    )
     print(f"Saved image to {args.output}")

@@ -14,6 +14,11 @@ env_args:
 learner_log_interval: 10000
 log_interval: 10000
 runner_log_interval: 10000
-t_max: 2050000
+t_max: 3000000
 test_interval: 10000
 test_nepisode: 40
+
+# Optional MAPF-guided exploration settings. Enable with
+# action_selector=mapf_epsilon_greedy in an algorithm config or override.
+mapf_start_steps: 0
+mapf_end_steps: 1000000

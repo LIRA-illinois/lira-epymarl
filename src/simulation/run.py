@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from os import listdir, makedirs, walk
 from os.path import abspath, isdir, join, splitext
 from shutil import rmtree
+from statistics import NormalDist
 from types import SimpleNamespace as SN
 from typing import Optional
 
@@ -13,8 +14,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch as th
-
 import wandb
+
 from src.simulation.build import build_sim
 from src.simulation.evaluate import run_eval_episodes
 from src.utils.general_reward_support import test_alg_config_supports_reward
@@ -235,6 +236,8 @@ class Simulation:
 
         start_time = time.time()
         last_time = start_time
+        episode_reward_history: list[tuple[int, float]] = []
+        evaluation_success_lcb: Optional[float] = None
 
         # training loop
         self.logger.info("Beginning training for {} timesteps".format(self.args.t_max))
@@ -249,8 +252,26 @@ class Simulation:
             episode_batch = result["batch"] if isinstance(result, dict) else result
             self.buffer.insert_episode_batch(episode_batch)
 
-            # run a learning update step
-            if self.buffer.can_sample(self.args.batch_size):
+            if getattr(self.args, "early_stopping", False):
+                episode_reward_history.extend(
+                    (self.runner.t_env, episode_reward_total)
+                    for episode_reward_total in self._episode_batch_reward_totals(
+                        episode_batch
+                    )
+                )
+                window = getattr(self.args, "early_stopping_window", 500000)
+                episode_reward_history = [
+                    (timestamp, episode_reward_total)
+                    for timestamp, episode_reward_total in episode_reward_history
+                    if timestamp >= self.runner.t_env - window
+                ]
+
+            # Keep the learner update count proportional to collected episodes.
+            n_updates = episode_batch.batch_size
+            for update_idx in range(n_updates):
+                if not self.buffer.can_sample(self.args.batch_size):
+                    break
+
                 episode_sample = self.buffer.sample(self.args.batch_size)
 
                 # Truncate batch to only filled timesteps
@@ -260,7 +281,11 @@ class Simulation:
                 if episode_sample.device != self.args.device:
                     episode_sample.to(self.args.device)
 
-                self.learner.train(episode_sample, self.runner.t_env, episode)
+                self.learner.train(
+                    episode_sample,
+                    self.runner.t_env,
+                    episode + update_idx,
+                )
 
             # run evaluation episodes
             if self.runner.t_env - last_test_t >= self.args.test_interval:
@@ -276,7 +301,39 @@ class Simulation:
 
                 last_time = time.time()
                 last_test_t = self.runner.t_env
-                self.evaluate(n_eval_eps=self.n_eval_eps, reset_options=reset_options)
+                evaluation_success_lcb = self.evaluate(
+                    n_eval_eps=self.n_eval_eps, reset_options=reset_options
+                )
+                if evaluation_success_lcb is not None:
+                    self.logger.log_stat(
+                        "early_stopping_success_lcb",
+                        evaluation_success_lcb,
+                        self.runner.t_env,
+                    )
+
+            reward_stabilized = self._training_reward_stabilized(
+                episode_reward_history,
+                self.runner.t_env,
+                getattr(self.args, "early_stopping_window", 500000),
+                getattr(self.args, "early_stopping_min_delta", 0.01),
+            )
+            min_success_lcb = getattr(self.args, "early_stopping_min_success_lcb", None)
+            success_lcb_ready = min_success_lcb is None or (
+                evaluation_success_lcb is not None
+                and evaluation_success_lcb >= min_success_lcb
+            )
+            if reward_stabilized and success_lcb_ready:
+                stopping_reason = "episode reward stabilized"
+                if min_success_lcb is not None:
+                    stopping_reason += (
+                        f"; success-rate LCB reached {evaluation_success_lcb:.3f}"
+                    )
+                self.logger.info(
+                    "Stopping training early: "
+                    f"{stopping_reason} over "
+                    f"{self.args.early_stopping_window} timesteps."
+                )
+                break
 
             # save model to disk
             if (
@@ -297,13 +354,84 @@ class Simulation:
         self.runner.close_env()
         self.logger.info("Finished Training")
 
+    @staticmethod
+    def _episode_batch_reward_totals(episode_batch) -> np.ndarray:
+        rewards = episode_batch["reward"].detach().cpu().numpy()
+        filled = episode_batch["filled"].detach().cpu().numpy().squeeze(-1)
+        episode_reward_totals = (rewards * filled[..., None]).sum(axis=1)
+        if episode_reward_totals.ndim > 1:
+            episode_reward_totals = episode_reward_totals.sum(axis=-1)
+        return np.asarray(episode_reward_totals, dtype=float)
+
+    @staticmethod
+    def _training_reward_stabilized(
+        episode_reward_history: list[tuple[int, float]],
+        t_env: int,
+        window: int,
+        min_delta: float,
+    ) -> bool:
+        if window <= 0 or t_env < window:
+            return False
+
+        window_start = t_env - window
+        midpoint = window_start + window / 2
+        first_half = [
+            episode_reward_total
+            for timestamp, episode_reward_total in episode_reward_history
+            if window_start <= timestamp < midpoint
+        ]
+        second_half = [
+            episode_reward_total
+            for timestamp, episode_reward_total in episode_reward_history
+            if timestamp >= midpoint
+        ]
+
+        if len(first_half) < 5 or len(second_half) < 5:
+            return False
+
+        return (
+            abs(float(np.mean(second_half)) - float(np.mean(first_half))) <= min_delta
+        )
+
+    @staticmethod
+    def _success_rate_lcb(
+        success_rate: float, n_episodes: int, confidence: float
+    ) -> Optional[float]:
+        """Return the Wilson lower confidence bound for a success rate."""
+        if n_episodes <= 0 or not 0.0 <= success_rate <= 1.0:
+            return None
+        if not 0.0 < confidence < 1.0:
+            raise ValueError("confidence must be between 0 and 1")
+
+        z = NormalDist().inv_cdf(0.5 + confidence / 2.0)
+        denominator = 1.0 + z**2 / n_episodes
+        center = success_rate + z**2 / (2.0 * n_episodes)
+        margin = z * np.sqrt(
+            success_rate * (1.0 - success_rate) / n_episodes
+            + z**2 / (4.0 * n_episodes**2)
+        )
+        return float((center - margin) / denominator)
+
+    def _evaluation_success_lcb(self, log_stats: dict) -> Optional[float]:
+        success_rate = log_stats.get("test_task_completed_mean")
+        n_episodes = log_stats.get("test_n_episodes")
+        if success_rate is None or n_episodes is None:
+            return None
+        return self._success_rate_lcb(
+            float(success_rate),
+            int(n_episodes),
+            getattr(self.args, "early_stopping_confidence", 0.95),
+        )
+
     def _train_high_level_policy(self, df_data: pd.DataFrame) -> None:
         self.runner.env.hlmdp.transition_probs = df_data
         self.learner.optimize_hl_agent(
             self.runner.env.hlmdp, self.args.success_rate_spec
         )
 
-    def evaluate(self, n_eval_eps: int, reset_options: Optional[dict] = None) -> None:
+    def evaluate(
+        self, n_eval_eps: int, reset_options: Optional[dict] = None
+    ) -> Optional[float]:
         """Evaluation entry point."""
 
         # always comms sweep if hierarchical or not
@@ -316,15 +444,20 @@ class Simulation:
 
             eval_data: list[dict] = []
 
-            # update the env's rng state and set it to the same value at the start of each comms value
-            # used to generate the exact same initial env layouts so comms is the only variable that changes
-            # this only works if np_random is not used in env.step() since the generator's state changes
-            # every time it generates a random number
-            env_rng = self.runner.env.get_wrapper_attr("np_random")
-            init_rng_state = env_rng.bit_generator.state
+            # Keep evaluation layouts matched across communication budgets.
+            # Process-backed runners keep their RNGs in the worker processes.
+            if hasattr(self.runner, "get_env_rng_states"):
+                init_rng_state = self.runner.get_env_rng_states()
+            else:
+                env_rng = self.runner.env.get_wrapper_attr("np_random")
+                init_rng_state = env_rng.bit_generator.state
 
             for budget in msg_budget_per_agent_list:
-                env_rng.bit_generator.state = init_rng_state
+                if hasattr(self.runner, "set_env_rng_states"):
+                    self.runner.set_env_rng_states(init_rng_state)
+                else:
+                    env_rng = self.runner.env.get_wrapper_attr("np_random")
+                    env_rng.bit_generator.state = init_rng_state
 
                 self.logger.info(f"Evaluating with msg_budget_per_agent = {budget}")
 
@@ -343,11 +476,17 @@ class Simulation:
                 eval_data.append(result["log_stats"])
 
             df_eval = pd.DataFrame.from_records(eval_data)
+            success_lcbs = [
+                lcb
+                for log_stats in eval_data
+                if (lcb := self._evaluation_success_lcb(log_stats)) is not None
+            ]
 
             self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
             self._make_comms_eval_plots(
                 self.logger.data_tables["eval_stats"], t=self.runner.t_env
             )
+            return max(success_lcbs, default=None)
 
             """
             if self.args.parallel_comms_eval:
@@ -382,7 +521,12 @@ class Simulation:
         # non-hierarchical evaluation w/ no comms sweep
         else:
             self.logger.info("Evaluating Policy", log_header=True)
-            run_eval_episodes(args=self.args, runner=self.runner, n_eval_eps=n_eval_eps)
+            result = run_eval_episodes(
+                args=self.args, runner=self.runner, n_eval_eps=n_eval_eps
+            )
+            if result is None:
+                return None
+            return self._evaluation_success_lcb(result["log_stats"])
 
         """
         # Hierarchical env handling
