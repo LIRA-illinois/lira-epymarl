@@ -200,13 +200,13 @@ class EpisodeRunner:
         out = {}
 
         if test_mode:
-            if len(self.test_returns) == self.args.test_nepisode:
+            if return_log_stats:
                 log_stats = self._get_log_stats(cur_returns, cur_stats, log_prefix)
-                if return_log_stats:
-                    # return data in cur_returns and cur_stats for processing outside of episode runner
-                    out["log_stats"] = log_stats
-                else:
-                    self._log(log_stats)
+                # Return data in cur_returns and cur_stats for processing outside of episode runner.
+                out["log_stats"] = log_stats
+            elif len(self.test_returns) == self.args.test_nepisode:
+                log_stats = self._get_log_stats(cur_returns, cur_stats, log_prefix)
+                self._log(log_stats)
         else:
             if self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
                 # Training mode logging

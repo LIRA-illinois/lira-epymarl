@@ -79,7 +79,7 @@ if __name__ == "__main__":
         "--config",
         type=Path,
         default=REPO_ROOT
-        / "submodules/gym-multigrid/gym_multigrid/envs/maps/navigation_branching_small_hall.yaml",
+        / "submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_small_hall.yaml",
     )
     parser.add_argument(
         "--output",

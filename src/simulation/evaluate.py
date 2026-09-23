@@ -43,15 +43,15 @@ def run_eval_episodes(
     elif hasattr(runner.env, "terminate_on_task_completed"):
         runner.env.terminate_on_task_completed = True
 
-    last_result = None
+    evaluation_result = None
     for i in range(n_eval_eps):
         if i % 50 == 0:
             runner.logger.info(f"Test Episode: {i} / {n_eval_eps}")
 
         return_stats = i == n_eval_eps - 1
 
-        # last_result only has "log_stats" in it after all eps have run
-        last_result = runner.run(
+        # Only the final evaluation run returns "log_stats".
+        evaluation_result = runner.run(
             test_mode=True,
             return_log_stats=return_stats,
             reset_options=reset_options,
@@ -79,12 +79,15 @@ def run_eval_episodes(
         finally:
             runner.stop_recording(t_env=t_env, video_prefix=file_name_prefix)
 
-    last_result["log_stats"]["t_env"] = t_env
+    if evaluation_result is None:
+        raise ValueError("n_eval_eps must be greater than zero")
+
+    evaluation_result["log_stats"]["t_env"] = t_env
 
     # log stuff like current HL task and comms action
     if reset_options is not None:
         for k, v in reset_options.items():
-            last_result["log_stats"][k] = v
+            evaluation_result["log_stats"][k] = v
 
     # Restore terminate_on_task_completed to False after evaluation.
     if hasattr(runner, "set_env_attr"):
@@ -98,7 +101,7 @@ def run_eval_episodes(
         )
         runner.mac.msg_budget_per_agent = args.n_agents - 1
 
-    return last_result
+    return evaluation_result
 
 
 def eval_worker(

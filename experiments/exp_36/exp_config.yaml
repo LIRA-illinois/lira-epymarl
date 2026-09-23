@@ -102,7 +102,7 @@ parameters:
     env_args.navigation_config:
         values:
             [
-                submodules/gym-multigrid/gym_multigrid/envs/maps/navigation_branching_small_hall.yaml,
+                submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_small_hall.yaml,
             ]
     env_args.hierarchical:
         values: [True]

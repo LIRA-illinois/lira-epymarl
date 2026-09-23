@@ -70,7 +70,7 @@ class RecordVideoExtended(RecordVideo):
 
         if len(self.recorded_frames) == 0:
             logger.warn("Ignored saving a video as there were zero frames to save.")
-        else:
+        elif save:
             try:
                 from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
             except ImportError as e:
@@ -80,7 +80,6 @@ class RecordVideoExtended(RecordVideo):
                     'MoviePy is not installed, run `pip install "gymnasium[other]"`'
                 ) from e
 
-        if save:
             clip = ImageSequenceClip(self.recorded_frames, fps=self.frames_per_sec)
             moviepy_logger = None if self.disable_logger else "bar"
 
@@ -124,10 +123,14 @@ class RecordVideoExtended(RecordVideo):
         """overrides parent's step(), gives option to capture the frame with the chosen action before the transition occurs"""
         # render a frame of the env with the chosen action before stepping
         if isinstance(action, dict) and action.get("hl_actions", False):
-            self.env.set_wrapper_attr("_pre_step_hl_actions", action["hl_actions"])
-            self.env.set_wrapper_attr("_pre_step_actions", action["env_actions"])
+            self.env.set_wrapper_attr(
+                "_pre_step_hl_actions", action["hl_actions"]
+            )
+            self.env.set_wrapper_attr(
+                "_pre_step_actions", np.asarray(action["env_actions"])
+            )
         else:
-            self.env.set_wrapper_attr("_pre_step_actions", action)
+            self.env.set_wrapper_attr("_pre_step_actions", np.asarray(action))
 
         if capture_before_step:
             if self.recording:

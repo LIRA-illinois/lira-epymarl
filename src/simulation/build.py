@@ -56,6 +56,10 @@ def build_sim(
 
     # Give runner the scheme
     runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
+    if hasattr(mac, "set_env"):
+        mac.set_env(runner.env)
+    elif hasattr(mac.action_selector, "set_env"):
+        mac.action_selector.set_env(runner.env)
 
     return args, runner, buffer, learner
 

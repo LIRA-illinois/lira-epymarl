@@ -177,7 +177,7 @@ class MAPFEpsilonGreedyActionSelector(EpsilonGreedyActionSelector):
     def __init__(self, args):
         super().__init__(args)
         self.env = None
-        self.planner = PrioritizedBFSPlanner(getattr(args, "mapf_seed", 0))
+        self.planner = PrioritizedBFSPlanner(args.seed)
         self.mapf_start_steps = getattr(args, "mapf_start_steps", 0)
         self.mapf_end_steps = getattr(args, "mapf_end_steps", 1_000_000)
         self.mapf_probability = 1.0
