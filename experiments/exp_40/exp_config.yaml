@@ -12,7 +12,7 @@ parameters:
     #   values: [101]
     # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
     n_seeds:
-        values: [1]
+        values: [2]
 
     ##################
     # Project setup + logging
@@ -45,32 +45,19 @@ parameters:
     ##################
     config:
         values: [maic]
-    action_selector:
-        values: [mapf_epsilon_greedy, epsilon_greedy]
     mixer:
         values: [qmix]
+    runner:
+        values: [parallel_shared_memory]
+        # values: [episode, parallel_shared_memory]
     lr:
         values: [0.00005]
     t_max:
-        values: [5050000]
-    early_stopping:
-        values: [True]
-    early_stopping_window:
-        values: [500000]
-    early_stopping_min_delta:
-        values: [0.01]
-    early_stopping_min_success_lcb:
-        values: [0.95]
-    early_stopping_confidence:
-        values: [0.95]
+        values: [3050000]
     epsilon_anneal_time:
-        values: [2000000]
-    mapf_start_steps:
-        values: [0]
-    mapf_end_steps:
-        values: [2000000]
+        values: [1000000]
     test_nepisode:
-        values: [100]
+        values: [50]
     n_test_replays_save:
         values: [5]
     test_interval:
@@ -93,9 +80,6 @@ parameters:
     msg_filter_type:
         values: [hard_topk]
 
-    msg_drop_rate:
-        values: [0.5]
-
     ##################
     # Environment config
     ##################
@@ -103,7 +87,7 @@ parameters:
     env-config:
         values: [team-nav-v0]
     env_args.map_name:
-        values: [3ga_1r_small, 3ga_1r_small_hall, 3ga_1r_small_hall_obstacles]
+        values: [3ga_1r_very_small_hall, 3ga_1r_small_hall]
     env_args.max_episode_steps:
         values: [15]
     env_args.n_agents:
@@ -125,16 +109,11 @@ parameters:
 # don't make these too complex or nest these deeper, it'll probably break something
 ##################
 conditional_parameters:
-    env_args.map_name:
-        3ga_1r_small_hall_obstacles:
-            env_args.navigation_config:
-                values:
-                    [
-                        submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_bottleneck.yaml,
-                    ]
-            env_args.hierarchical:
-                values: [True]
-            hl_task:
-                values: [[0 1]]
-            env_args.terminate_on_task_completed:
-                values: [True]
+    runner:
+        # episode:
+        #     batch_size_run:
+        #         values: [1]
+        parallel_shared_memory:
+            batch_size_run:
+                values: [1]
+                # values: [25, 50, 100]
