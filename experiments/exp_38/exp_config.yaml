@@ -90,6 +90,12 @@ parameters:
     msg_drop_rate:
         values: [0.5]
 
+    # post_processing for after the run is done
+    post_processing:
+        values: [aggregate_runs]
+    time_id:
+        values: [exp_38_26-09-23_16-31-25]
+
     ##################
     # Environment config
     ##################

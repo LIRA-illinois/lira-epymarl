@@ -47,22 +47,14 @@ parameters:
         values: [maic]
     mixer:
         values: [qmix]
-    lr:
-        values: [0.00005]
+    runner:
+        values: [parallel_shared_memory]
+    batch_size_run:
+        values: [40]
     t_max:
         values: [5050000]
     epsilon_anneal_time:
         values: [2000000]
-    early_stopping:
-        values: [True]
-    early_stopping_window:
-        values: [500000]
-    early_stopping_min_delta:
-        values: [0.01]
-    early_stopping_min_success_lcb:
-        values: [0.95]
-    early_stopping_confidence:
-        values: [0.95]
     test_nepisode:
         values: [50]
     n_test_replays_save:
@@ -82,19 +74,13 @@ parameters:
     # all values in the space-delimited list will be evaluated in a single run
     # goes up to n_agents - 1 since we assume agents cannot send themselves a message
     msg_budget_per_agent:
-        values: [[0 1 2]]
+        values: [[2]]
     # message filtering to model a constrained communication network
     msg_filter_type:
         values: [hard_topk]
 
     msg_drop_rate:
         values: [0.5]
-
-    # post_processing for after the run is done
-    post_processing:
-        values: [aggregate_runs]
-    time_id:
-        values: [exp_36_26-09-23_16-29-16]
 
     ##################
     # Environment config
@@ -103,22 +89,9 @@ parameters:
     env-config:
         values: [team-nav-v0]
     env_args.map_name:
-        values: [3ga_1r_small_hall]
-    # Shared directed HL graph and per-transition navigation tasks.
-    env_args.navigation_config:
-        values:
-            [
-                submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_small_hall.yaml,
-            ]
-    env_args.hierarchical:
-        values: [True]
-    # Train each directed subtask as an independent low-level scenario.
-    hl_task:
-        values: [[0 1], [0 2], [1 3], [2 3], [3 4]]
-    env_args.terminate_on_task_completed:
-        values: [True]
+        values: [3ga_1r_small_hall_obstacles]
     env_args.max_episode_steps:
-        values: [15]
+        values: [50]
     env_args.n_agents:
         values: [3]
 
@@ -128,12 +101,26 @@ parameters:
     env_args.reward_config.simultaneous_goal_reward_type:
         values: [per_step_arrival_group_size]
 
+    # obs config
     env_args.agent_0_delay_prob:
-        values: [0.5]
+        values: [0.2]
 
 ##################
 # Conditional parameters
 # use conditional params to specify single values to use for a given setup specified in "parameters" above
 # don't make these too complex or nest these deeper, it'll probably break something
 ##################
-# conditional_parameters:
+conditional_parameters:
+    env_args.map_name:
+        3ga_1r_small_hall_obstacles:
+            env_args.navigation_config:
+                values:
+                    [
+                        submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_bottleneck.yaml,
+                    ]
+            env_args.hierarchical:
+                values: [True]
+            hl_task:
+                values: [[0 1]]
+            env_args.terminate_on_task_completed:
+                values: [True]

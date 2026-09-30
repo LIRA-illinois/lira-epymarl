@@ -50,7 +50,7 @@ parameters:
     runner:
         values: [parallel_shared_memory]
     batch_size_run:
-        values: [50]
+        values: [100]
     lr:
         values: [0.00005]
     t_max:
@@ -88,7 +88,8 @@ parameters:
     env-config:
         values: [team-nav-v0]
     env_args.map_name:
-        values: [3ga_1r_very_small_hall, 3ga_1r_small_hall]
+        values: [3ga_1r_small_hall]
+        # values: [3ga_1r_very_small_hall, 3ga_1r_small_hall]
     env_args.max_episode_steps:
         values: [15]
     env_args.n_agents:

@@ -1,16 +1,18 @@
-from logging import Logger
-from typing import Optional
-import os
-from os.path import join
-from collections import defaultdict
-from hashlib import sha256
 import json
 import logging
-import pandas as pd
+import os
+from collections import defaultdict
+from hashlib import sha256
+from logging import Logger
+from os.path import join
 from shutil import rmtree
+from typing import Optional
+from uuid import uuid4
+
+import numpy as np
+import pandas as pd
 
 import wandb
-import numpy as np
 
 # 10 minute timeout to try to prevent crashes due to wandb
 # API upload limits
@@ -66,7 +68,12 @@ class MainLogger:
             )
 
         else:
-            self.dir: str = os.path.join(RESULTS_DIR, "data")
+            data_dir = os.path.join(RESULTS_DIR, "data")
+            if getattr(args, "post_processing", None):
+                postprocess_id = f"{args.time_id}_{args.post_processing}_{uuid4().hex}"
+                self.dir = os.path.join(data_dir, postprocess_id)
+            else:
+                self.dir = data_dir
             os.makedirs(self.dir, exist_ok=True)
 
     def _setup_wandb(
@@ -322,7 +329,9 @@ class LocalLogger:
         def info(self, *a, **k) -> None:
             print(*a)
 
-    def __init__(self, dir: str, wandb_config: dict, msg_budget_per_agent: float) -> None:
+    def __init__(
+        self, dir: str, wandb_config: dict, msg_budget_per_agent: float
+    ) -> None:
         """
         Initialize the local logger.
 

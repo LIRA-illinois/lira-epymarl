@@ -14,12 +14,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch as th
-import wandb
+from matplotlib.patches import FancyArrowPatch
 
+import wandb
 from src.simulation.build import build_sim
 from src.simulation.evaluate import run_eval_episodes
 from src.utils.general_reward_support import test_alg_config_supports_reward
 from src.utils.logging import MainLogger, log_setup
+from src.utils.navigation_rendering import (
+    load_navigation_mdp,
+    render_navigation_task_frames,
+)
 from src.utils.timehelper import time_left, time_str
 
 # use agg backend to support multiprocessing
@@ -71,14 +76,18 @@ class Simulation:
                     return_runs=True,
                 )
 
-                # Group scenarios by all configuration parameters except seed,
-                # scenario, and communication budget. This keeps parameters such
-                # as msg_drop_rate as separate plot groups.
+                # Group scenarios by experimental conditions while allowing
+                # different model implementations to contribute to one plot.
                 ignored_config_keys = {
                     "_wandb",
                     "msg_budget_per_agent",
                     "scenario",
                     "seed",
+                    "config",
+                    "agent",
+                    "learner",
+                    "mac",
+                    "mixer",
                 }
 
                 def without_seed(value):
@@ -94,6 +103,7 @@ class Simulation:
 
                 scenario_groups = {}
                 group_runs = {}
+                scenario_runs = {}
                 for run in runs:
                     scenario_value = run.config.get("scenario")
                     try:
@@ -109,6 +119,7 @@ class Simulation:
                         )
                     )
                     scenario_groups[scenario] = group_key
+                    scenario_runs[scenario] = run
                     group_runs.setdefault(group_key, run)
 
                 df_data["scenario_group"] = df_data["scenario"].map(scenario_groups)
@@ -118,29 +129,45 @@ class Simulation:
 
                 postprocess_name = f"{self.args.time_id}_postprocess"
                 api = wandb.Api()
-                existing_postprocess_run = next(
+                postprocess_runs = [
+                    run
+                    for run in api.runs(
+                        self.args.wandb_project,
+                        filters={"config.time_id": self.args.time_id},
+                    )
+                    if (getattr(run, "name", "") or "") in {postprocess_name}
+                    or (getattr(run, "name", "") or "").startswith(
+                        f"{postprocess_name}_"
+                    )
+                ]
+                active_postprocess_run = next(
                     (
                         run
-                        for run in api.runs(
-                            self.args.wandb_project,
-                            filters={"config.time_id": self.args.time_id},
-                        )
-                        if getattr(run, "name", "") == postprocess_name
+                        for run in postprocess_runs
+                        if (getattr(run, "state", "") or "").lower() == "running"
                     ),
                     None,
                 )
 
-                if existing_postprocess_run is not None:
+                if active_postprocess_run is not None:
                     self.logger.info(
-                        f"Resuming existing post-processing run {existing_postprocess_run.id}"
+                        f"Resuming active post-processing run {active_postprocess_run.id}"
                     )
                     wandb_run = wandb.init(
-                        entity=getattr(existing_postprocess_run, "entity", None),
-                        project=getattr(existing_postprocess_run, "project", None),
-                        id=existing_postprocess_run.id,
+                        entity=getattr(active_postprocess_run, "entity", None),
+                        project=getattr(active_postprocess_run, "project", None),
+                        id=active_postprocess_run.id,
                         resume="allow",
                     )
                 else:
+                    finished_postprocess_run = any(
+                        (getattr(run, "state", "") or "").lower() == "finished"
+                        for run in postprocess_runs
+                    )
+                    if finished_postprocess_run:
+                        revision = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        postprocess_name = f"{postprocess_name}_{revision}"
+
                     # Use a dedicated online run for aggregate images.
                     wandb_run = wandb.init(
                         entity=getattr(source_run, "entity", None),
@@ -155,6 +182,9 @@ class Simulation:
                         mode="online",
                     )
 
+                combined_groups_by_map = {}
+                combined_source_runs_by_map = {}
+                source_runs_by_map = {}
                 for group_idx, (group_key, df_group) in enumerate(
                     df_data.groupby("scenario_group", sort=True), start=1
                 ):
@@ -186,25 +216,100 @@ class Simulation:
                             for scenario in df_group["scenario"].dropna().unique()
                         }
                     )
+                    group_source_run = group_runs.get(group_key)
+                    if group_source_run is None:
+                        continue
+                    map_name = self._map_name_from_config(group_source_run.config)
+                    map_name = map_name or "unknown_map"
+                    hl_task = group_source_run.config.get("hl_task")
                     scenario_label = "_".join(
                         str(scenario) for scenario in scenario_indices
                     )
+                    if isinstance(hl_task, (list, tuple)):
+                        hl_task_label = "-".join(str(state) for state in hl_task)
+                    elif hl_task is not None:
+                        hl_task_label = str(hl_task)
+                    else:
+                        hl_task_label = None
+
+                    plot_group = f"s{scenario_label}"
+                    if hl_task_label is not None:
+                        plot_group += f"_t{hl_task_label}"
+                    plot_group = f"map_{map_name}_{plot_group}"
+                    combined_groups_by_map.setdefault(map_name, []).append(
+                        (
+                            f"task {hl_task_label or group_idx}",
+                            df_avg.copy(),
+                            hl_task,
+                        )
+                    )
+                    source_runs_by_budget = {}
+                    for scenario in scenario_indices:
+                        scenario_run = scenario_runs.get(scenario)
+                        if scenario_run is None:
+                            continue
+                        for budget in self._configured_message_budgets(
+                            scenario_run.config.get("msg_budget_per_agent")
+                        ):
+                            source_runs_by_budget[budget] = scenario_run
+                    combined_source_runs_by_map.setdefault(map_name, []).append(
+                        source_runs_by_budget
+                    )
+                    source_runs_by_map.setdefault(map_name, group_source_run)
                     self.logger.info(
                         f"Plotting aggregated eval stats for group {group_idx}: "
                         f"{parameter_info}"
                     )
-                    aggregate_table = wandb.Table(dataframe=df_avg)
-                    self._make_comms_eval_plots(
-                        aggregate_table,
-                        t=np.max(df_avg.t_env_rounded),
-                        wandb_run=wandb_run,
-                        info_str=(
-                            f"Group {group_idx}; Min Seeds: {min_n_seeds}, "
-                            f"Max Seeds: {max_n_seeds}"
-                        ),
-                        plot_group=f"scenarios_{scenario_label}",
-                    )
+                    if hl_task is not None:
+                        aggregate_table = wandb.Table(dataframe=df_avg)
+                        self._make_comms_eval_plots(
+                            aggregate_table,
+                            t=np.max(df_avg.t_env_rounded),
+                            wandb_run=wandb_run,
+                            info_str=(
+                                f"Group {group_idx}; Min Seeds: {min_n_seeds}, "
+                                f"Max Seeds: {max_n_seeds}"
+                            ),
+                            plot_group=plot_group,
+                        )
 
+                for map_name in sorted(combined_groups_by_map):
+                    map_groups = combined_groups_by_map[map_name]
+                    map_t = max(
+                        int(df["t_env_rounded"].max()) for _, df, _ in map_groups
+                    )
+                    if not any(hl_task is not None for _, _, hl_task in map_groups):
+                        map_df = pd.concat(
+                            [df for _, df, _ in map_groups], ignore_index=True
+                        )
+                        map_df = (
+                            map_df.groupby(
+                                ["msg_budget_per_agent", "t_env"], dropna=False
+                            )
+                            .mean(numeric_only=True)
+                            .reset_index()
+                        )
+                        self._make_comms_eval_plots(
+                            wandb.Table(dataframe=map_df),
+                            t=map_t,
+                            wandb_run=wandb_run,
+                            plot_group=f"map_{map_name}",
+                        )
+                    if any(hl_task is not None for _, _, hl_task in map_groups):
+                        self._make_combined_comms_eval_plots(
+                            map_groups,
+                            t=map_t,
+                            map_name=map_name,
+                            wandb_run=wandb_run,
+                        )
+                        self._make_task_success_frame_plot(
+                            map_groups,
+                            source_runs=combined_source_runs_by_map[map_name],
+                            source_run=source_runs_by_map[map_name],
+                            t=map_t,
+                            map_name=map_name,
+                            wandb_run=wandb_run,
+                        )
                 wandb_run.finish()
 
                 return
@@ -501,7 +606,8 @@ class Simulation:
                     input_args = {
                         "function": eval_worker,
                         "args": self.args,
-                        "n_eval_eps": n_eval_eps,
+                        "n_eval_e
+                        ps": n_eval_eps,
                         "t_env": self.runner.t_env,
                         "agent_state_dict": agent_state_dict,
                         "logger_dir": self.logger.dir,
@@ -783,6 +889,347 @@ class Simulation:
             return
 
         self.logger.log_images(save_dir, t=self.runner.t_env, group="comms_eval/")
+
+    def _make_combined_comms_eval_plots(
+        self,
+        groups: list[tuple[str, pd.DataFrame, object]],
+        t: int,
+        map_name: str = "",
+        wandb_run=None,
+    ) -> None:
+        """Make one vertically stacked figure for each metric across tasks."""
+        if not groups:
+            return
+
+        cols = [
+            "test_return_mean",
+            "test_return_std",
+            "test_task_completed_mean",
+            "test_ep_length_mean",
+        ]
+        save_dir = abspath(join(self.logger.dir, "images", f"t_{t}", "combined"))
+        if map_name:
+            save_dir = join(save_dir, map_name)
+        makedirs(save_dir, exist_ok=True)
+
+        for col in cols:
+            figure, axes = plt.subplots(
+                nrows=len(groups),
+                ncols=1,
+                figsize=(8, max(3.5 * len(groups), 4.0)),
+                squeeze=False,
+                sharex=True,
+            )
+            axes = axes[:, 0]
+
+            for axis, (task_label, df, _) in zip(axes, groups):
+                msg_budget_per_agents = sorted(
+                    df["msg_budget_per_agent"].dropna().unique()
+                )
+                for msg_budget_per_agent in msg_budget_per_agents:
+                    df_plot = df[df["msg_budget_per_agent"] == msg_budget_per_agent]
+                    axis.plot(
+                        df_plot["t_env"],
+                        df_plot[col],
+                        marker="o",
+                        label=f"Comms: {msg_budget_per_agent}",
+                    )
+
+                axis.set_title(task_label, loc="left")
+                axis.set_ylabel(col)
+                axis.grid(True)
+                if col == "test_task_completed_mean":
+                    axis.set_ylim(-0.05, 1.05)
+                axis.legend()
+
+            axes[-1].set_xlabel("t_env")
+            figure.suptitle(col)
+            figure.tight_layout()
+            save_path = join(save_dir, f"comms_eval_combined_{col}.png")
+            figure.savefig(save_path)
+            plt.close(figure)
+
+            if wandb_run is not None:
+                data = log_setup(self.logger.step_metric, t)
+                data[
+                    f"comms_eval_aggregated/combined/"
+                    f"{map_name + '/' if map_name else ''}{col}"
+                    f"{self.logger.log_suffix}"
+                ] = wandb.Image(save_path)
+                wandb_run.log(data=data)
+
+    def _make_task_success_frame_plot(
+        self,
+        groups: list[tuple[str, pd.DataFrame, object]],
+        source_runs: list,
+        source_run,
+        t: int,
+        map_name: str = "",
+        wandb_run=None,
+    ) -> None:
+        """Pair each task's initial frame with its success-rate curve."""
+        if not groups:
+            return
+
+        frames = self._render_task_frames(groups, source_run)
+        figure = plt.figure(
+            figsize=(max(3.0 * len(groups) + 2.5, 13.0), 11),
+        )
+        grid = figure.add_gridspec(
+            nrows=4,
+            ncols=len(groups) + 2,
+            height_ratios=[1.4, 1.0, 1.0, 1.0],
+            width_ratios=[1] * len(groups) + [1.4, 0.8],
+            hspace=0.45,
+        )
+        frame_axes = [
+            figure.add_subplot(grid[0, column]) for column in range(len(groups))
+        ]
+        high_level_axis = figure.add_subplot(grid[0, -2])
+        self._plot_high_level_env(high_level_axis, source_run, map_name)
+        curve_axes = [figure.add_subplot(grid[1, 0])]
+        curve_axes.extend(
+            figure.add_subplot(grid[1, column], sharey=curve_axes[0])
+            for column in range(1, len(groups))
+        )
+        for curve_axis in curve_axes[1:]:
+            curve_axis.tick_params(axis="y", labelleft=False)
+        training_axes = [figure.add_subplot(grid[2, 0])]
+        training_axes.extend(
+            figure.add_subplot(grid[2, column], sharey=training_axes[0])
+            for column in range(1, len(groups))
+        )
+        for training_axis in training_axes[1:]:
+            training_axis.tick_params(axis="y", labelleft=False)
+        training_axes[0].set_ylabel("training return")
+        legend_axis = figure.add_subplot(grid[1, -1])
+        legend_axis.axis("off")
+        bottom_width = min(2, len(groups))
+        bottom_start = (len(groups) + 1 - bottom_width) // 2
+        final_axis = figure.add_subplot(
+            grid[3, bottom_start : bottom_start + bottom_width]
+        )
+        final_legend_axis = figure.add_subplot(grid[3, -1])
+        final_legend_axis.axis("off")
+        curve_handles = []
+        curve_labels = []
+        final_handles = []
+        final_labels = []
+
+        for column, ((task_label, df, hl_task), source_runs_by_budget) in enumerate(
+            zip(groups, source_runs)
+        ):
+            frame_axis = frame_axes[column]
+            curve_axis = curve_axes[column]
+            frame = frames.get(
+                tuple(hl_task) if isinstance(hl_task, (list, tuple)) else hl_task
+            )
+            if frame is not None:
+                frame_axis.imshow(frame)
+            else:
+                frame_axis.text(
+                    0.5,
+                    0.5,
+                    "frame unavailable",
+                    ha="center",
+                    va="center",
+                )
+            frame_axis.set_title(task_label, loc="left")
+            frame_axis.axis("off")
+
+            success_lines = {}
+            msg_budgets = sorted(df["msg_budget_per_agent"].dropna().unique())
+            for msg_budget_per_agent in msg_budgets:
+                df_plot = df[df["msg_budget_per_agent"] == msg_budget_per_agent]
+                (line,) = curve_axis.plot(
+                    df_plot["t_env"],
+                    df_plot["test_task_completed_mean"],
+                    marker="o",
+                    label=f"Comms: {msg_budget_per_agent}",
+                )
+                success_lines[float(msg_budget_per_agent)] = line
+                if column == 0:
+                    curve_handles.append(line)
+                    curve_labels.append(f"Comms: {msg_budget_per_agent}")
+
+            if column == 0:
+                curve_axis.set_ylabel("success rate")
+            curve_axis.set_ylim(-0.05, 1.05)
+            curve_axis.set_xlabel("t_env")
+            curve_axis.grid(True)
+
+            training_axis = training_axes[column]
+            for msg_budget_per_agent in msg_budgets:
+                source_run = source_runs_by_budget.get(float(msg_budget_per_agent))
+                if source_run is None:
+                    continue
+                training_df = self._load_training_returns(source_run)
+                if training_df.empty:
+                    continue
+                training_axis.plot(
+                    training_df["t_env"],
+                    training_df["training_return"],
+                    color=success_lines[float(msg_budget_per_agent)].get_color(),
+                    linewidth=1.5,
+                    label=f"Comms: {msg_budget_per_agent:g}",
+                )
+            training_axis.set_xlabel("t_env")
+            training_axis.grid(True)
+
+        final_step = max(df["t_env"].max() for _, df, _ in groups)
+        for task_label, df, _ in groups:
+            final_t = df["t_env"].max()
+            final_df = df[df["t_env"] == final_t].sort_values("msg_budget_per_agent")
+            (line,) = final_axis.plot(
+                final_df["msg_budget_per_agent"],
+                final_df["test_task_completed_mean"],
+                marker="o",
+                alpha=0.65,
+                label=task_label,
+            )
+            final_handles.append(line)
+            final_labels.append(task_label)
+        final_axis.set_title(f"{final_step / 1_000_000:g}M steps")
+        final_axis.set_xlabel("comms budget")
+        final_axis.set_ylabel("success rate")
+        final_axis.set_ylim(-0.05, 1.05)
+        final_axis.grid(True)
+        if final_handles:
+            final_legend_axis.legend(
+                final_handles,
+                final_labels,
+                loc="center",
+                title="task",
+                fontsize="small",
+            )
+
+        if curve_handles:
+            legend_axis.legend(
+                curve_handles,
+                curve_labels,
+                loc="center",
+                title="communication budget",
+            )
+        figure.tight_layout()
+
+        save_dir = abspath(join(self.logger.dir, "images", f"t_{t}", "combined"))
+        if map_name:
+            save_dir = join(save_dir, map_name)
+        makedirs(save_dir, exist_ok=True)
+        save_path = join(save_dir, "comms_eval_combined_task_frames.png")
+        figure.savefig(save_path)
+        plt.close(figure)
+
+        if wandb_run is not None:
+            data = log_setup(self.logger.step_metric, t)
+            data[
+                f"comms_eval_aggregated/combined/"
+                f"{map_name + '/' if map_name else ''}task_frames"
+                f"{self.logger.log_suffix}"
+            ] = wandb.Image(save_path)
+            wandb_run.log(data=data)
+
+    @staticmethod
+    def _map_name_from_config(config: dict) -> str:
+        env_args = config.get("env_args", {}) or {}
+        return str(config.get("env_args.map_name", env_args.get("map_name", "")))
+
+    def _plot_high_level_env(self, axis, source_run, map_name: str) -> None:
+        mdp = load_navigation_mdp(source_run.config, logger=self.logger)
+        states = mdp.get("states", [])
+        transitions = mdp.get("transitions", [])
+        if not states or not transitions:
+            axis.text(
+                0.5, 0.5, "high-level graph unavailable", ha="center", va="center"
+            )
+            axis.axis("off")
+            return
+
+        levels = {states[0]: 0}
+        for _ in states:
+            for transition in transitions:
+                start = transition["from_state"]
+                end = transition["to_state"]
+                if start in levels:
+                    levels[end] = max(levels.get(end, 0), levels[start] + 1)
+        positions = {}
+        for level in sorted(set(levels.values())):
+            level_states = [state for state in states if levels.get(state) == level]
+            offset = (len(level_states) - 1) / 2
+            positions.update(
+                {
+                    state: (level, offset - index)
+                    for index, state in enumerate(level_states)
+                }
+            )
+
+        for transition in transitions:
+            start = positions.get(transition["from_state"])
+            end = positions.get(transition["to_state"])
+            if start is not None and end is not None:
+                axis.add_patch(
+                    FancyArrowPatch(
+                        start,
+                        end,
+                        arrowstyle="->",
+                        mutation_scale=12,
+                        linewidth=1.2,
+                        color="0.35",
+                        connectionstyle="arc3,rad=0.08",
+                    )
+                )
+
+        goal_states = set(mdp.get("goal_states", []))
+        for state, position in positions.items():
+            axis.scatter(
+                *position,
+                s=500,
+                color="tab:green" if state in goal_states else "white",
+                edgecolor="0.2",
+                zorder=2,
+            )
+            axis.text(*position, state, ha="center", va="center", zorder=3)
+
+        axis.set_title(f"high-level env: {map_name}", fontsize="small")
+        axis.set_xlim(-0.5, max(levels.values()) + 0.5)
+        axis.set_ylim(min(position[1] for position in positions.values()) - 0.7, 1.0)
+        axis.axis("off")
+
+    @staticmethod
+    def _configured_message_budgets(value) -> list[float]:
+        if isinstance(value, (list, tuple, set)):
+            values = value
+        elif isinstance(value, str):
+            values = value.strip("[]").replace(",", " ").split()
+        else:
+            values = [value]
+        try:
+            return [float(item) for item in values]
+        except (TypeError, ValueError):
+            return []
+
+    @staticmethod
+    def _load_training_returns(source_run) -> pd.DataFrame:
+        """Load the source run's training return history for plotting."""
+        for metric_name in ("return_mean", "total_return_mean"):
+            try:
+                history = source_run.history(
+                    keys=["t_env", metric_name], pandas=True, samples=10000
+                )
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if history is None or history.empty or metric_name not in history:
+                continue
+            training_df = history[["t_env", metric_name]].dropna()
+            return training_df.rename(columns={metric_name: "training_return"})
+        return pd.DataFrame(columns=["t_env", "training_return"])
+
+    def _render_task_frames(self, groups, source_run) -> dict:
+        return render_navigation_task_frames(
+            groups,
+            getattr(source_run, "config", {}),
+            logger=self.logger,
+        )
 
     def evaluate_loaded(self) -> None:
         """probably doesn't work given new eval functions"""
