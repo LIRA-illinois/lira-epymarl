@@ -49,7 +49,8 @@ parameters:
         values: [qmix]
     runner:
         values: [parallel_shared_memory]
-        # values: [episode, parallel_shared_memory]
+    batch_size_run:
+        values: [50]
     lr:
         values: [0.00005]
     t_max:
@@ -57,7 +58,7 @@ parameters:
     epsilon_anneal_time:
         values: [1000000]
     test_nepisode:
-        values: [50]
+        values: [75]
     n_test_replays_save:
         values: [5]
     test_interval:
@@ -108,12 +109,4 @@ parameters:
 # use conditional params to specify single values to use for a given setup specified in "parameters" above
 # don't make these too complex or nest these deeper, it'll probably break something
 ##################
-conditional_parameters:
-    runner:
-        # episode:
-        #     batch_size_run:
-        #         values: [1]
-        parallel_shared_memory:
-            batch_size_run:
-                values: [1]
-                # values: [25, 50, 100]
+# conditional_parameters:

@@ -67,10 +67,10 @@ class GridSearch(object):
 
         if self.args.debug:
             debug_values = {
-                "t_max": 500,
+                "t_max": 100000,
                 "test_nepisode": 1,
                 "n_test_replays": 1,
-                "test_interval": 250,
+                "test_interval": 10000,
                 "env_args.max_episode_steps": 20,
             }
             for parameter, value in debug_values.items():
