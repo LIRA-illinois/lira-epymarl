@@ -1,0 +1,102 @@
+# Dependent-subtask training over the branching navigation DAG.
+# Each edge gets a fresh low-level policy; successor spawn states are learned
+# from successful terminal states of predecessor edges.
+
+parameters:
+    n_seeds:
+        values: [1]
+
+    wandb_project:
+        values: [comm_experiments]
+    wandb_mode:
+        values: [offline]
+    use_wandb:
+        values: [True]
+    save_model:
+        values: [True]
+    wandb_save_model:
+        values: [True]
+    delete_local_models:
+        values: [True]
+    save_test_replays:
+        values: [False]
+    wandb_save_test_replays:
+        values: [False]
+    n_test_replays_save:
+        values: [5]
+    use_sacred:
+        values: [False]
+
+    config:
+        values: [maic]
+    mixer:
+        values: [qmix]
+    lr:
+        values: [0.00005]
+    t_max:
+        values: [5050000]
+    epsilon_anneal_time:
+        values: [2000000]
+    test_nepisode:
+        values: [50]
+    test_interval:
+        values: [1000000]
+    save_model_interval:
+        values: [1000000]
+    early_stopping:
+        values: [True]
+    early_stopping_window:
+        values: [500000]
+    early_stopping_min_delta:
+        values: [0.01]
+    early_stopping_min_success_lcb:
+        values: [0.95]
+    early_stopping_confidence:
+        values: [0.95]
+    n_eval_eps_dependent_subtask:
+        values: [50]
+    cm_max_iterations:
+        values: [5]
+    cm_convergence_epsilon:
+        values: [0.2]
+    success_rate_spec:
+        values: [0.85]
+
+    correlated_exploration:
+        values: [True]
+    correlated_exploration_prob:
+        values: [0.5]
+    unique_policy_per_msg_budget:
+        values: [True]
+    msg_budget_per_agent:
+        values: [[0 1 2]]
+    msg_filter_type:
+        values: [hard_topk]
+    msg_drop_rate:
+        values: [0.5]
+
+    env-config:
+        values: [team-nav-v0]
+    env_args.map_name:
+        values: [3ga_1r_small_hall]
+    env_args.navigation_config:
+        values:
+            [submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_small_hall.yaml]
+    env_args.hierarchical:
+        values: [True]
+    env_args.terminate_on_task_completed:
+        values: [True]
+    env_args.max_episode_steps:
+        values: [15]
+    env_args.n_agents:
+        values: [3]
+    env_args.goal_type:
+        values: [simultaneous_arrival]
+    env_args.reward_config.simultaneous_goal_reward_type:
+        values: [per_step_arrival_group_size]
+    env_args.agent_0_delay_prob:
+        values: [0.5]
+
+    hl_task_sequence:
+        values:
+            - [[0, 1], [0, 2], [1, 3], [2, 3], [3, 4]]

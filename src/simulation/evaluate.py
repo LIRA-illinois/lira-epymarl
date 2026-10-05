@@ -1,6 +1,8 @@
 from types import SimpleNamespace as SN
 from typing import Optional
 
+import numpy as np
+
 from src.utils.logging import LocalLogger
 
 from .build import build_sim
@@ -102,6 +104,79 @@ def run_eval_episodes(
         runner.mac.msg_budget_per_agent = args.n_agents - 1
 
     return evaluation_result
+
+
+def collect_successful_final_state_dist(
+    runner,
+    n_eval_eps: int,
+    reset_options: Optional[dict] = None,
+) -> tuple[dict, float]:
+    """Evaluate a trained subtask policy and empirically estimate its successful
+    terminal joint-state distribution and success rate.
+
+    Used by dependent-subtask training to learn a successor subtask's
+    `navigation_init_state_dist` from a predecessor's trained policy, instead of
+    assuming a fixed hand-specified spawn distribution.
+
+    Returns
+    -------
+    tuple[dict, float]
+        (init_state_dist, success_rate) where init_state_dist follows the same
+        `{"states": [...], "probs": [...]}` schema used by the navigation config YAML.
+    """
+    if hasattr(runner, "set_env_attr"):
+        runner.set_env_attr("terminate_on_task_completed", True)
+    elif hasattr(runner.env, "terminate_on_task_completed"):
+        runner.env.terminate_on_task_completed = True
+
+    # snapshot test accounting so this collection pass doesn't pollute later evaluations
+    test_returns_snapshot = list(getattr(runner, "test_returns", []))
+    test_stats_snapshot = dict(getattr(runner, "test_stats", {}))
+
+    batch_size = getattr(runner, "batch_size", 1)
+    n_calls = -(-n_eval_eps // batch_size)  # ceil division
+
+    successful_final_states: list[tuple] = []
+    n_success, n_total = 0, 0
+
+    for _ in range(n_calls):
+        result = runner.run(
+            test_mode=True,
+            return_log_stats=False,
+            reset_options=reset_options,
+        )
+        final_infos = result.get("final_infos", [result.get("final_info")])
+        for info in final_infos:
+            if info is None:
+                continue
+            n_total += 1
+            if info.get("task_completed", False):
+                n_success += 1
+                successful_final_states.append(tuple(info["final_state"]))
+
+    if hasattr(runner, "test_returns"):
+        runner.test_returns = test_returns_snapshot
+    if hasattr(runner, "test_stats"):
+        runner.test_stats = test_stats_snapshot
+
+    if hasattr(runner, "set_env_attr"):
+        runner.set_env_attr("terminate_on_task_completed", False)
+    elif hasattr(runner.env, "terminate_on_task_completed"):
+        runner.env.terminate_on_task_completed = False
+
+    success_rate = n_success / n_total if n_total > 0 else 0.0
+
+    if not successful_final_states:
+        return {"states": [], "probs": []}, success_rate
+
+    unique_states, counts = np.unique(
+        np.array(successful_final_states), return_counts=True, axis=0
+    )
+    init_state_dist = {
+        "states": unique_states.tolist(),
+        "probs": (counts / counts.sum()).tolist(),
+    }
+    return init_state_dist, success_rate
 
 
 def eval_worker(

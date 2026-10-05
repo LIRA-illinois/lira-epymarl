@@ -193,12 +193,7 @@ class SharedMemoryParallelRunner:
             if getattr(self.args, "action_selector", None) == "action_space":
                 for idx in active:
                     self.parent_conns[idx].send(("sample_action", None))
-                actions = np.stack(
-                    [
-                        self.parent_conns[idx].recv()
-                        for idx in active
-                    ]
-                )
+                actions = np.stack([self.parent_conns[idx].recv() for idx in active])
             else:
                 actions = self.mac.select_actions(
                     self.batch,
@@ -277,8 +272,13 @@ class SharedMemoryParallelRunner:
             episode_lengths,
             final_infos,
         )
-        if test_mode and return_log_stats:
-            return {"batch": self.batch, "log_stats": log_stats}
+        if test_mode:
+            # exposes each episode's terminal info (e.g. task_completed, final_state)
+            # so callers can learn dependent-subtask spawn distributions
+            result: dict[str, Any] = {"batch": self.batch, "final_infos": final_infos}
+            if return_log_stats:
+                result["log_stats"] = log_stats
+            return result
         return self.batch
 
     def _collect_stats(
@@ -307,8 +307,7 @@ class SharedMemoryParallelRunner:
         )
         stats.update(
             {
-                key: stats.get(key, 0)
-                + sum(info.get(key, 0) for info in env_stats)
+                key: stats.get(key, 0) + sum(info.get(key, 0) for info in env_stats)
                 for key in additional_env_stats
             }
         )

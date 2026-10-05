@@ -1,4 +1,3 @@
-import sys
 from dataclasses import dataclass, field
 from typing import Dict, Tuple
 
@@ -82,10 +81,10 @@ class ILPModel(OptimizationProblem):
         if self.check_if_optima_found():
             policy: Solution = self._build_solution()
         else:
-            print(
-                "High-level policy optimization did not find an optimal solution. Problem may be infeasible, try a lower success rate spec."
+            raise RuntimeError(
+                "High-level policy optimization did not find an optimal solution. "
+                "The problem may be infeasible; try a lower success rate spec."
             )
-            sys.exit("Exiting")
 
         # print(self.hlmdp.transition_probs)
         # print(self.policy.task_policy)

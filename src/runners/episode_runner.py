@@ -220,6 +220,10 @@ class EpisodeRunner:
                 self.log_train_stats_t = self.t_env
 
         out["batch"] = self.batch
+        if test_mode:
+            # exposes the terminal step's info (e.g. task_completed, final_state)
+            # so callers can learn dependent-subtask spawn distributions
+            out["final_info"] = env_info
         return out
 
     def _reset(self, options: dict | None = None) -> None:

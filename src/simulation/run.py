@@ -2,6 +2,7 @@ import datetime
 import multiprocessing as mp
 import threading
 import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from os import listdir, makedirs, walk
 from os.path import abspath, isdir, join, splitext
@@ -18,7 +19,7 @@ from matplotlib.patches import FancyArrowPatch
 
 import wandb
 from src.simulation.build import build_sim
-from src.simulation.evaluate import run_eval_episodes
+from src.simulation.evaluate import collect_successful_final_state_dist, run_eval_episodes
 from src.utils.general_reward_support import test_alg_config_supports_reward
 from src.utils.logging import MainLogger, log_setup
 from src.utils.navigation_rendering import (
@@ -320,6 +321,11 @@ class Simulation:
 
         # else:
 
+        hl_task_sequence = getattr(self.args, "hl_task_sequence", None)
+        if hl_task_sequence is not None:
+            self.train_dependent_subtasks(hl_task_sequence)
+            return
+
         hl_task = getattr(self.args, "hl_task", None)
         reset_options = None
         if hl_task is not None:
@@ -327,7 +333,9 @@ class Simulation:
 
         self.train_single_task(reset_options=reset_options)
 
-    def train_single_task(self, reset_options: Optional[dict] = None) -> None:
+    def train_single_task(
+        self, reset_options: Optional[dict] = None, close_env: bool = True
+    ) -> None:
         """
         original EPYMARL training for non-hierarchical policies for a project with a single task
         """
@@ -456,8 +464,363 @@ class Simulation:
                 self.logger.print_recent_stats()
                 last_log_t = self.runner.t_env
 
-        self.runner.close_env()
+        if close_env:
+            self.runner.close_env()
         self.logger.info("Finished Training")
+
+    def train_dependent_subtasks(self, hl_task_sequence: list) -> None:
+        """
+        Train a DAG of dependent subtasks in topological order.
+
+        Unlike independent subtasks (`hl_task`), which assume a fixed,
+        hand-specified spawn distribution per edge, each dependent subtask's
+        initial state distribution is learned from its predecessor edge(s)'
+        trained policies: after training an edge, its successful terminal
+        joint-agent positions are evaluated empirically and used as the spawn
+        distribution for the subtask(s) leaving its destination state. When a
+        state has multiple incoming edges, their final-state distributions are
+        combined, weighted by the fraction of trajectories (from the root
+        state) that survive to traverse each edge.
+
+        Each subtask is trained as its own independent low-level policy (own
+        network weights, own `t_env` budget), since edges represent distinct
+        tasks -- only the learned spawn distribution is threaded between them.
+
+        Parameters
+        ----------
+        hl_task_sequence : list
+            Subtask edges [from_state, to_state] listed in topological order,
+            e.g. [[0, 1], [0, 2], [1, 3], [2, 3], [3, 4]].
+        """
+        edges: list[tuple[int, int]] = [
+            (int(edge[0]), int(edge[1])) for edge in hl_task_sequence
+        ]
+        source_states = {from_state for from_state, _ in edges}
+        destination_states = {to_state for _, to_state in edges}
+        root_states = source_states - destination_states
+        if len(root_states) != 1:
+            raise ValueError(
+                "hl_task_sequence must describe a DAG with exactly one root state."
+            )
+        root_state = root_states.pop()
+
+        predecessors: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        for from_state, to_state in edges:
+            predecessors[to_state].append((from_state, to_state))
+
+        n_eval_eps = getattr(self.args, "n_eval_eps_dependent_subtask", self.n_eval_eps)
+        max_cm_iterations = max(1, int(getattr(self.args, "cm_max_iterations", 20)))
+        cm_epsilon = float(getattr(self.args, "cm_convergence_epsilon", 0.2))
+        terminal_states = destination_states - source_states
+        if not terminal_states:
+            raise ValueError("hl_task_sequence must contain at least one terminal state.")
+
+        previous_policy: dict[int, dict[tuple[int, int], float]] | None = None
+        previous_init_state_dists: dict[int, dict] | None = None
+        self.runner.close_env()
+
+        for cm_iter in range(max_cm_iterations):
+            self.logger.info(
+                f"Starting dependent-subtask CM iteration {cm_iter + 1}/"
+                f"{max_cm_iterations}",
+                log_header=True,
+            )
+
+            # State occupancy is the fraction of root trajectories reaching each
+            # state under the previous CM policy. Iteration zero is uniform.
+            occupancy = {root_state: 1.0}
+            edge_success_rates: dict[tuple[int, int], float] = {}
+            edge_final_state_dists: dict[tuple[int, int], dict] = {}
+            learned_init_state_dists: dict[int, dict] = {}
+            merge_policy = previous_policy or self._uniform_cm_policy(edges)
+
+            for from_state, to_state in edges:
+                self.logger.info(
+                    f"Training dependent subtask {from_state} -> {to_state} "
+                    f"(CM iteration {cm_iter + 1})",
+                    log_header=True,
+                )
+
+                if from_state == root_state:
+                    reset_options = {"hl_task": [from_state, to_state]}
+                else:
+                    if from_state not in learned_init_state_dists:
+                        raise ValueError(
+                            "hl_task_sequence must be topologically ordered; "
+                            f"no initial distribution is available for state {from_state}."
+                        )
+                    reset_options = {
+                        "navigation_task_transition": [from_state, to_state],
+                        "navigation_init_state_dist": learned_init_state_dists[from_state],
+                    }
+
+                self.args, self.runner, self.buffer, self.learner = build_sim(
+                    self.args, self.logger
+                )
+                self.train_single_task(reset_options=reset_options, close_env=False)
+
+                final_state_dist, success_rate = collect_successful_final_state_dist(
+                    self.runner, n_eval_eps=n_eval_eps, reset_options=reset_options
+                )
+                self.runner.close_env()
+
+                self.logger.info(
+                    f"Subtask {from_state} -> {to_state} success rate: "
+                    f"{success_rate:.3f} ({len(final_state_dist['states'])} unique "
+                    "successful terminal states)"
+                )
+                edge = (from_state, to_state)
+                edge_success_rates[edge] = success_rate
+                edge_final_state_dists[edge] = final_state_dist
+
+                incoming_edges = predecessors[to_state]
+                if all(edge in edge_success_rates for edge in incoming_edges):
+                    weights = [
+                        occupancy.get(edge[0], 0.0)
+                        * merge_policy.get(edge[0], {}).get(
+                            edge, 1.0 / len(merge_policy.get(edge[0], {}))
+                        )
+                        * edge_success_rates[edge]
+                        for edge in incoming_edges
+                    ]
+                    learned_init_state_dists[to_state] = self._merge_state_dists(
+                        [edge_final_state_dists[edge] for edge in incoming_edges],
+                        weights,
+                    )
+                    occupancy[to_state] = sum(weights)
+
+            cm_policy, policy_source = self._optimize_dependent_cm_policy(
+                edges, edge_success_rates, terminal_states
+            )
+            hierarchical_success = self._evaluate_cm_policy(
+                edges, edge_success_rates, cm_policy, root_state, terminal_states
+            )
+            delta_isd = self._state_dist_delta(
+                previous_init_state_dists, learned_init_state_dists
+            )
+            self.logger.info(
+                f"CM iteration {cm_iter + 1}: hierarchical success probability "
+                f"{hierarchical_success:.3f}, initial-state distance {delta_isd:.3f}, "
+                f"policy source: {policy_source}"
+            )
+            self.logger.log_stat(
+                "dependent_cm_success_rate", hierarchical_success, cm_iter
+            )
+            self.logger.log_stat("dependent_cm_isd_delta", delta_isd, cm_iter)
+
+            previous_policy = cm_policy
+            previous_init_state_dists = learned_init_state_dists
+            self.dependent_cm_policy = cm_policy
+            if cm_iter > 0 and delta_isd <= cm_epsilon:
+                self.logger.info(
+                    f"Dependent-subtask CM converged after {cm_iter + 1} iterations."
+                )
+                break
+
+        self.logger.info("Finished Dependent Subtask Training")
+
+    def _optimize_dependent_cm_policy(
+        self,
+        edges: list[tuple[int, int]],
+        edge_success_rates: dict[tuple[int, int], float],
+        terminal_states: set[int],
+    ) -> tuple[dict[int, dict[tuple[int, int], float]], str]:
+        """Solve the measured dependent-task model and return a state policy.
+
+        Dependent-task training currently measures one success rate per edge, so
+        that rate is assigned to every configured communication budget. The ILP
+        can therefore optimize routing and select the least costly budget while
+        respecting the global success specification.
+        """
+        fallback = self._build_cm_policy(edges, edge_success_rates, terminal_states)
+        try:
+            from src.modules.agents.ilp_model import ILPModel
+
+            hlmdp = self.runner.env.hlmdp
+            transition_probs = hlmdp.transition_probs.copy(deep=True)
+            edge_set = set(edges)
+            for edge, success_rate in edge_success_rates.items():
+                from_state, to_state = edge
+                if edge not in edge_set:
+                    continue
+                success_rate = float(np.clip(success_rate, 0.0, 1.0))
+                edge_rows = transition_probs.loc[
+                    (transition_probs.state == from_state)
+                    & (transition_probs.action.apply(lambda action: action[0] == to_state))
+                ].index
+                if len(edge_rows) == 0:
+                    raise ValueError(f"No high-level actions found for edge {edge}.")
+                for row_index in edge_rows:
+                    next_state = transition_probs.at[row_index, "next_state"]
+                    transition_probs.at[row_index, "prob"] = (
+                        success_rate
+                        if next_state == to_state
+                        else 1.0 - success_rate
+                    )
+
+            hlmdp._transition_probs = transition_probs
+            optimizer = ILPModel(self.args)
+            solution = optimizer.optimize_policy(
+                hlmdp,
+                float(getattr(self.args, "success_rate_spec", 0.85)),
+            )
+            occupancy = solution.task_policy
+            if occupancy.empty:
+                raise ValueError("The high-level optimizer returned an empty policy.")
+
+            outgoing: dict[int, list[tuple[int, int]]] = defaultdict(list)
+            for edge in edges:
+                outgoing[edge[0]].append(edge)
+            policy = {state: {edge: 0.0 for edge in state_edges} for state, state_edges in outgoing.items()}
+            for state, state_edges in outgoing.items():
+                state_occupancy = occupancy.loc[occupancy.state == state, "occupancy"].sum()
+                if state_occupancy <= 0.0:
+                    for edge in state_edges:
+                        policy[state][edge] = 1.0 / len(state_edges)
+                    continue
+                for edge in state_edges:
+                    edge_occupancy = occupancy.loc[
+                        (occupancy.state == edge[0])
+                        & (occupancy.next_state == edge[1]),
+                        "occupancy",
+                    ].sum()
+                    policy[state][edge] = float(edge_occupancy / state_occupancy)
+                total_probability = sum(policy[state].values())
+                if total_probability <= 0.0:
+                    for edge in state_edges:
+                        policy[state][edge] = 1.0 / len(state_edges)
+                else:
+                    for edge in state_edges:
+                        policy[state][edge] /= total_probability
+            optimizer.model.dispose()
+            return policy, "ILP"
+        except Exception as error:
+            self.logger.info(
+                f"High-level ILP policy unavailable ({error}); using analytical policy."
+            )
+            return fallback, "analytical fallback"
+
+    @staticmethod
+    def _uniform_cm_policy(
+        edges: list[tuple[int, int]],
+    ) -> dict[int, dict[tuple[int, int], float]]:
+        outgoing: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        for edge in edges:
+            outgoing[edge[0]].append(edge)
+        return {
+            state: {edge: 1.0 / len(state_edges) for edge in state_edges}
+            for state, state_edges in outgoing.items()
+        }
+
+    @classmethod
+    def _build_cm_policy(
+        cls,
+        edges: list[tuple[int, int]],
+        edge_success_rates: dict[tuple[int, int], float],
+        terminal_states: set[int],
+    ) -> dict[int, dict[tuple[int, int], float]]:
+        outgoing: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        for edge in edges:
+            outgoing[edge[0]].append(edge)
+
+        state_values = {state: 1.0 for state in terminal_states}
+        for from_state, to_state in reversed(edges):
+            state_values[from_state] = max(
+                edge_success_rates[(from_state, next_state)]
+                * state_values.get(next_state, 0.0)
+                for _, next_state in outgoing[from_state]
+            )
+
+        policy = {}
+        for state, state_edges in outgoing.items():
+            scores = np.array(
+                [
+                    edge_success_rates[edge] * state_values.get(edge[1], 0.0)
+                    for edge in state_edges
+                ],
+                dtype=float,
+            )
+            best = np.flatnonzero(np.isclose(scores, scores.max()))
+            probability = 1.0 / len(best)
+            policy[state] = {edge: 0.0 for edge in state_edges}
+            for index in best:
+                policy[state][state_edges[index]] = probability
+        return policy
+
+    @staticmethod
+    def _evaluate_cm_policy(
+        edges: list[tuple[int, int]],
+        edge_success_rates: dict[tuple[int, int], float],
+        policy: dict[int, dict[tuple[int, int], float]],
+        root_state: int,
+        terminal_states: set[int],
+    ) -> float:
+        occupancy = {root_state: 1.0}
+        for from_state, to_state in edges:
+            flow = occupancy.get(from_state, 0.0)
+            occupancy[to_state] = occupancy.get(to_state, 0.0) + flow * policy.get(
+                from_state, {}
+            ).get((from_state, to_state), 0.0) * edge_success_rates[
+                (from_state, to_state)
+            ]
+        return sum(occupancy.get(state, 0.0) for state in terminal_states)
+
+    @staticmethod
+    def _state_dist_delta(
+        previous: dict[int, dict] | None, current: dict[int, dict]
+    ) -> float:
+        if previous is None:
+            return float("inf")
+        deltas = []
+        for state in set(previous) | set(current):
+            previous_dist = previous.get(state, {"states": [], "probs": []})
+            current_dist = current.get(state, {"states": [], "probs": []})
+            probabilities = defaultdict(lambda: [0.0, 0.0])
+            for index, (joint_state, probability) in enumerate(
+                zip(previous_dist["states"], previous_dist["probs"])
+            ):
+                probabilities[tuple(tuple(position) for position in joint_state)][0] = (
+                    probability
+                )
+            for joint_state, probability in zip(
+                current_dist["states"], current_dist["probs"]
+            ):
+                probabilities[tuple(tuple(position) for position in joint_state)][1] = (
+                    probability
+                )
+            deltas.append(
+                sum(abs(previous_probability - current_probability) for previous_probability, current_probability in probabilities.values())
+                / 2.0
+            )
+        return max(deltas, default=0.0)
+
+    @staticmethod
+    def _merge_state_dists(dists: list[dict], weights: list[float]) -> dict:
+        """Combine several `{"states": [...], "probs": [...]}` distributions into
+        one, weighted by how often trajectories reach each distribution's edge."""
+        total_weight = sum(weights)
+        if total_weight <= 0:
+            weights = [1.0] * len(weights)
+            total_weight = float(len(weights))
+
+        merged: dict[tuple, float] = defaultdict(float)
+        for dist, weight in zip(dists, weights):
+            if not dist["states"]:
+                continue
+            scale = weight / total_weight
+            for state, prob in zip(dist["states"], dist["probs"]):
+                merged[tuple(tuple(position) for position in state)] += scale * prob
+
+        if not merged:
+            raise ValueError(
+                "No successful terminal states available to build the next "
+                "subtask's spawn distribution; predecessor subtask(s) never succeeded."
+            )
+
+        states = list(merged.keys())
+        probs = np.array(list(merged.values()))
+        probs = probs / probs.sum()
+        return {"states": [list(state) for state in states], "probs": probs.tolist()}
 
     @staticmethod
     def _episode_batch_reward_totals(episode_batch) -> np.ndarray:
