@@ -124,6 +124,9 @@ def collect_successful_final_state_dist(
         (init_state_dist, success_rate) where init_state_dist follows the same
         `{"states": [...], "probs": [...]}` schema used by the navigation config YAML.
     """
+    if n_eval_eps <= 0:
+        raise ValueError("n_eval_eps must be greater than zero")
+
     if hasattr(runner, "set_env_attr"):
         runner.set_env_attr("terminate_on_task_completed", True)
     elif hasattr(runner.env, "terminate_on_task_completed"):
@@ -139,30 +142,39 @@ def collect_successful_final_state_dist(
     successful_final_states: list[tuple] = []
     n_success, n_total = 0, 0
 
-    for _ in range(n_calls):
-        result = runner.run(
-            test_mode=True,
-            return_log_stats=False,
-            reset_options=reset_options,
+    try:
+        for call_idx in range(n_calls):
+            result = runner.run(
+                test_mode=True,
+                return_log_stats=call_idx == n_calls - 1,
+                reset_options=reset_options,
+            )
+            final_infos = result.get("final_infos", [result.get("final_info")])
+            for info in final_infos[: n_eval_eps - n_total]:
+                if info is None:
+                    raise RuntimeError(
+                        "Evaluation runner did not return terminal info for an episode."
+                    )
+                n_total += 1
+                if info.get("task_completed", False):
+                    n_success += 1
+                    successful_final_states.append(tuple(info["final_state"]))
+    finally:
+        if hasattr(runner, "test_returns"):
+            runner.test_returns = test_returns_snapshot
+        if hasattr(runner, "test_stats"):
+            runner.test_stats = test_stats_snapshot
+
+        if hasattr(runner, "set_env_attr"):
+            runner.set_env_attr("terminate_on_task_completed", False)
+        elif hasattr(runner.env, "terminate_on_task_completed"):
+            runner.env.terminate_on_task_completed = False
+
+    if n_total != n_eval_eps:
+        raise RuntimeError(
+            f"Evaluation runner returned terminal info for {n_total} of "
+            f"{n_eval_eps} requested episodes."
         )
-        final_infos = result.get("final_infos", [result.get("final_info")])
-        for info in final_infos:
-            if info is None:
-                continue
-            n_total += 1
-            if info.get("task_completed", False):
-                n_success += 1
-                successful_final_states.append(tuple(info["final_state"]))
-
-    if hasattr(runner, "test_returns"):
-        runner.test_returns = test_returns_snapshot
-    if hasattr(runner, "test_stats"):
-        runner.test_stats = test_stats_snapshot
-
-    if hasattr(runner, "set_env_attr"):
-        runner.set_env_attr("terminate_on_task_completed", False)
-    elif hasattr(runner.env, "terminate_on_task_completed"):
-        runner.env.terminate_on_task_completed = False
 
     success_rate = n_success / n_total if n_total > 0 else 0.0
 

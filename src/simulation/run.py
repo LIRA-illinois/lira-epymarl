@@ -1,8 +1,8 @@
+import ast
 import datetime
 import multiprocessing as mp
 import threading
 import time
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from os import listdir, makedirs, walk
 from os.path import abspath, isdir, join, splitext
@@ -18,8 +18,12 @@ import torch as th
 from matplotlib.patches import FancyArrowPatch
 
 import wandb
+from src.modules.agents.ilp_model import ILPModel, InfeasiblePolicyError
 from src.simulation.build import build_sim
-from src.simulation.evaluate import collect_successful_final_state_dist, run_eval_episodes
+from src.simulation.dependent_subtasks import DependentSubtaskTrainingMixin
+from src.simulation.evaluate import (
+    run_eval_episodes,
+)
 from src.utils.general_reward_support import test_alg_config_supports_reward
 from src.utils.logging import MainLogger, log_setup
 from src.utils.navigation_rendering import (
@@ -31,8 +35,10 @@ from src.utils.timehelper import time_left, time_str
 # use agg backend to support multiprocessing
 plt.switch_backend("agg")
 
+DEFAULT_POSTPROCESS_SUCCESS_RATE_SPECS = tuple(np.round(np.arange(0.0, 1.0, 0.01), 2))
 
-class Simulation:
+
+class Simulation(DependentSubtaskTrainingMixin):
     def __init__(self, _config, _log) -> None:
         mp.set_start_method("spawn", force=True)
         args: SN = self._parse_config(_config, _log)
@@ -64,8 +70,22 @@ class Simulation:
                 )
                 self.logger.info("Optimizing High-Level Policy", log_header=True)
                 self._train_high_level_policy(df_data)
-                print(self.runner.mac.comms_agent.policy.task_policy)
-                print(self.runner.mac.comms_agent.policy.comms_budget_policy)
+                policy = self.runner.mac.comms_agent.policy
+                print(policy.task_policy)
+                print(policy.comms_budget_policy)
+                policy_dir = join(
+                    self.args.local_results_path,
+                    "high_level_policies",
+                    self.args.time_id or self.args.unique_token,
+                )
+                makedirs(policy_dir, exist_ok=True)
+                policy.task_policy.to_csv(
+                    join(policy_dir, "task_policy.csv"), index=False
+                )
+                policy.comms_budget_policy.to_csv(
+                    join(policy_dir, "comms_budget_policy.csv"), index=False
+                )
+                self.logger.info(f"Saved optimized high-level policy to {policy_dir}.")
                 self.runner.close_env()
                 return
 
@@ -186,6 +206,7 @@ class Simulation:
                 combined_groups_by_map = {}
                 combined_source_runs_by_map = {}
                 source_runs_by_map = {}
+                policy_eval_data_by_map = {}
                 for group_idx, (group_key, df_group) in enumerate(
                     df_data.groupby("scenario_group", sort=True), start=1
                 ):
@@ -244,6 +265,10 @@ class Simulation:
                             hl_task,
                         )
                     )
+                    if hl_task is not None:
+                        policy_eval_data_by_map.setdefault(map_name, []).append(
+                            df_group.copy()
+                        )
                     source_runs_by_budget = {}
                     for scenario in scenario_indices:
                         scenario_run = scenario_runs.get(scenario)
@@ -311,6 +336,16 @@ class Simulation:
                             map_name=map_name,
                             wandb_run=wandb_run,
                         )
+                        if policy_eval_data_by_map.get(map_name):
+                            self._make_high_level_success_vs_cost_plot(
+                                pd.concat(
+                                    policy_eval_data_by_map[map_name],
+                                    ignore_index=True,
+                                ),
+                                map_name=map_name,
+                                t=map_t,
+                                wandb_run=wandb_run,
+                            )
                 wandb_run.finish()
 
                 return
@@ -414,9 +449,30 @@ class Simulation:
 
                 last_time = time.time()
                 last_test_t = self.runner.t_env
-                evaluation_success_lcb = self.evaluate(
-                    n_eval_eps=self.n_eval_eps, reset_options=reset_options
-                )
+                if hasattr(self.runner, "get_env_attr"):
+                    termination_setting = self.runner.get_env_attr(
+                        "terminate_on_task_completed"
+                    )
+                elif hasattr(self.runner, "env"):
+                    termination_setting = getattr(
+                        self.runner.env, "terminate_on_task_completed", None
+                    )
+                else:
+                    termination_setting = None
+                try:
+                    evaluation_success_lcb = self.evaluate(
+                        n_eval_eps=self.n_eval_eps, reset_options=reset_options
+                    )
+                finally:
+                    if termination_setting is not None:
+                        if hasattr(self.runner, "set_env_attr"):
+                            self.runner.set_env_attr(
+                                "terminate_on_task_completed", termination_setting
+                            )
+                        else:
+                            self.runner.env.terminate_on_task_completed = (
+                                termination_setting
+                            )
                 if evaluation_success_lcb is not None:
                     self.logger.log_stat(
                         "early_stopping_success_lcb",
@@ -467,360 +523,6 @@ class Simulation:
         if close_env:
             self.runner.close_env()
         self.logger.info("Finished Training")
-
-    def train_dependent_subtasks(self, hl_task_sequence: list) -> None:
-        """
-        Train a DAG of dependent subtasks in topological order.
-
-        Unlike independent subtasks (`hl_task`), which assume a fixed,
-        hand-specified spawn distribution per edge, each dependent subtask's
-        initial state distribution is learned from its predecessor edge(s)'
-        trained policies: after training an edge, its successful terminal
-        joint-agent positions are evaluated empirically and used as the spawn
-        distribution for the subtask(s) leaving its destination state. When a
-        state has multiple incoming edges, their final-state distributions are
-        combined, weighted by the fraction of trajectories (from the root
-        state) that survive to traverse each edge.
-
-        Each subtask is trained as its own independent low-level policy (own
-        network weights, own `t_env` budget), since edges represent distinct
-        tasks -- only the learned spawn distribution is threaded between them.
-
-        Parameters
-        ----------
-        hl_task_sequence : list
-            Subtask edges [from_state, to_state] listed in topological order,
-            e.g. [[0, 1], [0, 2], [1, 3], [2, 3], [3, 4]].
-        """
-        edges: list[tuple[int, int]] = [
-            (int(edge[0]), int(edge[1])) for edge in hl_task_sequence
-        ]
-        source_states = {from_state for from_state, _ in edges}
-        destination_states = {to_state for _, to_state in edges}
-        root_states = source_states - destination_states
-        if len(root_states) != 1:
-            raise ValueError(
-                "hl_task_sequence must describe a DAG with exactly one root state."
-            )
-        root_state = root_states.pop()
-
-        predecessors: dict[int, list[tuple[int, int]]] = defaultdict(list)
-        for from_state, to_state in edges:
-            predecessors[to_state].append((from_state, to_state))
-
-        n_eval_eps = getattr(self.args, "n_eval_eps_dependent_subtask", self.n_eval_eps)
-        max_cm_iterations = max(1, int(getattr(self.args, "cm_max_iterations", 20)))
-        cm_epsilon = float(getattr(self.args, "cm_convergence_epsilon", 0.2))
-        terminal_states = destination_states - source_states
-        if not terminal_states:
-            raise ValueError("hl_task_sequence must contain at least one terminal state.")
-
-        previous_policy: dict[int, dict[tuple[int, int], float]] | None = None
-        previous_init_state_dists: dict[int, dict] | None = None
-        self.runner.close_env()
-
-        for cm_iter in range(max_cm_iterations):
-            self.logger.info(
-                f"Starting dependent-subtask CM iteration {cm_iter + 1}/"
-                f"{max_cm_iterations}",
-                log_header=True,
-            )
-
-            # State occupancy is the fraction of root trajectories reaching each
-            # state under the previous CM policy. Iteration zero is uniform.
-            occupancy = {root_state: 1.0}
-            edge_success_rates: dict[tuple[int, int], float] = {}
-            edge_final_state_dists: dict[tuple[int, int], dict] = {}
-            learned_init_state_dists: dict[int, dict] = {}
-            merge_policy = previous_policy or self._uniform_cm_policy(edges)
-
-            for from_state, to_state in edges:
-                self.logger.info(
-                    f"Training dependent subtask {from_state} -> {to_state} "
-                    f"(CM iteration {cm_iter + 1})",
-                    log_header=True,
-                )
-
-                if from_state == root_state:
-                    reset_options = {"hl_task": [from_state, to_state]}
-                else:
-                    if from_state not in learned_init_state_dists:
-                        raise ValueError(
-                            "hl_task_sequence must be topologically ordered; "
-                            f"no initial distribution is available for state {from_state}."
-                        )
-                    reset_options = {
-                        "navigation_task_transition": [from_state, to_state],
-                        "navigation_init_state_dist": learned_init_state_dists[from_state],
-                    }
-
-                self.args, self.runner, self.buffer, self.learner = build_sim(
-                    self.args, self.logger
-                )
-                self.train_single_task(reset_options=reset_options, close_env=False)
-
-                final_state_dist, success_rate = collect_successful_final_state_dist(
-                    self.runner, n_eval_eps=n_eval_eps, reset_options=reset_options
-                )
-                self.runner.close_env()
-
-                self.logger.info(
-                    f"Subtask {from_state} -> {to_state} success rate: "
-                    f"{success_rate:.3f} ({len(final_state_dist['states'])} unique "
-                    "successful terminal states)"
-                )
-                edge = (from_state, to_state)
-                edge_success_rates[edge] = success_rate
-                edge_final_state_dists[edge] = final_state_dist
-
-                incoming_edges = predecessors[to_state]
-                if all(edge in edge_success_rates for edge in incoming_edges):
-                    weights = [
-                        occupancy.get(edge[0], 0.0)
-                        * merge_policy.get(edge[0], {}).get(
-                            edge, 1.0 / len(merge_policy.get(edge[0], {}))
-                        )
-                        * edge_success_rates[edge]
-                        for edge in incoming_edges
-                    ]
-                    learned_init_state_dists[to_state] = self._merge_state_dists(
-                        [edge_final_state_dists[edge] for edge in incoming_edges],
-                        weights,
-                    )
-                    occupancy[to_state] = sum(weights)
-
-            cm_policy, policy_source = self._optimize_dependent_cm_policy(
-                edges, edge_success_rates, terminal_states
-            )
-            hierarchical_success = self._evaluate_cm_policy(
-                edges, edge_success_rates, cm_policy, root_state, terminal_states
-            )
-            delta_isd = self._state_dist_delta(
-                previous_init_state_dists, learned_init_state_dists
-            )
-            self.logger.info(
-                f"CM iteration {cm_iter + 1}: hierarchical success probability "
-                f"{hierarchical_success:.3f}, initial-state distance {delta_isd:.3f}, "
-                f"policy source: {policy_source}"
-            )
-            self.logger.log_stat(
-                "dependent_cm_success_rate", hierarchical_success, cm_iter
-            )
-            self.logger.log_stat("dependent_cm_isd_delta", delta_isd, cm_iter)
-
-            previous_policy = cm_policy
-            previous_init_state_dists = learned_init_state_dists
-            self.dependent_cm_policy = cm_policy
-            if cm_iter > 0 and delta_isd <= cm_epsilon:
-                self.logger.info(
-                    f"Dependent-subtask CM converged after {cm_iter + 1} iterations."
-                )
-                break
-
-        self.logger.info("Finished Dependent Subtask Training")
-
-    def _optimize_dependent_cm_policy(
-        self,
-        edges: list[tuple[int, int]],
-        edge_success_rates: dict[tuple[int, int], float],
-        terminal_states: set[int],
-    ) -> tuple[dict[int, dict[tuple[int, int], float]], str]:
-        """Solve the measured dependent-task model and return a state policy.
-
-        Dependent-task training currently measures one success rate per edge, so
-        that rate is assigned to every configured communication budget. The ILP
-        can therefore optimize routing and select the least costly budget while
-        respecting the global success specification.
-        """
-        fallback = self._build_cm_policy(edges, edge_success_rates, terminal_states)
-        try:
-            from src.modules.agents.ilp_model import ILPModel
-
-            hlmdp = self.runner.env.hlmdp
-            transition_probs = hlmdp.transition_probs.copy(deep=True)
-            edge_set = set(edges)
-            for edge, success_rate in edge_success_rates.items():
-                from_state, to_state = edge
-                if edge not in edge_set:
-                    continue
-                success_rate = float(np.clip(success_rate, 0.0, 1.0))
-                edge_rows = transition_probs.loc[
-                    (transition_probs.state == from_state)
-                    & (transition_probs.action.apply(lambda action: action[0] == to_state))
-                ].index
-                if len(edge_rows) == 0:
-                    raise ValueError(f"No high-level actions found for edge {edge}.")
-                for row_index in edge_rows:
-                    next_state = transition_probs.at[row_index, "next_state"]
-                    transition_probs.at[row_index, "prob"] = (
-                        success_rate
-                        if next_state == to_state
-                        else 1.0 - success_rate
-                    )
-
-            hlmdp._transition_probs = transition_probs
-            optimizer = ILPModel(self.args)
-            solution = optimizer.optimize_policy(
-                hlmdp,
-                float(getattr(self.args, "success_rate_spec", 0.85)),
-            )
-            occupancy = solution.task_policy
-            if occupancy.empty:
-                raise ValueError("The high-level optimizer returned an empty policy.")
-
-            outgoing: dict[int, list[tuple[int, int]]] = defaultdict(list)
-            for edge in edges:
-                outgoing[edge[0]].append(edge)
-            policy = {state: {edge: 0.0 for edge in state_edges} for state, state_edges in outgoing.items()}
-            for state, state_edges in outgoing.items():
-                state_occupancy = occupancy.loc[occupancy.state == state, "occupancy"].sum()
-                if state_occupancy <= 0.0:
-                    for edge in state_edges:
-                        policy[state][edge] = 1.0 / len(state_edges)
-                    continue
-                for edge in state_edges:
-                    edge_occupancy = occupancy.loc[
-                        (occupancy.state == edge[0])
-                        & (occupancy.next_state == edge[1]),
-                        "occupancy",
-                    ].sum()
-                    policy[state][edge] = float(edge_occupancy / state_occupancy)
-                total_probability = sum(policy[state].values())
-                if total_probability <= 0.0:
-                    for edge in state_edges:
-                        policy[state][edge] = 1.0 / len(state_edges)
-                else:
-                    for edge in state_edges:
-                        policy[state][edge] /= total_probability
-            optimizer.model.dispose()
-            return policy, "ILP"
-        except Exception as error:
-            self.logger.info(
-                f"High-level ILP policy unavailable ({error}); using analytical policy."
-            )
-            return fallback, "analytical fallback"
-
-    @staticmethod
-    def _uniform_cm_policy(
-        edges: list[tuple[int, int]],
-    ) -> dict[int, dict[tuple[int, int], float]]:
-        outgoing: dict[int, list[tuple[int, int]]] = defaultdict(list)
-        for edge in edges:
-            outgoing[edge[0]].append(edge)
-        return {
-            state: {edge: 1.0 / len(state_edges) for edge in state_edges}
-            for state, state_edges in outgoing.items()
-        }
-
-    @classmethod
-    def _build_cm_policy(
-        cls,
-        edges: list[tuple[int, int]],
-        edge_success_rates: dict[tuple[int, int], float],
-        terminal_states: set[int],
-    ) -> dict[int, dict[tuple[int, int], float]]:
-        outgoing: dict[int, list[tuple[int, int]]] = defaultdict(list)
-        for edge in edges:
-            outgoing[edge[0]].append(edge)
-
-        state_values = {state: 1.0 for state in terminal_states}
-        for from_state, to_state in reversed(edges):
-            state_values[from_state] = max(
-                edge_success_rates[(from_state, next_state)]
-                * state_values.get(next_state, 0.0)
-                for _, next_state in outgoing[from_state]
-            )
-
-        policy = {}
-        for state, state_edges in outgoing.items():
-            scores = np.array(
-                [
-                    edge_success_rates[edge] * state_values.get(edge[1], 0.0)
-                    for edge in state_edges
-                ],
-                dtype=float,
-            )
-            best = np.flatnonzero(np.isclose(scores, scores.max()))
-            probability = 1.0 / len(best)
-            policy[state] = {edge: 0.0 for edge in state_edges}
-            for index in best:
-                policy[state][state_edges[index]] = probability
-        return policy
-
-    @staticmethod
-    def _evaluate_cm_policy(
-        edges: list[tuple[int, int]],
-        edge_success_rates: dict[tuple[int, int], float],
-        policy: dict[int, dict[tuple[int, int], float]],
-        root_state: int,
-        terminal_states: set[int],
-    ) -> float:
-        occupancy = {root_state: 1.0}
-        for from_state, to_state in edges:
-            flow = occupancy.get(from_state, 0.0)
-            occupancy[to_state] = occupancy.get(to_state, 0.0) + flow * policy.get(
-                from_state, {}
-            ).get((from_state, to_state), 0.0) * edge_success_rates[
-                (from_state, to_state)
-            ]
-        return sum(occupancy.get(state, 0.0) for state in terminal_states)
-
-    @staticmethod
-    def _state_dist_delta(
-        previous: dict[int, dict] | None, current: dict[int, dict]
-    ) -> float:
-        if previous is None:
-            return float("inf")
-        deltas = []
-        for state in set(previous) | set(current):
-            previous_dist = previous.get(state, {"states": [], "probs": []})
-            current_dist = current.get(state, {"states": [], "probs": []})
-            probabilities = defaultdict(lambda: [0.0, 0.0])
-            for index, (joint_state, probability) in enumerate(
-                zip(previous_dist["states"], previous_dist["probs"])
-            ):
-                probabilities[tuple(tuple(position) for position in joint_state)][0] = (
-                    probability
-                )
-            for joint_state, probability in zip(
-                current_dist["states"], current_dist["probs"]
-            ):
-                probabilities[tuple(tuple(position) for position in joint_state)][1] = (
-                    probability
-                )
-            deltas.append(
-                sum(abs(previous_probability - current_probability) for previous_probability, current_probability in probabilities.values())
-                / 2.0
-            )
-        return max(deltas, default=0.0)
-
-    @staticmethod
-    def _merge_state_dists(dists: list[dict], weights: list[float]) -> dict:
-        """Combine several `{"states": [...], "probs": [...]}` distributions into
-        one, weighted by how often trajectories reach each distribution's edge."""
-        total_weight = sum(weights)
-        if total_weight <= 0:
-            weights = [1.0] * len(weights)
-            total_weight = float(len(weights))
-
-        merged: dict[tuple, float] = defaultdict(float)
-        for dist, weight in zip(dists, weights):
-            if not dist["states"]:
-                continue
-            scale = weight / total_weight
-            for state, prob in zip(dist["states"], dist["probs"]):
-                merged[tuple(tuple(position) for position in state)] += scale * prob
-
-        if not merged:
-            raise ValueError(
-                "No successful terminal states available to build the next "
-                "subtask's spawn distribution; predecessor subtask(s) never succeeded."
-            )
-
-        states = list(merged.keys())
-        probs = np.array(list(merged.values()))
-        probs = probs / probs.sum()
-        return {"states": [list(state) for state in states], "probs": probs.tolist()}
 
     @staticmethod
     def _episode_batch_reward_totals(episode_batch) -> np.ndarray:
@@ -1492,6 +1194,170 @@ class Simulation:
             ] = wandb.Image(save_path)
             wandb_run.log(data=data)
 
+    def _make_high_level_success_vs_cost_plot(
+        self,
+        eval_data: pd.DataFrame,
+        map_name: str,
+        t: int,
+        wandb_run=None,
+    ) -> None:
+        """Solve and plot high-level policies across task-completion specs."""
+        hlmdp = getattr(self.runner.env, "hlmdp", None)
+        if hlmdp is None:
+            raise RuntimeError(
+                "High-level policy post-processing requires an environment "
+                "with an hlmdp."
+            )
+        hlmdp.transition_probs = eval_data
+
+        success_rate_specs = self._postprocess_success_rate_specs(
+            getattr(self.args, "postprocess_success_rate_specs", None)
+        )
+        fixed_budgets = sorted(
+            set(self._configured_message_budgets(hlmdp.msg_budget_per_agent))
+        )
+        if not fixed_budgets:
+            raise ValueError(
+                "High-level policy post-processing requires configured message budgets."
+            )
+
+        policy_id = f"{self.args.time_id or self.args.unique_token}_postprocess"
+        output_dir = join(
+            self.args.local_results_path,
+            "high_level_policy_analysis",
+            policy_id,
+            map_name,
+        )
+        makedirs(output_dir, exist_ok=True)
+
+        formulations = {
+            "our_formulation": (None,),
+            "baseline_formulation": tuple(fixed_budgets),
+        }
+        colors = {"our_formulation": "black", "baseline_formulation": "darkorange"}
+        markers = {"our_formulation": "^", "baseline_formulation": "o"}
+        labels = {
+            "our_formulation": "Ours",
+            "baseline_formulation": "Fixed Comms. Baseline",
+        }
+        formulation_data = {}
+
+        for formulation, budgets_to_try in formulations.items():
+            result_rows = []
+            for success_rate_spec in success_rate_specs:
+                best_solution = None
+                best_budget = None
+                for budget in budgets_to_try:
+                    optimizer = ILPModel(self.args)
+                    try:
+                        solution = optimizer.optimize_policy(
+                            hlmdp,
+                            success_rate_spec=success_rate_spec,
+                            fixed_comms_budget=budget,
+                        )
+                    except InfeasiblePolicyError:
+                        continue
+                    finally:
+                        optimizer.dispose()
+
+                    if (
+                        best_solution is None
+                        or solution.objective_value < best_solution.objective_value
+                    ):
+                        best_solution = solution
+                        best_budget = budget
+
+                result = {
+                    "success_prob_spec": success_rate_spec,
+                    "total_comms_cost": (
+                        best_solution.objective_value
+                        if best_solution is not None
+                        else np.nan
+                    ),
+                    "goal_reach_probability": (
+                        best_solution.goal_reach_probability
+                        if best_solution is not None
+                        else np.nan
+                    ),
+                    "feasible": best_solution is not None,
+                    "fixed_comms_budget": best_budget,
+                }
+                result_rows.append(result)
+
+                if best_solution is None:
+                    self.logger.info(
+                        f"No {formulation} policy meets success-rate spec "
+                        f"{success_rate_spec:g} for map {map_name}."
+                    )
+                    continue
+
+                spec_label = f"{success_rate_spec:.6f}".rstrip("0").rstrip(".")
+                spec_label = spec_label.replace(".", "p")
+                solution_dir = join(
+                    output_dir,
+                    "policies",
+                    formulation,
+                    f"success_rate_spec_{spec_label}",
+                )
+                makedirs(solution_dir, exist_ok=True)
+                best_solution.task_policy.to_csv(
+                    join(solution_dir, "task_policy.csv"), index=False
+                )
+                best_solution.comms_budget_policy.to_csv(
+                    join(solution_dir, "comms_budget_policy.csv"), index=False
+                )
+
+            result_df = pd.DataFrame.from_records(result_rows)
+            result_df.to_csv(
+                join(output_dir, f"success_vs_cost_{formulation}.csv"),
+                index=False,
+            )
+            formulation_data[formulation] = result_df
+
+        figure, axis = plt.subplots(figsize=(4.2, 3.2))
+        for formulation, df in formulation_data.items():
+            axis.plot(
+                df["success_prob_spec"],
+                df["total_comms_cost"],
+                marker=markers[formulation],
+                markersize=4,
+                color=colors[formulation],
+                linewidth=1,
+                alpha=0.8,
+                label=labels[formulation],
+            )
+
+        x_min = min(success_rate_specs)
+        x_max = max(1.0, max(success_rate_specs))
+        if x_max <= x_min:
+            x_max = x_min + 0.05
+        axis.set_xlim(x_min, x_max)
+        x_tick_step = 0.05 if x_max - x_min <= 0.25 else 0.2
+        axis.set_xticks(
+            np.arange(
+                np.ceil(x_min / x_tick_step) * x_tick_step,
+                x_max + 0.001,
+                x_tick_step,
+            )
+        )
+        axis.set_xlabel("Task Completion Spec., $p_c$")
+        axis.set_ylabel("Optimal Comms. Cost, $J^*$")
+        axis.legend()
+        axis.grid(True)
+        figure.tight_layout()
+
+        plot_path = join(output_dir, "success_vs_cost.png")
+        figure.savefig(plot_path, dpi=500)
+        figure.savefig(join(output_dir, "success_vs_cost.pdf"))
+        plt.close(figure)
+
+        if wandb_run is not None:
+            data = log_setup(self.logger.step_metric, t)
+            data[
+                f"high_level_policy/{map_name}/success_vs_cost{self.logger.log_suffix}"
+            ] = wandb.Image(plot_path)
+            wandb_run.log(data=data)
+
     @staticmethod
     def _map_name_from_config(config: dict) -> str:
         env_args = config.get("env_args", {}) or {}
@@ -1570,6 +1436,49 @@ class Simulation:
             return [float(item) for item in values]
         except (TypeError, ValueError):
             return []
+
+    @staticmethod
+    def _postprocess_success_rate_specs(value) -> list[float]:
+        if value is None:
+            values = DEFAULT_POSTPROCESS_SUCCESS_RATE_SPECS
+        elif isinstance(value, (int, float, np.number)):
+            values = [value]
+        else:
+            values = value
+
+        try:
+            specs = sorted({float(spec) for spec in values})
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "postprocess_success_rate_specs must be a non-empty sequence "
+                "of probabilities."
+            ) from error
+        if not specs:
+            raise ValueError("postprocess_success_rate_specs cannot be empty.")
+        if any(not np.isfinite(spec) or not 0.0 <= spec <= 1.0 for spec in specs):
+            raise ValueError(
+                "Every post-processing success-rate spec must be in [0, 1]."
+            )
+        return specs
+
+    @staticmethod
+    def _task_edge_from_config(value) -> tuple[int, int]:
+        if isinstance(value, str):
+            try:
+                value = ast.literal_eval(value)
+            except (SyntaxError, ValueError) as error:
+                raise ValueError(
+                    f"Could not parse high-level task {value!r}."
+                ) from error
+        if not isinstance(value, (list, tuple, np.ndarray)) or len(value) != 2:
+            raise ValueError(
+                "Each high-level task configuration must be a "
+                "[from_state, to_state] pair."
+            )
+        try:
+            return int(value[0]), int(value[1])
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Invalid high-level task {value!r}.") from error
 
     @staticmethod
     def _load_training_returns(source_run) -> pd.DataFrame:
@@ -1676,6 +1585,7 @@ class Simulation:
                 data = artifact.get(art_name)
                 df = data.get_dataframe()
                 df["scenario"] = int(wandb_run.config["scenario"])
+                df["run_id"] = wandb_run.id
                 configured_budget = wandb_run.config.get("msg_budget_per_agent")
                 if (
                     isinstance(configured_budget, (list, tuple))
@@ -1693,6 +1603,13 @@ class Simulation:
                         df["msg_budget_per_agent"] = df["msg_budget_per_agent"].fillna(
                             configured_budget
                         )
+                hl_task = wandb_run.config.get("hl_task")
+                if hl_task is not None:
+                    task_edge = self._task_edge_from_config(hl_task)
+                    df["hl_task"] = [task_edge] * len(df)
+                    df["hl_start_state"] = int(
+                        wandb_run.config.get("hl_start_state", task_edge[0])
+                    )
                 df["test_interval"] = wandb_run.config.get(
                     "test_interval", self.args.test_interval
                 )

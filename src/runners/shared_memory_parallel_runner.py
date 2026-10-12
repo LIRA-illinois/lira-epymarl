@@ -303,6 +303,7 @@ class SharedMemoryParallelRunner:
             {
                 key: stats.get(key, 0) + sum(info.get(key, 0) for info in info_stats)
                 for key in set().union(*(info.keys() for info in info_stats))
+                if key != "final_state"
             }
         )
         stats.update(
@@ -367,6 +368,10 @@ class SharedMemoryParallelRunner:
             conn.send(("set_attr", (name, value)))
         for conn in self.parent_conns:
             conn.recv()
+
+    def get_env_attr(self, name: str, default=None) -> Any:
+        self.parent_conns[0].send(("get_attr", (name, default)))
+        return self.parent_conns[0].recv()
 
     def get_env_rng_states(self):
         for conn in self.parent_conns:
@@ -477,6 +482,9 @@ def shared_memory_env_worker(remote, env_name, env_args, worker_idx) -> None:
             name, value = data
             _set_env_attr(env, name, value)
             remote.send("set")
+        elif command == "get_attr":
+            name, default = data
+            remote.send(_get_env_attr(env, name, default))
         elif command == "get_rng_state":
             rng = _get_env_attr(env, "np_random")
             remote.send(deepcopy(rng.bit_generator.state))
@@ -512,11 +520,21 @@ def _write_shared_state(env, shared_arrays, worker_idx) -> None:
     np.copyto(shared_arrays["obs"][worker_idx], np.asarray(env.obs))
 
 
-def _get_env_attr(env, name: str):
+_MISSING = object()
+
+
+def _get_env_attr(env, name: str, default=_MISSING):
     env_obj: Any = env
     if hasattr(env_obj, "get_wrapper_attr"):
-        return env_obj.get_wrapper_attr(name)
-    return getattr(env_obj, name)
+        try:
+            return env_obj.get_wrapper_attr(name)
+        except AttributeError:
+            if default is _MISSING:
+                raise
+            return default
+    if default is _MISSING:
+        return getattr(env_obj, name)
+    return getattr(env_obj, name, default)
 
 
 def _set_env_attr(env, name: str, value: Any) -> None:

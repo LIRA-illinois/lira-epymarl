@@ -55,11 +55,30 @@ def build_sim(
         mac.load_models(agent_state_dict)
 
     # Give runner the scheme
-    runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
-    if hasattr(mac, "set_env"):
-        mac.set_env(runner.env)
+    if hasattr(runner, "set_mac_env"):
+        runner.set_mac_env(mac)
+    elif hasattr(mac, "set_env"):
+        selector = getattr(mac, "action_selector", None)
+        if hasattr(runner, "env"):
+            mac.set_env(runner.env)
+        elif hasattr(mac, "action_selector") and not callable(
+            getattr(selector, "set_env", None)
+        ):
+            mac.set_env(None)
+        else:
+            raise ValueError(
+                "This runner cannot provide a local environment to the action "
+                "selector."
+            )
     elif hasattr(mac.action_selector, "set_env"):
+        if not hasattr(runner, "env"):
+            raise ValueError(
+                "This runner cannot provide a local environment to the action "
+                "selector."
+            )
         mac.action_selector.set_env(runner.env)
+
+    runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
 
     return args, runner, buffer, learner
 
