@@ -23,6 +23,14 @@ class CommsMAC:
         self._build_agents(input_shape)
 
         self.env_action_key: str = "env_actions"
+        self._dependent_policy_bank: dict[tuple[int, int, float, int], dict] = {}
+        self._dependent_policy_seeds: tuple[int, ...] = ()
+        self._fixed_dependent_policy_seed: int | None = None
+        self._episode_index = 0
+        self._active_dependent_policy_seed: int | None = None
+        self._active_hl_state: int | None = None
+        self._active_hl_actions: dict | None = None
+        self._active_policy_key: tuple[int, int, float, int] | None = None
 
         # self.agent_output_type = args.agent_output_type
 
@@ -36,6 +44,20 @@ class CommsMAC:
 
     def init_hidden(self, batch_size) -> None:
         self.env_mac.init_hidden(batch_size=batch_size)
+        self._active_hl_state = None
+        self._active_hl_actions = None
+        self._active_policy_key = None
+        if self._dependent_policy_seeds:
+            if self._fixed_dependent_policy_seed is not None:
+                self._active_dependent_policy_seed = (
+                    self._fixed_dependent_policy_seed
+                )
+            else:
+                seed_index = self._episode_index % len(self._dependent_policy_seeds)
+                self._active_dependent_policy_seed = self._dependent_policy_seeds[
+                    seed_index
+                ]
+                self._episode_index += 1
 
     def cuda(self) -> None:
         self.comms_agent.cuda()
@@ -67,12 +89,58 @@ class CommsMAC:
     ) -> dict:
         # get the model of the env + optimize
         # update comms allocation to low-level agents + choose next task to complete (if relevant)
-        high_level_actions = self.comms_agent.select_actions(
-            ep_batch, t_ep, t_env, test_mode=test_mode
+        hl_state = int(ep_batch["hl_state"][:, t_ep, :].flatten()[0].item())
+        policy = getattr(self.comms_agent, "policy", None)
+        task_policy = getattr(policy, "task_policy", None)
+        state_has_actions = (
+            task_policy is None
+            or task_policy.empty
+            or bool((task_policy.state == hl_state).any())
         )
+        terminal_hl_state = (
+            not state_has_actions
+            and self._active_hl_actions is not None
+        )
+        if hl_state != self._active_hl_state:
+            if state_has_actions:
+                self._active_hl_actions = self.comms_agent.select_actions(
+                    ep_batch, t_ep, t_env, test_mode=test_mode
+                )
+                self._active_hl_state = hl_state
+                self._active_policy_key = None
+            elif terminal_hl_state:
+                self._active_hl_state = hl_state
+            else:
+                raise ValueError(
+                    f"The high-level policy has no action for nonterminal state "
+                    f"{hl_state}."
+                )
 
-        # TODO assume this happens in an external control loop for now, we only change comms when doing different evaluation subtasks
-        # self.update_comms_value(high_level_actions["comms_budget"])
+        high_level_actions = self._active_hl_actions
+        if high_level_actions is None:
+            raise RuntimeError("High-level action selection returned no action.")
+
+        self.msg_budget_per_agent = int(high_level_actions["comms_budget"])
+        if self._dependent_policy_seeds and not terminal_hl_state:
+            if self._active_dependent_policy_seed is None:
+                raise RuntimeError("Dependent policy seed was not selected.")
+            policy_key = (
+                hl_state,
+                int(high_level_actions["chosen_next_state"]),
+                float(high_level_actions["comms_budget"]),
+                self._active_dependent_policy_seed,
+            )
+            if policy_key != self._active_policy_key:
+                try:
+                    policy = self._dependent_policy_bank[policy_key]
+                except KeyError as error:
+                    raise KeyError(
+                        f"No trained dependent low-level policy for "
+                        f"{policy_key[:-1]} at seed {policy_key[-1]}."
+                    ) from error
+                self.env_mac.load_models(policy)
+                self.env_mac.init_hidden(batch_size=ep_batch.batch_size)
+                self._active_policy_key = policy_key
 
         # NDArray or Tensor of size (1, n_env_agents)
         env_actions = self.env_mac.select_actions(ep_batch, t_ep, t_env, bs, test_mode)
@@ -87,6 +155,24 @@ class CommsMAC:
         }
 
         return actions
+
+    def set_dependent_policy_bank(
+        self,
+        policy_bank: dict[tuple[int, int, float, int], dict],
+        seeds: list[int],
+    ) -> None:
+        if not policy_bank:
+            raise ValueError("Dependent low-level policy bank cannot be empty.")
+        if not seeds or len(set(seeds)) != len(seeds):
+            raise ValueError("Dependent policy seeds must be non-empty and unique.")
+        self._dependent_policy_bank = policy_bank
+        self._dependent_policy_seeds = tuple(int(seed) for seed in seeds)
+        self._fixed_dependent_policy_seed = None
+
+    def set_dependent_policy_seed(self, seed: int | None) -> None:
+        if seed is not None and seed not in self._dependent_policy_seeds:
+            raise ValueError(f"Unknown dependent policy seed {seed}.")
+        self._fixed_dependent_policy_seed = seed
 
     @property
     def msg_budget_per_agent(self):

@@ -1,6 +1,6 @@
 # Dependent-subtask training over the branching navigation DAG.
-# Each edge gets a fresh low-level policy; successor spawn states are learned
-# from successful terminal states of predecessor edges.
+# Each edge/budget/seed gets a low-level candidate policy; successor spawn
+# states are learned from successful predecessor rollouts during CM passes.
 
 parameters:
     n_seeds:
@@ -28,7 +28,7 @@ parameters:
         values: [False]
 
     config:
-        values: [maic]
+        values: [maic_comm_opt]
     mixer:
         values: [qmix]
     lr:
@@ -55,6 +55,8 @@ parameters:
         values: [0.95]
     n_eval_eps_dependent_subtask:
         values: [50]
+    dependent_policy_seeds:
+        values: [[8688, 8329, 103]]
     cm_max_iterations:
         values: [5]
     cm_convergence_epsilon:

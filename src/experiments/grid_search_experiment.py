@@ -70,8 +70,6 @@ class GridSearch(object):
                 "t_max": 100000,
                 "test_nepisode": 1,
                 "n_test_replays": 1,
-                "test_interval": 10000,
-                "env_args.max_episode_steps": 20,
             }
             for parameter, value in debug_values.items():
                 config[parameter] = {"values": [value]}
@@ -194,6 +192,9 @@ class GridSearch(object):
         seed_values = post_processing_config.pop("seed", {}).get("values", [0])
         post_processing_config.pop("n_seeds", None)
         post_processing_config["use_wandb"] = {"values": [False]}
+        # Keep the full budget list in the post-processing environment. Splitting
+        # budgets is useful for training runs, but post-processing runs only once.
+        post_processing_config["unique_policy_per_msg_budget"] = {"values": [False]}
 
         scenarios, _, _ = self._get_scenarios(
             post_processing_config,
@@ -241,8 +242,10 @@ class GridSearch(object):
         # expand scenarios so each comms value becomes its own scenario
         updated_scenarios = []
         for scenario in scenarios:
-            if scenario.get("msg_budget_per_agent") and scenario.get(
-                "unique_policy_per_msg_budget"
+            if (
+                scenario.get("msg_budget_per_agent")
+                and scenario.get("unique_policy_per_msg_budget")
+                and not scenario.get("hl_task_sequence")
             ):
                 if "msg_budget_per_agent" not in varied_param_names:
                     varied_param_names.append("msg_budget_per_agent")
@@ -366,9 +369,9 @@ class GridSearch(object):
             for k, v in _params.items():
                 # used for the Sacred arg parser
                 if k in self.basic_config_params:
-                    options.append(f"--{k}={v}")
+                    options.append(shlex.quote(f"--{k}={v}"))
                 else:
-                    updates.append(f"{k}={v}")
+                    updates.append(shlex.quote(f"{k}={v}"))
 
             # define the command to be run for each combination of grid params
             # seeds have the same scenario number, but unique_policy_per_msg_budget should generate different scenarios
@@ -378,7 +381,7 @@ class GridSearch(object):
                 # for each (seed, message_budget) combo, build a run
                 run_params = scenario_params.copy()
                 run_params.update(combo_dict)
-                run_updates = [f"--{k}={v}" for k, v in run_params.items()]
+                run_updates = [shlex.quote(f"--{k}={v}") for k, v in run_params.items()]
 
                 # needed for debugging while using Sacred
                 # --force makes Sacred ignore this error since it sucks at checking whether params are actually used in your code or not

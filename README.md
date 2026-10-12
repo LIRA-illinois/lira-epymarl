@@ -92,6 +92,82 @@ This project assumes the use of Ubuntu 22.04 as the operating system. Some comma
 
 - There a ton of helper commands in `Makefile`, check them out.
 
+### Ray-distributed environment workers
+
+The optional `parallel_ray` runner creates node-pool actors and asks Ray to
+spread them across available nodes. Each actor owns a local
+`SharedMemoryParallelRunner` with `ray_envs_per_node` environment processes and
+a separate `EpisodeBatch`.
+The actor receives a CPU policy snapshot, runs its local batch to completion,
+and sends one batch back to the head. The head merges node batches and returns
+one batch through the existing `runner.run(...)` interface. The learner, replay
+buffer, and W&B logger stay in the process that runs `src/main.py`; remote
+actors never initialize W&B. Install Ray with
+`pip install -r marl/setup/ray_requirements.txt`, then select the runner and
+provide a memory reservation based on a measured environment-worker peak:
+
+```sh
+python src/main.py --config=mappo --env-config=gym_multigrid with \
+  env_args.key="multigrid-collect-v0" runner=parallel_ray \
+  ray_address=auto ray_envs_per_node=4 ray_memory_per_env_gb=2.0
+```
+
+Omit `ray_address` to start a local Ray runtime. `batch_size_run` is the total
+number of parallel environments across the cluster; `ray_envs_per_node`
+controls how many local processes each node actor creates. `ray_cpus_per_env`
+defaults to `1.0`. Ray reserves all node pools together and spreads them across
+available nodes (multiple pools may share a node if necessary); if the complete
+pool cannot fit, startup waits up to `ray_worker_start_timeout_s` before
+failing. Memory reservations are scheduler resources, not operating-system
+limits. Include environment-process overhead in `ray_memory_per_env_gb`, set
+`ray_node_overhead_memory_gb` conservatively, and account separately for each
+head-process learner and replay buffer when running multiple experiments.
+
+Each node uses local shared memory between its runner and environment
+processes, so observations and actions do not cross the network per timestep.
+Only the completed node batch crosses back to the head. Benchmark throughput
+and memory use with the target environment and cluster before scaling up.
+Environment packages and their dependencies must be available on every Ray
+worker node.
+
+Run the opt-in two-pool local training demo with:
+
+```sh
+RUN_RAY_INTEGRATION=1 python -m pytest -q -s \
+  tests/test_ray_parallel_runner.py \
+  -k local_ray_runs_and_merges_multiple_environment_pools
+```
+
+This starts a tiny hallway task with two Ray pools (one environment each), runs
+real training updates, and checks merged batch size and environment-step
+accounting. One run produced:
+
+```text
+Recent Stats | t_env: 25 | Episode: 8
+return_mean: 0.7083  task_completed_mean: 0.5000
+```
+
+These are recent training-rollout statistics, not held-out evaluation results;
+the short run is for exercising the execution path, not measuring policy
+quality. The run may overshoot `t_max` because it finishes a whole batch of
+episodes. This local smoke does not validate multi-node placement or networking.
+On Python 3.12, the smoke has also emitted `resource_tracker` warnings when
+worker processes exit after the owning actor unlinks shared-memory blocks; the
+run completes, but this cleanup warning remains under investigation.
+
+#### How rollout parallelization works
+
+`batch_size_run` is the total number of environments. Ray reserves one
+placement-group bundle for each pool, with `ray_envs_per_node` environments
+per pool. Each actor owns a `SharedMemoryParallelRunner`, so its environment
+processes exchange observations and actions through node-local shared memory.
+For each batch, the head sends a CPU policy snapshot to each actor; actors run
+complete episodes locally and return their `EpisodeBatch` plus statistics.
+The head merges those batches, adds them to the normal replay buffer, and
+performs learner updates. Thus network traffic is batch-oriented rather than
+per-timestep. Learning, replay, and W&B remain on the head; this distributes
+environment sampling, not learner updates or independent experiment trials.
+
 
 ### Updating submodues
 
@@ -368,6 +444,12 @@ assuming that the environment is registered with the ID `my-environment-v1` in t
 EPyMARL defines yaml configuration files for algorithms and environments under `src/config`. `src/config/default.yaml` defines default values for a range of configuration options, including experiment information (`t_max` for number of timesteps of training etc.) and algorithm hyperparameters.
 
 Further environment configs (provided to the main script via `--env-config=...`) can be found in `src/config/envs`. Algorithm configs specifying algorithms and their hyperparameters (provided to the main script via `--config=...`) can be found in `src/config/algs`. To change hyperparameters or define a new algorithm, you can modify these yaml config files or create new ones.
+
+## Aggregate-run high-level policy analysis
+
+For hierarchical experiments with `hl_task` evaluations, running a post-processing configuration with `post_processing: aggregate_runs` also solves the high-level communication policy across task-completion specifications. By default, it sweeps `p_c` from `0.00` to `0.95` in increments of `0.05`; set `postprocess_success_rate_specs` in the post-processing configuration to use a different list.
+
+The analysis compares the optimized per-task communication policy with a fixed-communication baseline. It saves one CSV per formulation, a `success_vs_cost` PNG/PDF, and the solved task and communication-budget policies under `results/high_level_policy_analysis/<time_id>_postprocess/<map_name>/`. The cost curves are also logged to the aggregate W&B post-processing run.
 
 # Run a hyperparameter search
 

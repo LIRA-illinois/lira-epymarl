@@ -251,6 +251,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
             states=mdp_config.get("states"),
             initial_state=int(mdp_config.get("initial_state", 0)),
             goal_states=mdp_config.get("goal_states"),
+            add_post_goal_state=transitions is None,
         )
 
         # this thing's action space should be a Cartesian product of the low-level env's and the MDP action space
@@ -258,6 +259,12 @@ class HLMDPEnvWrapper(gym.Wrapper):
         # similar for the obs space
         self._awaiting_next_navigation_task = False
         self._active_navigation_task: tuple[int, int] | None = None
+        self._dependent_navigation_init_state_dists: dict[int, dict] | None = None
+
+    def set_dependent_navigation_init_state_dists(
+        self, state_init_state_dists: dict[int, dict]
+    ) -> None:
+        self._dependent_navigation_init_state_dists = state_init_state_dists
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         if options is None:
@@ -265,6 +272,7 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         hl_options = {}
         ll_options = {}
+        self._active_navigation_task = None
 
         if "hl_start_state" in options:
             hl_options["hl_start_state"] = options["hl_start_state"]
@@ -293,7 +301,9 @@ class HLMDPEnvWrapper(gym.Wrapper):
 
         # only used for rendering HLMDP actions
         self._pre_step_hl_actions = None
-        self._awaiting_next_navigation_task = False
+        self._awaiting_next_navigation_task = bool(
+            options.get("select_navigation_task_from_policy", False)
+        )
 
         ll_info.update(hl_info)
         return ll_obs, ll_info
@@ -332,7 +342,23 @@ class HLMDPEnvWrapper(gym.Wrapper):
             except AttributeError:
                 activate_task = None
             if activate_task is not None:
-                activate_task(from_state=from_state, to_state=next_state)
+                if self._dependent_navigation_init_state_dists is None:
+                    activate_task(from_state=from_state, to_state=next_state)
+                else:
+                    try:
+                        init_state_dist = self._dependent_navigation_init_state_dists[
+                            from_state
+                        ]
+                    except KeyError as error:
+                        raise ValueError(
+                            f"No learned navigation initial-state distribution "
+                            f"was installed for high-level state {from_state}."
+                        ) from error
+                    activate_task(
+                        from_state=from_state,
+                        to_state=next_state,
+                        init_state_dist=init_state_dist,
+                    )
             self._awaiting_next_navigation_task = False
 
         # Advance the team MDP to the next goal state
@@ -352,9 +378,10 @@ class HLMDPEnvWrapper(gym.Wrapper):
             if self.terminate_on_task_completed:
                 ll_terminated = True
 
-        # other envs may have other ways to fail the overall project,
-        # but in LBF running out of time is the only way to do it
-        project_failed = ll_truncated
+        # A low-level termination without task completion is an unsuccessful task.
+        project_failed = ll_truncated or (
+            ll_terminated and not ll_info["task_completed"]
+        )
 
         # the HLMDP's step depends on if the task was completed successfully or not and the chosen next state
         hl_obs, hl_reward, hl_terminated, hl_truncated, hl_info = self.hlmdp.step(

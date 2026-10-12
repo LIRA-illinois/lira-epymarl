@@ -186,6 +186,7 @@ class EpisodeRunner:
             {
                 k: cur_stats.get(k, 0) + env_info.get(k, 0)
                 for k in set(cur_stats) | set(env_info)
+                if k != "final_state"
             }
         )
         cur_stats["n_episodes"] = 1 + cur_stats.get("n_episodes", 0)
@@ -204,7 +205,7 @@ class EpisodeRunner:
                 log_stats = self._get_log_stats(cur_returns, cur_stats, log_prefix)
                 # Return data in cur_returns and cur_stats for processing outside of episode runner.
                 out["log_stats"] = log_stats
-            elif len(self.test_returns) == self.args.test_nepisode:
+            elif len(self.test_returns) >= self.args.test_nepisode:
                 log_stats = self._get_log_stats(cur_returns, cur_stats, log_prefix)
                 self._log(log_stats)
         else:

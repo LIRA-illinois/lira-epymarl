@@ -52,8 +52,8 @@ class OptimizationProblem(ABC):
         # if you need to add license info, do it in another file and
         # import that as a dict called GUROBI_PARAMS and swap the env definition
         # env = gp.Env(params=GUROBI_PARAMS)
-        env = gp.Env()
-        self.model = gp.Model(self.__class__.__name__, env=env)
+        self._model_env = gp.Env()
+        self.model = gp.Model(self.__class__.__name__, env=self._model_env)
 
         # infeasibility debugging
         # self.model.params.DualReductions = 0

@@ -8,6 +8,7 @@ factored_mac: "comms_mac"
 factored_learner: "comms_learner"
 factored_action_selector: "comms_selector"
 comms_agent: "ilp_model"
+success_rate_spec: 0.95
 
 
 # MAIC params

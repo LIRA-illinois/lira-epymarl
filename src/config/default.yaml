@@ -6,6 +6,13 @@ scenario: "" # scenario name, empty by default
 time_id: "" # start time for experiment, empty by default
 run_name: "" # run name, empty by default
 runner: "episode" # Runs 1 env for an episode
+ray_address: null # Ray address, e.g. "auto" for an existing cluster
+ray_cpus_per_env: 1.0 # CPU reservation for each local environment process
+ray_memory_per_env_gb: null # Measured memory reservation required by parallel_ray
+ray_envs_per_node: 4 # Local shared-memory environment processes per Ray node actor
+ray_node_overhead_cpus: 0.5
+ray_node_overhead_memory_gb: 0.5
+ray_worker_start_timeout_s: 600
 mac: "basic_mac" # Basic controller
 env: "sc2" # Environment name
 common_reward: True # Run experiment with common reward setup
