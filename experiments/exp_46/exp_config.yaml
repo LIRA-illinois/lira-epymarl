@@ -11,7 +11,7 @@ parameters:
     # seed:
     #     values: [878428 347277]
     n_seeds:
-        values: [2]
+        values: [1]
 
     ##################
     # Project setup + logging
