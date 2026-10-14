@@ -1059,14 +1059,14 @@ class Simulation(DependentSubtaskTrainingMixin):
         )
         for curve_axis in curve_axes[1:]:
             curve_axis.tick_params(axis="y", labelleft=False)
-        training_axes = [figure.add_subplot(grid[2, 0])]
-        training_axes.extend(
-            figure.add_subplot(grid[2, column], sharey=training_axes[0])
+        test_return_axes = [figure.add_subplot(grid[2, 0])]
+        test_return_axes.extend(
+            figure.add_subplot(grid[2, column], sharey=test_return_axes[0])
             for column in range(1, len(groups))
         )
-        for training_axis in training_axes[1:]:
-            training_axis.tick_params(axis="y", labelleft=False)
-        training_axes[0].set_ylabel("training return")
+        for test_return_axis in test_return_axes[1:]:
+            test_return_axis.tick_params(axis="y", labelleft=False)
+        test_return_axes[0].set_ylabel("test return")
         legend_axis = figure.add_subplot(grid[1, -1])
         legend_axis.axis("off")
         bottom_width = min(2, len(groups))
@@ -1123,23 +1123,23 @@ class Simulation(DependentSubtaskTrainingMixin):
             curve_axis.set_xlabel("t_env")
             curve_axis.grid(True)
 
-            training_axis = training_axes[column]
+            test_return_axis = test_return_axes[column]
             for msg_budget_per_agent in msg_budgets:
                 source_run = source_runs_by_budget.get(float(msg_budget_per_agent))
                 if source_run is None:
                     continue
-                training_df = self._load_training_returns(source_run)
-                if training_df.empty:
+                test_return_df = self._load_test_returns(source_run)
+                if test_return_df.empty:
                     continue
-                training_axis.plot(
-                    training_df["t_env"],
-                    training_df["training_return"],
+                test_return_axis.plot(
+                    test_return_df["t_env"],
+                    test_return_df["test_return"],
                     color=success_lines[float(msg_budget_per_agent)].get_color(),
                     linewidth=1.5,
                     label=f"Comms: {msg_budget_per_agent:g}",
                 )
-            training_axis.set_xlabel("t_env")
-            training_axis.grid(True)
+            test_return_axis.set_xlabel("t_env")
+            test_return_axis.grid(True)
 
         final_step = max(df["t_env"].max() for _, df, _ in groups)
         for task_label, df, _ in groups:
@@ -1481,20 +1481,19 @@ class Simulation(DependentSubtaskTrainingMixin):
             raise ValueError(f"Invalid high-level task {value!r}.") from error
 
     @staticmethod
-    def _load_training_returns(source_run) -> pd.DataFrame:
-        """Load the source run's training return history for plotting."""
-        for metric_name in ("return_mean", "total_return_mean"):
-            try:
-                history = source_run.history(
-                    keys=["t_env", metric_name], pandas=True, samples=10000
-                )
-            except (AttributeError, TypeError, ValueError):
-                continue
-            if history is None or history.empty or metric_name not in history:
-                continue
-            training_df = history[["t_env", metric_name]].dropna()
-            return training_df.rename(columns={metric_name: "training_return"})
-        return pd.DataFrame(columns=["t_env", "training_return"])
+    def _load_test_returns(source_run) -> pd.DataFrame:
+        """Load the source run's test return history for plotting."""
+        metric_name = "test_return_mean"
+        try:
+            history = source_run.history(
+                keys=["t_env", metric_name], pandas=True, samples=10000
+            )
+        except (AttributeError, TypeError, ValueError):
+            return pd.DataFrame(columns=["t_env", "test_return"])
+        if history is None or history.empty or metric_name not in history:
+            return pd.DataFrame(columns=["t_env", "test_return"])
+        test_return_df = history[["t_env", metric_name]].dropna()
+        return test_return_df.rename(columns={metric_name: "test_return"})
 
     def _render_task_frames(self, groups, source_run) -> dict:
         return render_navigation_task_frames(

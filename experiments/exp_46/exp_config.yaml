@@ -8,11 +8,11 @@ parameters:
     ##################
     # seeds are grid-searched over and are haPndled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
     # use fixed seeds like this to enable reproducible results
-    # seed:
-    #   values: [101]
-    # use random seeds for high-quality results to help avoid cherry picking seeds that make your results look good
-    n_seeds:
-        values: [2]
+    seed:
+        values: [878428]
+        # values: [878428 347277]
+    # n_seeds:
+    #     values: [2]
 
     ##################
     # Project setup + logging
@@ -56,27 +56,30 @@ parameters:
     lr:
         values: [0.00005]
     t_max:
-        values: [3050000]
+        values: [8_050_000]
     epsilon_anneal_time:
-        values: [1000000]
+        values: [2_000_000]
     early_stopping:
         values: [True]
+
     early_stopping_window:
-        values: [500000]
+        values: [1_000_000]
     early_stopping_min_delta:
         values: [0.01]
+    # the agents have to
     early_stopping_min_success_lcb:
-        values: [0.95]
+        values: [0.80]
     early_stopping_confidence:
-        values: [0.95]
+        values: [0.90]
+
     test_nepisode:
         values: [50]
     n_test_replays_save:
         values: [5]
     test_interval:
-        values: [500000]
+        values: [500_000]
     save_model_interval:
-        values: [500000]
+        values: [500_000]
 
     correlated_exploration:
         values: [True]
@@ -94,7 +97,7 @@ parameters:
         values: [hard_topk]
 
     msg_drop_rate:
-        values: [0.5]
+        values: [0.0, 0.1, 0.2]
 
     # # post_processing for after the run is done
     # post_processing:
@@ -120,7 +123,7 @@ parameters:
         values: [True]
     # Train each directed subtask as an independent low-level scenario.
     hl_task:
-        values: [[0 1], [1 3], [2 3]]
+        values: [[0 1], [1 3]]
     env_args.terminate_on_task_completed:
         values: [True]
     env_args.max_episode_steps:
@@ -134,12 +137,29 @@ parameters:
     env_args.reward_config.simultaneous_goal_reward_type:
         values: [per_step_arrival_group_size]
 
-    env_args.agent_0_delay_prob:
-        values: [0.5]
+    env_args.n_agents_delay:
+        values: [1, 2, 3]
+    # env_args.agent_delay_prob:
+    #     values: [0.0]
 
 ##################
 # Conditional parameters
 # use conditional params to specify single values to use for a given setup specified in "parameters" above
 # don't make these too complex or nest these deeper, it'll probably break something
 ##################
-# conditional_parameters:
+conditional_parameters:
+    env_args.n_agents_delay:
+        1:
+            env_args.agent_delay_prob:
+                values: [0.1, 0.2]
+        2:
+            env_args.agent_delay_prob:
+                values: [0.1]
+        3:
+            env_args.agent_delay_prob:
+                values: [0.1]
+
+    msg_budget_per_agent:
+        "0":
+            config:
+                values: [qmix]
