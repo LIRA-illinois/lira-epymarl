@@ -9,11 +9,13 @@ parameters:
   mixer:
     values: [qmix]
   runner:
-    values: [episode]
+    values: [parallel_shared_memory]
+    # batch_size_run=20 is a good tradeoff between speeding up run time and RAM usage,
+    # marginal speedup starts slowing down here, almost no benefit going above batch_size_run=40
   batch_size_run:
-    values: [1]
+    values: [10]
   t_max:
-    values: [100]
+    values: [5000]
   use_cuda:
     values: [True]
   use_sacred:

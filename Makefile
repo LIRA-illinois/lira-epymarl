@@ -110,3 +110,58 @@ hardware:
 
 stop-job:
 	scancel $(id)
+
+####################
+# Ray lab cluster
+####################
+RAY_BIN ?= .venv/bin/ray
+RAY_PYTHON ?= .venv/bin/python
+RAY_CLUSTER_CONFIG ?= experiments/ray_cluster.yaml
+RAY_REMOTE_BIN ?= /home/jaye/dev/lira-epymarl/.venv/bin/ray
+RAY_REMOTE_PROJECT_DIR ?= /home/jaye/dev/lira-epymarl
+RAY_REMOTE_BIN_DIR = $(patsubst %/,%,$(dir $(RAY_REMOTE_BIN)))
+RAY_HEAD_IP = $(shell $(RAY_PYTHON) -c 'import yaml; config = yaml.safe_load(open("$(RAY_CLUSTER_CONFIG)")); print(config["provider"]["head_ip"])')
+RAY_WORKER_IPS = $(shell $(RAY_PYTHON) -c 'import yaml; config = yaml.safe_load(open("$(RAY_CLUSTER_CONFIG)")); print(" ".join(config["provider"]["worker_ips"]))')
+RAY_SSH_USER = $(shell $(RAY_PYTHON) -c 'import yaml; config = yaml.safe_load(open("$(RAY_CLUSTER_CONFIG)")); print(config["auth"]["ssh_user"])')
+RAY_SSH_KEY = $(shell $(RAY_PYTHON) -c 'import os; import yaml; config = yaml.safe_load(open("$(RAY_CLUSTER_CONFIG)")); print(os.path.expanduser(config["auth"]["ssh_private_key"]))')
+RAY_CLUSTER_HOSTS = $(RAY_HEAD_IP) $(RAY_WORKER_IPS)
+
+.PHONY: ray-up ray-status ray-nodes ray-git-status ray-check-hosts ray-remote-path ray-down
+ray-up:
+	RAY_AUTH_MODE=token RAY_UP_enable_autoscaler_v2=0 $(RAY_BIN) up $(RAY_CLUSTER_CONFIG) -y --no-config-cache -v
+
+ray-status:
+	RAY_AUTH_MODE=token $(RAY_BIN) status --address=$(RAY_HEAD_IP):6379
+
+ray-nodes:
+	RAY_AUTH_MODE=token $(RAY_BIN) list nodes --address=$(RAY_HEAD_IP):6379 --filter state=ALIVE --format table
+
+ray-git-status:
+	@for host in $(RAY_CLUSTER_HOSTS); do \
+		echo "===== $(RAY_SSH_USER)@$$host: $(RAY_REMOTE_PROJECT_DIR) ====="; \
+		ssh -i "$(RAY_SSH_KEY)" -o BatchMode=yes -o ConnectTimeout=8 "$(RAY_SSH_USER)@$$host" \
+			"cd '$(RAY_REMOTE_PROJECT_DIR)' && git status --short --branch --ignore-submodules=none && git submodule foreach --recursive 'git status --short --branch'" || exit 1; \
+	done
+
+ray-check-hosts:
+	@test -s ~/.ray/auth_token || { echo "Missing local ~/.ray/auth_token"; exit 1; }
+	@for host in $(RAY_CLUSTER_HOSTS); do \
+		echo "Checking $(RAY_SSH_USER)@$$host"; \
+		ssh -i "$(RAY_SSH_KEY)" -o BatchMode=yes -o ConnectTimeout=8 "$(RAY_SSH_USER)@$$host" \
+			'test -x "$(RAY_REMOTE_BIN)" && "$(RAY_REMOTE_BIN)" --version && test -s ~/.ray/auth_token' || exit 1; \
+	done
+
+ray-remote-path:
+	@for host in $(RAY_CLUSTER_HOSTS); do \
+		echo "Adding the Ray venv to login PATH on $(RAY_SSH_USER)@$$host"; \
+		ssh -i "$(RAY_SSH_KEY)" -o BatchMode=yes -o ConnectTimeout=8 "$(RAY_SSH_USER)@$$host" \
+			"touch ~/.bashrc; grep -Fqx 'export PATH=$(RAY_REMOTE_BIN_DIR):\$$PATH' ~/.bashrc || printf '%s\\n' 'export PATH=$(RAY_REMOTE_BIN_DIR):\$$PATH' >> ~/.bashrc" || exit 1; \
+	done
+
+ray-down: ray-remote-path
+	-RAY_AUTH_MODE=token $(RAY_BIN) down $(RAY_CLUSTER_CONFIG) -y
+	@failed=0; for host in $(RAY_CLUSTER_HOSTS); do \
+		echo "Stopping leftover Ray processes on $(RAY_SSH_USER)@$$host"; \
+		ssh -i "$(RAY_SSH_KEY)" -o BatchMode=yes -o ConnectTimeout=8 "$(RAY_SSH_USER)@$$host" \
+			'"$(RAY_REMOTE_BIN)" stop --force' || failed=1; \
+	done; exit $$failed
