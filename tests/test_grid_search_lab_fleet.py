@@ -69,26 +69,24 @@ def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
 def test_preflight_accepts_python_minor_and_tooling_differences(capsys):
     fleet = RayLabFleet.__new__(RayLabFleet)
     fleet.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
-    fleet._ensure_matching_environments(
-        [
-            {
-                "venv": {
-                    "python_major": 3,
-                    "python_version": "3.12.15",
-                    "lockfile_sha256": "shared-lock",
-                    "packages": ("poetry==2.5.1",),
-                }
-            },
-            {
-                "venv": {
-                    "python_major": 3,
-                    "python_version": "3.13.1",
-                    "lockfile_sha256": "shared-lock",
-                    "packages": ("poetry==2.5.2",),
-                }
-            },
-        ]
-    )
+    fleet._ensure_matching_environments([
+        {
+            "venv": {
+                "python_major": 3,
+                "python_version": "3.12.15",
+                "lockfile_sha256": "shared-lock",
+                "packages": ("poetry==2.5.1",),
+            }
+        },
+        {
+            "venv": {
+                "python_major": 3,
+                "python_version": "3.13.1",
+                "lockfile_sha256": "shared-lock",
+                "packages": ("poetry==2.5.2",),
+            }
+        },
+    ])
 
     assert "compatible Python majors" in capsys.readouterr().out
 

@@ -381,8 +381,7 @@ class RayLabFleet:
         for host, preparation in zip(self.hosts[1:], preparations[1:]):
             environment = preparation["venv"]
             if (
-                environment["python_major"]
-                == reference_environment["python_major"]
+                environment["python_major"] == reference_environment["python_major"]
                 and environment["lockfile_sha256"]
                 == reference_environment["lockfile_sha256"]
             ):
@@ -390,11 +389,12 @@ class RayLabFleet:
             differences = []
             if environment["python_major"] != reference_environment["python_major"]:
                 differences.append(f"Python major {environment['python_major']}")
-            if environment["lockfile_sha256"] != reference_environment["lockfile_sha256"]:
+            if (
+                environment["lockfile_sha256"]
+                != reference_environment["lockfile_sha256"]
+            ):
                 differences.append("poetry.lock differs")
-            mismatches.append(
-                f"{host['name']} ({'; '.join(differences)})"
-            )
+            mismatches.append(f"{host['name']} ({'; '.join(differences)})")
 
         if mismatches:
             raise RuntimeError(
@@ -405,7 +405,9 @@ class RayLabFleet:
                 f"{reference_environment['lockfile_sha256']}). Ensure all hosts use "
                 "the same lockfile, then retry. Differences: " + "; ".join(mismatches)
             )
-        print("All lab computers have compatible Python majors and the same poetry.lock")
+        print(
+            "All lab computers have compatible Python majors and the same poetry.lock"
+        )
 
     def _open_dashboard(self, dashboard_url: str) -> None:
         print(f"Ray dashboard: {dashboard_url}")
