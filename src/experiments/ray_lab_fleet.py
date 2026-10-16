@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import webbrowser
+from hashlib import sha256
 from os.path import isabs, join
 
 import yaml
@@ -145,6 +146,12 @@ def _prepare_node(project_dir: str, gpus: list[int], sync_wandb: bool) -> dict:
                 f"{sorted(missing_gpus)} (available: {sorted(available_gpus)})"
             )
 
+    lock_path = join(project_dir, "poetry.lock")
+    if not os.path.isfile(lock_path):
+        raise RuntimeError(f"Missing poetry.lock in {project_dir}")
+    with open(lock_path, "rb") as lock_file:
+        lockfile_sha256 = sha256(lock_file.read()).hexdigest()
+
     wandb_dir = join(project_dir, "results", "wandb")
     baseline_runs = []
     if os.path.isdir(wandb_dir):
@@ -155,11 +162,9 @@ def _prepare_node(project_dir: str, gpus: list[int], sync_wandb: bool) -> dict:
         )
 
     environment_code = (
-        "import importlib.metadata as m, platform, sys; "
-        "print(sys.implementation.name + '-' + sys.version.split()[0] + '-' + platform.machine()); "
-        "[print(package) for package in sorted("
-        "distribution.metadata.get('Name', 'unknown').lower() + '==' + distribution.version "
-        "for distribution in m.distributions())]"
+        "import platform, sys; "
+        "print(sys.version_info.major); "
+        "print(platform.python_version())"
     )
     environment_result = subprocess.run(
         [join(project_dir, ".venv", "bin", "python"), "-c", environment_code],
@@ -168,15 +173,16 @@ def _prepare_node(project_dir: str, gpus: list[int], sync_wandb: bool) -> dict:
         text=True,
         check=True,
     )
-    environment_lines = environment_result.stdout.splitlines()
+    python_major, python_version = environment_result.stdout.splitlines()
 
     print(completed.stdout, end="")
     return {
         "available_gpus": available_gpus,
         "baseline_runs": baseline_runs,
         "venv": {
-            "python": environment_lines[0],
-            "packages": tuple(environment_lines[1:]),
+            "python_major": int(python_major),
+            "python_version": python_version,
+            "lockfile_sha256": lockfile_sha256,
         },
     }
 
@@ -371,28 +377,35 @@ class RayLabFleet:
         reference_host = self.hosts[0]
         reference_environment = preparations[0]["venv"]
         mismatches = []
-        reference_packages = set(reference_environment["packages"])
 
         for host, preparation in zip(self.hosts[1:], preparations[1:]):
             environment = preparation["venv"]
-            if environment == reference_environment:
+            if (
+                environment["python_major"]
+                == reference_environment["python_major"]
+                and environment["lockfile_sha256"]
+                == reference_environment["lockfile_sha256"]
+            ):
                 continue
-            differing_packages = sorted(
-                reference_packages.symmetric_difference(environment["packages"])
-            )
+            differences = []
+            if environment["python_major"] != reference_environment["python_major"]:
+                differences.append(f"Python major {environment['python_major']}")
+            if environment["lockfile_sha256"] != reference_environment["lockfile_sha256"]:
+                differences.append("poetry.lock differs")
             mismatches.append(
-                f"{host['name']} (Python/platform {environment['python']}; "
-                f"package differences: {differing_packages})"
+                f"{host['name']} ({'; '.join(differences)})"
             )
 
         if mismatches:
             raise RuntimeError(
-                "Lab computer virtual environments differ from "
-                f"{reference_host['name']} (Python/platform "
-                f"{reference_environment['python']}). Run `poetry install --with ray` "
-                "in each checkout, then retry. Differences: " + "; ".join(mismatches)
+                "Lab computer Python major versions or Poetry lockfiles differ from "
+                f"{reference_host['name']} (Python major "
+                f"{reference_environment['python_major']}; Python "
+                f"{reference_environment['python_version']}; poetry.lock SHA-256 "
+                f"{reference_environment['lockfile_sha256']}). Ensure all hosts use "
+                "the same lockfile, then retry. Differences: " + "; ".join(mismatches)
             )
-        print("All lab computers have matching Python environments")
+        print("All lab computers have compatible Python majors and the same poetry.lock")
 
     def _open_dashboard(self, dashboard_url: str) -> None:
         print(f"Ray dashboard: {dashboard_url}")

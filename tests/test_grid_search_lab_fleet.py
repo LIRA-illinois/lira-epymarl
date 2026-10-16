@@ -66,23 +66,76 @@ def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
     assert outcomes[0]["returncode"] == 0
 
 
-def test_venv_preflight_rejects_different_package_versions():
+def test_preflight_accepts_python_minor_and_tooling_differences(capsys):
     fleet = RayLabFleet.__new__(RayLabFleet)
     fleet.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
-    matching_python = "cpython-3.12.1-x86_64"
-
-    with pytest.raises(RuntimeError, match="virtual environments differ"):
-        fleet._ensure_matching_environments([
+    fleet._ensure_matching_environments(
+        [
             {
                 "venv": {
-                    "python": matching_python,
-                    "packages": ("numpy==2.3.2", "ray==2.59.0"),
+                    "python_major": 3,
+                    "python_version": "3.12.15",
+                    "lockfile_sha256": "shared-lock",
+                    "packages": ("poetry==2.5.1",),
                 }
             },
             {
                 "venv": {
-                    "python": matching_python,
-                    "packages": ("numpy==2.3.2", "ray==2.58.0"),
+                    "python_major": 3,
+                    "python_version": "3.13.1",
+                    "lockfile_sha256": "shared-lock",
+                    "packages": ("poetry==2.5.2",),
+                }
+            },
+        ]
+    )
+
+    assert "compatible Python majors" in capsys.readouterr().out
+
+
+def test_preflight_rejects_different_lockfiles():
+    fleet = RayLabFleet.__new__(RayLabFleet)
+    fleet.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
+
+    with pytest.raises(
+        RuntimeError, match="Python major versions or Poetry lockfiles differ"
+    ):
+        fleet._ensure_matching_environments([
+            {
+                "venv": {
+                    "python_major": 3,
+                    "python_version": "3.12.15",
+                    "lockfile_sha256": "lock-a",
+                }
+            },
+            {
+                "venv": {
+                    "python_major": 3,
+                    "python_version": "3.12.15",
+                    "lockfile_sha256": "lock-b",
+                }
+            },
+        ])
+
+
+def test_preflight_rejects_different_python_major_versions():
+    fleet = RayLabFleet.__new__(RayLabFleet)
+    fleet.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
+
+    with pytest.raises(RuntimeError, match="Python major 4"):
+        fleet._ensure_matching_environments([
+            {
+                "venv": {
+                    "python_major": 3,
+                    "python_version": "3.12.15",
+                    "lockfile_sha256": "shared-lock",
+                }
+            },
+            {
+                "venv": {
+                    "python_major": 4,
+                    "python_version": "4.0.0",
+                    "lockfile_sha256": "shared-lock",
                 }
             },
         ])
