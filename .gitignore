@@ -1,5 +1,6 @@
 # custom entries
 marl/
+experiments/lab_hosts.yaml
 .DS_Store
 3rdparty/
 results/

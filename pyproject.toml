@@ -48,6 +48,9 @@ lbforaging = { path = "submodules/lb-foraging", develop = true }
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.3.1"
 
+[tool.poetry.group.ray.dependencies]
+ray = { version = ">=2.59.0,<3.0.0", extras = ["default"] }
+
 # deprecated dependencies
 # "absl-py>=0.1.0", # not use anywhere
 # "protobuf>=3.20.0", # only needed for tensorboard

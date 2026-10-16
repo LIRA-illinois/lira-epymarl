@@ -338,15 +338,13 @@ class DependentSubtaskTrainingMixin:
                     f"Root task {edge[0]}->{edge[1]} has no configured initial "
                     "state distribution."
                 )
-            root_dists.append(
-                {
-                    "states": [
-                        [list(position) for position in joint_state]
-                        for joint_state in task.init_state_dist.states
-                    ],
-                    "probs": list(task.init_state_dist.probs),
-                }
-            )
+            root_dists.append({
+                "states": [
+                    [list(position) for position in joint_state]
+                    for joint_state in task.init_state_dist.states
+                ],
+                "probs": list(task.init_state_dist.probs),
+            })
 
         first_dist = root_dists[0]
         if any(
@@ -537,15 +535,13 @@ class DependentSubtaskTrainingMixin:
                 f"seed_{policy_seed}.th"
             )
             th.save(policy_weights, join(save_path, filename))
-            candidate_rows.append(
-                {
-                    "from_state": from_state,
-                    "to_state": to_state,
-                    "msg_budget_per_agent": budget,
-                    "seed": policy_seed,
-                    "filename": filename,
-                }
-            )
+            candidate_rows.append({
+                "from_state": from_state,
+                "to_state": to_state,
+                "msg_budget_per_agent": budget,
+                "seed": policy_seed,
+                "filename": filename,
+            })
 
         pd.DataFrame.from_records(candidate_rows).to_csv(
             join(save_path, "candidate_manifest.csv"), index=False

@@ -1,0 +1,13 @@
+hosts:
+  - name: lab-a
+    # Must match the node IP reported by ray.nodes().
+    ray_node_ip: 192.168.1.10
+    project_dir: /home/user/dev/lira-epymarl
+    n_runners: 2
+    gpus: [0, 1]
+
+  - name: lab-b
+    ray_node_ip: 192.168.1.11
+    project_dir: /home/user/dev/lira-epymarl
+    n_runners: 1
+    gpus: [0]

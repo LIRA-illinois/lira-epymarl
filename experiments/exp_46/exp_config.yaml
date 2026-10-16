@@ -96,7 +96,7 @@ parameters:
         values: [hard_topk]
 
     msg_drop_rate:
-        values: [0.0, 0.1, 0.2]
+        values: [0.1, 0.2]
 
     # # post_processing for after the run is done
     # post_processing:

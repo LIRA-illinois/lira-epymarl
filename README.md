@@ -425,12 +425,12 @@ To register a custom environment with Gymnasium, use the template below:
 from gymnasium import register
 
 register(
-  id="my-environment-v1",                         # Environment ID.
-  entry_point="myenv.environment:MyEnvironment",  # The entry point for the environment class
-  kwargs={
-            ...                                   # Arguments that go to MyEnvironment's __init__ function.
-        },
-    )
+    id="my-environment-v1",  # Environment ID.
+    entry_point="myenv.environment:MyEnvironment",  # The entry point for the environment class
+    kwargs={
+        ...  # Arguments that go to MyEnvironment's __init__ function.
+    },
+)
 ```
 
 After, you can run an experiment in this environment using the following command:
@@ -462,6 +462,19 @@ In a cluster environment where one run should go to a single process, it can als
 python search.py run --config=search.config.example.yaml --seeds 5 single 1
 ```
 where the 1 is an index to the particular hyperparameter configuration and can take values from 1 to the number of different combinations.
+
+## Running grid searches across lab computers
+
+The separate `lab-fleet` workflow uses Ray to coordinate independent grid-search runs across computers. Install the optional dependency with `poetry install --with ray` on the driver and each lab computer, and start a Ray head/worker cluster using the same virtual environment. Start the head with dashboard support, for example `ray start --head --include-dashboard=true --dashboard-host=0.0.0.0`, then join the worker computers to that head with `ray start --address=<head-ip>:6379`. Binding to `0.0.0.0` exposes the dashboard on the network, so restrict access to a trusted lab network or use an SSH tunnel. Run the grid search on the head node with `--ray-address=auto`, or provide a reachable Ray address with `--ray-address=host:port`.
+
+Configure each computer's Ray node IP, absolute checkout path, runner count, and GPU IDs in `experiments/lab_hosts.yaml`; start from [the example inventory](experiments/lab_hosts.example.yaml). The IP must match the address Ray advertises for that node. The local inventory is gitignored. Each configured host must already be a live node in the Ray cluster and have a `.venv` checkout. Tracked local edits stop the update rather than being overwritten. Before any run starts, Ray tasks fast-forward each root repository and check out the recursive submodule commits pinned by it; changes to run remotely must be committed and pushed first. The preflight compares Python/platform and all installed package versions across the configured virtual environments; a mismatch stops the launch and reports the differences. Run `poetry install --with ray` in each checkout to align them.
+
+Run a search with:
+```sh
+python src/experiments/grid_search_experiment.py -e exp_46 --computer lab-fleet
+```
+
+Each generated run is assigned round-robin across configured runner slots. Ray pins one task to each runner slot and its configured node; the task sets `CUDA_VISIBLE_DEVICES` to the selected GPU and runs its queue sequentially. GPU IDs are assigned round-robin; set `gpus: []` for a CPU-only host. With W&B enabled, Ray sync tasks run on each host after all its runner queues finish and upload only new offline run folders. Authenticate W&B on every host beforehand with `wandb login`; use `--no-wandb-sync` to disable automatic syncing. Pass `--ray-dashboard` to open the connected cluster's dashboard once run tasks have been submitted.
 
 # Logging
 
