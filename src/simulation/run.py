@@ -15,9 +15,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch as th
+import wandb
 from matplotlib.patches import FancyArrowPatch
 
-import wandb
 from src.modules.agents.ilp_model import ILPModel, InfeasiblePolicyError
 from src.simulation.build import build_sim
 from src.simulation.dependent_subtasks import DependentSubtaskTrainingMixin
@@ -25,7 +25,7 @@ from src.simulation.evaluate import (
     run_eval_episodes,
 )
 from src.utils.general_reward_support import test_alg_config_supports_reward
-from src.utils.logging import MainLogger, log_setup
+from src.utils.logging import RESULTS_DIR, MainLogger, log_setup
 from src.utils.navigation_rendering import (
     load_navigation_mdp,
     render_navigation_task_frames,
@@ -179,6 +179,7 @@ class Simulation(DependentSubtaskTrainingMixin):
                         project=getattr(active_postprocess_run, "project", None),
                         id=active_postprocess_run.id,
                         resume="allow",
+                        dir=RESULTS_DIR,
                     )
                 else:
                     finished_postprocess_run = any(
@@ -201,6 +202,7 @@ class Simulation(DependentSubtaskTrainingMixin):
                             "post_processing": self.args.post_processing,
                         },
                         mode="online",
+                        dir=RESULTS_DIR,
                     )
 
                 combined_groups_by_map = {}
@@ -215,7 +217,8 @@ class Simulation(DependentSubtaskTrainingMixin):
                         "t_env_rounded",
                     ]
                     df_avg = (
-                        df_group.groupby(group_columns, dropna=False)
+                        df_group
+                        .groupby(group_columns, dropna=False)
                         .mean(numeric_only=True)
                         .reset_index()
                     )
@@ -232,12 +235,10 @@ class Simulation(DependentSubtaskTrainingMixin):
                     parameter_info = ", ".join(
                         f"{key}={value}" for key, value in group_key
                     )
-                    scenario_indices = sorted(
-                        {
-                            int(scenario)
-                            for scenario in df_group["scenario"].dropna().unique()
-                        }
-                    )
+                    scenario_indices = sorted({
+                        int(scenario)
+                        for scenario in df_group["scenario"].dropna().unique()
+                    })
                     group_source_run = group_runs.get(group_key)
                     if group_source_run is None:
                         continue
@@ -258,13 +259,11 @@ class Simulation(DependentSubtaskTrainingMixin):
                     if hl_task_label is not None:
                         plot_group += f"_t{hl_task_label}"
                     plot_group = f"map_{map_name}_{plot_group}"
-                    combined_groups_by_map.setdefault(map_name, []).append(
-                        (
-                            f"task {hl_task_label or group_idx}",
-                            df_avg.copy(),
-                            hl_task,
-                        )
-                    )
+                    combined_groups_by_map.setdefault(map_name, []).append((
+                        f"task {hl_task_label or group_idx}",
+                        df_avg.copy(),
+                        hl_task,
+                    ))
                     if hl_task is not None:
                         policy_eval_data_by_map.setdefault(map_name, []).append(
                             df_group.copy()
@@ -309,9 +308,8 @@ class Simulation(DependentSubtaskTrainingMixin):
                             [df for _, df, _ in map_groups], ignore_index=True
                         )
                         map_df = (
-                            map_df.groupby(
-                                ["msg_budget_per_agent", "t_env"], dropna=False
-                            )
+                            map_df
+                            .groupby(["msg_budget_per_agent", "t_env"], dropna=False)
                             .mean(numeric_only=True)
                             .reset_index()
                         )
@@ -1385,12 +1383,10 @@ class Simulation(DependentSubtaskTrainingMixin):
         for level in sorted(set(levels.values())):
             level_states = [state for state in states if levels.get(state) == level]
             offset = (len(level_states) - 1) / 2
-            positions.update(
-                {
-                    state: (level, offset - index)
-                    for index, state in enumerate(level_states)
-                }
-            )
+            positions.update({
+                state: (level, offset - index)
+                for index, state in enumerate(level_states)
+            })
 
         for transition in transitions:
             start = positions.get(transition["from_state"])

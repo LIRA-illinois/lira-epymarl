@@ -15,6 +15,7 @@ import yaml
 from torch import manual_seed as th_manual_seed
 from torch import set_num_threads as th_set_num_threads
 
+from src.runners.shared_memory_parallel_runner import SharedMemoryParallelRunner
 from src.simulation.run import Simulation
 from src.utils.logging import get_logger
 from src.utils.utils import get_config_updates, string_inputs_to_list
@@ -45,7 +46,11 @@ def experiment_main(_config, logger: Logger) -> None:
 
     # run the framework
     sim = Simulation(config, logger)
-    sim.run()
+    try:
+        sim.run()
+    finally:
+        if isinstance(sim.runner, SharedMemoryParallelRunner):
+            sim.runner.close_env()
     sim.finish()
 
 

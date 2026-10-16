@@ -7,6 +7,7 @@ from src.experiments.ray_lab_fleet import (
     distribute_commands,
     load_lab_hosts,
 )
+from src.experiments.update_lab_fleet import _update_checkout
 
 
 def test_load_lab_hosts_reads_runner_and_gpu_settings(tmp_path):
@@ -64,6 +65,33 @@ def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
     assert captured["visible_gpu"] == "5"
     assert "source .venv/bin/activate" in captured["command"][-1]
     assert outcomes[0]["returncode"] == 0
+
+
+def test_checkout_update_fast_forwards_without_resetting_or_cleaning(
+    tmp_path, monkeypatch
+):
+    captured = {}
+
+    def fake_run(command, cwd, capture_output, text, check):
+        captured["command"] = command
+        captured["cwd"] = cwd
+        return type(
+            "Completed",
+            (),
+            {"returncode": 0, "stdout": "Already up to date.\n", "stderr": ""},
+        )()
+
+    monkeypatch.setattr("src.experiments.update_lab_fleet.subprocess.run", fake_run)
+
+    outcome = _update_checkout(str(tmp_path))
+    shell_script = captured["command"][-1]
+
+    assert captured["cwd"] == str(tmp_path)
+    assert "git pull --ff-only" in shell_script
+    assert "git submodule update --init --recursive" in shell_script
+    assert "git reset" not in shell_script
+    assert "git clean" not in shell_script
+    assert outcome["returncode"] == 0
 
 
 def test_preflight_accepts_python_minor_and_tooling_differences(capsys):

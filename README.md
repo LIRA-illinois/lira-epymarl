@@ -474,6 +474,8 @@ Run a search with:
 python src/experiments/grid_search_experiment.py -e exp_46 --computer lab-fleet
 ```
 
+To fast-forward the checkouts on currently live configured lab computers without starting an experiment, run `python src/experiments/update_lab_fleet.py`. It uses the same host inventory and Ray cluster, skips offline hosts, refuses tracked local edits, and does not reset or clean repositories; untracked and ignored result files are left alone.
+
 Each generated run is assigned round-robin across configured runner slots. Ray pins one task to each runner slot and its configured node; the task sets `CUDA_VISIBLE_DEVICES` to the selected GPU and runs its queue sequentially. GPU IDs are assigned round-robin; set `gpus: []` for a CPU-only host. With W&B enabled, Ray sync tasks run on each host after all its runner queues finish and upload only new offline run folders. Authenticate W&B on every host beforehand with `wandb login`; use `--no-wandb-sync` to disable automatic syncing. Pass `--ray-dashboard` to open the connected cluster's dashboard once run tasks have been submitted.
 
 # Logging

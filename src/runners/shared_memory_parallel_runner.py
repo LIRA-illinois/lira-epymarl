@@ -22,15 +22,16 @@ class SharedMemoryParallelRunner:
         self.args = args
         self.logger = logger
         self.batch_size = args.batch_size_run
+        self._closed = False
 
         if args.env == "sc2":
             register_smac()
         elif args.env == "sc2v2":
             register_smacv2()
 
-        self.parent_conns, self.worker_conns = zip(
-            *[Pipe() for _ in range(self.batch_size)]
-        )
+        self.parent_conns, self.worker_conns = zip(*[
+            Pipe() for _ in range(self.batch_size)
+        ])
         self.ps = []
         for worker_idx, (parent_conn, worker_conn) in enumerate(
             zip(self.parent_conns, self.worker_conns)
@@ -130,10 +131,19 @@ class SharedMemoryParallelRunner:
         return self.env_info
 
     def close_env(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         for conn in self.parent_conns:
-            conn.send(("close", None))
+            try:
+                conn.send(("close", None))
+            except (BrokenPipeError, EOFError, OSError):
+                pass
         for process in self.ps:
             process.join(timeout=2)
+            if process.is_alive():
+                process.terminate()
+                process.join()
         for conn in self.parent_conns:
             conn.close()
         for shm in self._shms.values():
@@ -242,9 +252,9 @@ class SharedMemoryParallelRunner:
                 terminated[idx] = env_terminated
 
                 post_transition_data["reward"].append((reward,))
-                post_transition_data["terminated"].append(
-                    (env_terminated and not info.get("episode_limit", False),)
-                )
+                post_transition_data["terminated"].append((
+                    env_terminated and not info.get("episode_limit", False),
+                ))
                 pre_transition_data["state"].append(self._arrays["state"][idx].copy())
                 pre_transition_data["avail_actions"].append(
                     self._arrays["avail_actions"][idx].copy()
@@ -299,19 +309,15 @@ class SharedMemoryParallelRunner:
         env_stat_keys = set().union(*(info.keys() for info in env_stats))
         additional_env_stats = env_stat_keys - final_info_keys
         info_stats = final_infos if final_infos else env_stats
-        stats.update(
-            {
-                key: stats.get(key, 0) + sum(info.get(key, 0) for info in info_stats)
-                for key in set().union(*(info.keys() for info in info_stats))
-                if key != "final_state"
-            }
-        )
-        stats.update(
-            {
-                key: stats.get(key, 0) + sum(info.get(key, 0) for info in env_stats)
-                for key in additional_env_stats
-            }
-        )
+        stats.update({
+            key: stats.get(key, 0) + sum(info.get(key, 0) for info in info_stats)
+            for key in set().union(*(info.keys() for info in info_stats))
+            if key != "final_state"
+        })
+        stats.update({
+            key: stats.get(key, 0) + sum(info.get(key, 0) for info in env_stats)
+            for key in additional_env_stats
+        })
         stats["n_episodes"] = self.batch_size + stats.get("n_episodes", 0)
         stats["ep_length"] = sum(episode_lengths) + stats.get("ep_length", 0)
         prefix = "test_" if test_mode else ""
@@ -394,15 +400,13 @@ class SharedMemoryParallelRunner:
             t_env = self.t_env
         replay_folder = join(self.logger.dir, "replays", f"t_{t_env}")
         makedirs(replay_folder, exist_ok=True)
-        self.parent_conns[0].send(
-            (
-                "start_recording",
-                {
-                    "video_folder": replay_folder,
-                    "video_prefix": video_prefix,
-                },
-            )
-        )
+        self.parent_conns[0].send((
+            "start_recording",
+            {
+                "video_folder": replay_folder,
+                "video_prefix": video_prefix,
+            },
+        ))
         self.parent_conns[0].recv()
         self._recording_folder = replay_folder
         self._recording_t_env = t_env
@@ -493,10 +497,12 @@ def shared_memory_env_worker(remote, env_name, env_args, worker_idx) -> None:
             rng.bit_generator.state = data
             remote.send("set")
         elif command == "close":
-            env.close()
-            for shm in shared_memory.values():
-                shm.close()
-            remote.close()
+            try:
+                env.close()
+            finally:
+                for shm in shared_memory.values():
+                    shm.close()
+                remote.close()
             break
         else:
             raise NotImplementedError(command)
