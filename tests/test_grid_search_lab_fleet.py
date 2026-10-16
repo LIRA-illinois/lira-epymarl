@@ -1,5 +1,6 @@
 import pytest
 
+from experiments.ray_nodes_git_update import _update_checkout
 from src.experiments.ray_lab_fleet import (
     RayLabFleet,
     _run_queue,
@@ -7,7 +8,6 @@ from src.experiments.ray_lab_fleet import (
     distribute_commands,
     load_lab_hosts,
 )
-from src.experiments.update_lab_fleet import _update_checkout
 
 
 def test_load_lab_hosts_reads_runner_and_gpu_settings(tmp_path):
