@@ -4,7 +4,6 @@ experiments/lab_hosts.yaml
 .DS_Store
 3rdparty/
 results/
-poetry.lock
 jobs/
 job*.slurm
 .ruff_cache
