@@ -23,11 +23,6 @@ g ?= 0
 c ?= lab
 ray_address ?= auto
 ray_dashboard ?= --ray-dashboard
-ifeq ($(c),ray-cluster)
-	ray_options = --ray-address=$(ray_address) $(ray_dashboard)
-else
-	ray_options =
-endif
 m ?= 20
 r ?= 2
 # debugging
@@ -39,8 +34,28 @@ else
     debug =
 	cmd = python3
 endif
+
+experiment_args = -e exp_${e} -c ${c} ${debug}
+ifeq ($(c),lab)
+experiment_args += -g ${g} --n_runners=${r}
+else ifeq ($(c),ray-cluster)
+experiment_args += --ray-address=${ray_address} ${ray_dashboard}
+else ifneq ($(filter $(c),campus delta),)
+experiment_args += --max_runs_per_job=${m}
+endif
+
+experiment_command = cd "$(CURDIR)" && source .venv/bin/activate && ${cmd} src/experiments/grid_search_experiment.py ${experiment_args}
+
 run_experiment:
-	bash -c 'source .venv/bin/activate; ${cmd} src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${ray_options} ${debug}'
+ifeq ($(c),ray-cluster)
+	@if tmux has-session 2>/dev/null; then \
+		tmux new-window -n 'exp_${e}' '$(experiment_command)'; \
+	else \
+		tmux new-session -s 'exp_${e}' '$(experiment_command)'; \
+	fi
+else
+	@bash -c '$(experiment_command)'
+endif
 
 activate_venv:
 	bash -c 'source .venv/bin/activate
