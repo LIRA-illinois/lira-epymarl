@@ -658,13 +658,6 @@ class GridSearch(object):
         time_id = run_setups.time_id[0]
 
         n_runs = n_scenarios * n_seeds
-        print(f"\n- Experiment summary ({self.args.computer} computer)")
-        print(
-            f"{spaces}- {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
-        )
-
-        print(f"{spaces}- Seeds: {seeds}\n{spaces}- time_id: {time_id}\n")
-
         # n_cols = 3 + len(parameters_to_print)
         param_string = ""
         for i in parameters_to_print:
@@ -713,6 +706,13 @@ class GridSearch(object):
                 f"{params.get('env_args.map_name', '-')} | {other_params}"
             )
             print(table_line)
+
+        print(f"\n- Experiment summary ({self.args.computer} computer)")
+        print(
+            f"{spaces}- {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
+        )
+
+        print(f"{spaces}- Seeds: {seeds}\n{spaces}- time_id: {time_id}\n")
 
         print("")
 
