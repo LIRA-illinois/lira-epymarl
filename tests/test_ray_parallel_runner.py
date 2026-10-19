@@ -49,7 +49,9 @@ def test_policy_snapshot_moves_models_and_args_to_cpu():
 
     assert snapshot.args.device == "cpu"
     assert snapshot.args.use_cuda is False
-    assert all(parameter.device.type == "cpu" for parameter in snapshot.agent.parameters())
+    assert all(
+        parameter.device.type == "cpu" for parameter in snapshot.agent.parameters()
+    )
     assert policy.args.device == "cuda"
 
 
@@ -80,12 +82,10 @@ def test_episode_batches_merge_into_driver_batch():
         device="cpu",
     )
 
-    batch = runner._merge_batches(
-        [
-            {"batch": _make_batch(scheme, [4.0, 5.0])},
-            {"batch": _make_batch(scheme, [9.0])},
-        ]
-    )
+    batch = runner._merge_batches([
+        {"batch": _make_batch(scheme, [4.0, 5.0])},
+        {"batch": _make_batch(scheme, [9.0])},
+    ])
 
     assert batch["state"][:, 0, 0].tolist() == [4.0, 5.0, 9.0]
     assert batch["filled"][:, 0, 0].tolist() == [1, 1, 1]
@@ -127,48 +127,46 @@ def test_local_ray_runs_and_merges_multiple_environment_pools(monkeypatch):
         return result
 
     monkeypatch.setattr(RayParallelRunner, "run", checked_run)
-    main(
-        [
-            "src/main.py",
-            "--config=maic",
-            "--env-config=team-nav-v0",
-            "with",
-            "seed=101",
-            "runner=parallel_ray",
-            "ray_memory_per_env_gb=0.5",
-            "ray_node_overhead_memory_gb=0.5",
-            "ray_envs_per_node=1",
-            "ray_worker_start_timeout_s=120",
-            "batch_size_run=2",
-            "use_cuda=False",
-            "use_wandb=False",
-            "use_sacred=False",
-            "save_model=False",
-            "t_max=24",
-            "batch_size=1",
-            "buffer_size=64",
-            "test_nepisode=2",
-            "test_interval=10000",
-            "log_interval=1",
-            "runner_log_interval=1",
-            "epsilon_anneal_time=48",
-            "correlated_exploration=True",
-            "correlated_exploration_prob=0.75",
-            "unique_policy_per_msg_budget=True",
-            "msg_budget_per_agent=[1]",
-            "msg_filter_type=hard_topk",
-            "msg_drop_rate=0.0",
-            "hl_task=[0 1]",
-            "env_args.map_name=3ga_1r_very_small_hall",
-            "env_args.navigation_config=submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_hallway_cm_smoke.yaml",
-            "env_args.hierarchical=True",
-            "env_args.terminate_on_task_completed=True",
-            "env_args.max_episode_steps=6",
-            "env_args.n_agents=3",
-            "env_args.goal_type=simultaneous_arrival",
-            "env_args.reward_config.simultaneous_goal_reward_type=per_step_arrival_group_size",
-            "env_args.agent_0_delay_prob=0.0",
-        ]
-    )
+    main([
+        "src/main.py",
+        "--config=maic",
+        "--env-config=team-nav-v0",
+        "with",
+        "seed=101",
+        "runner=parallel_ray",
+        "ray_memory_per_env_gb=0.5",
+        "ray_node_overhead_memory_gb=0.5",
+        "ray_envs_per_node=1",
+        "ray_worker_start_timeout_s=120",
+        "batch_size_run=2",
+        "use_cuda=False",
+        "use_wandb=False",
+        "use_sacred=False",
+        "save_model=False",
+        "t_max=24",
+        "batch_size=1",
+        "buffer_size=64",
+        "test_nepisode=2",
+        "test_interval=10000",
+        "log_interval=1",
+        "runner_log_interval=1",
+        "epsilon_anneal_time=48",
+        "correlated_exploration=True",
+        "correlated_exploration_prob=0.75",
+        "unique_policy_per_msg_budget=True",
+        "msg_budget_per_agent=[1]",
+        "msg_filter_type=hard_topk",
+        "msg_drop_rate=0.0",
+        "hl_task=[0 1]",
+        "env_args.map_name=3ga_1r_very_small_hall",
+        "env_args.navigation_config=submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_hallway_cm_smoke.yaml",
+        "env_args.hierarchical=True",
+        "env_args.terminate_on_task_completed=True",
+        "env_args.max_episode_steps=6",
+        "env_args.n_agents=3",
+        "env_args.goal_type=simultaneous_arrival",
+        "env_args.reward_config.simultaneous_goal_reward_type=per_step_arrival_group_size",
+        "env_args.agent_delay_prob=0.0",
+    ])
 
     assert observed_batches

@@ -1,5 +1,6 @@
 from collections import defaultdict
-from typing import Callable, Literal
+from collections.abc import Callable
+from typing import Literal
 
 import torch as th
 import torch.nn as nn
@@ -89,12 +90,40 @@ class MAICAgent(nn.Module):
             case "attention_thres_only_test":
                 self._msg_filter = self._msg_filter_attention_thres_only_test
 
-        if hasattr(args, "msg_drop_rate"):
-            self._msg_dropout = nn.Dropout(p=args.msg_drop_rate)
+        msg_drop_rate = getattr(args, "msg_drop_rate", None)
+        team_msg_drop_rate = getattr(args, "team_msg_drop_rate", None)
+        if msg_drop_rate is not None and team_msg_drop_rate is not None:
+            raise ValueError(
+                "Pass either msg_drop_rate or team_msg_drop_rate, not both."
+            )
+        if team_msg_drop_rate is not None:
+            if not 0.0 <= team_msg_drop_rate <= 1.0:
+                raise ValueError("team_msg_drop_rate must be between 0.0 and 1.0.")
+        if msg_drop_rate is not None and not 0.0 <= msg_drop_rate <= 1.0:
+            raise ValueError("msg_drop_rate must be between 0.0 and 1.0.")
+
+        self._team_msg_drop_rate: float | None = team_msg_drop_rate
+        self._msg_drop_rate: float | None = msg_drop_rate
+
+    @property
+    def msg_drop_rate(self) -> float | None:
+        if self._team_msg_drop_rate is None:
+            return self._msg_drop_rate
+
+        n_possible_messages = self.n_agents * min(
+            max(self.msg_budget_per_agent, 0), self.n_agents - 1
+        )
+        if n_possible_messages == 0:
+            return 0.0
+
+        return 1.0 - (1.0 - self._team_msg_drop_rate) ** (1.0 / n_possible_messages)
 
     def _unscaled_dropout(self, msg: Tensor):
-        # dropout scales input by by 1 / (1-p), so undo that operation
-        return (1 - self.args.msg_drop_rate) * self._msg_dropout(msg)
+        # Keep message drops active during evaluation as well as training.
+        assert self.msg_drop_rate is not None
+        sent_mask = msg.ne(0).any(dim=-1, keepdim=True)
+        keep_mask = th.rand_like(sent_mask, dtype=msg.dtype) >= self.msg_drop_rate
+        return msg * (sent_mask & keep_mask).to(msg.dtype)
 
     def init_hidden(self) -> Tensor:
         return self.fc1.weight.new(1, self.args.hidden_dim).zero_()
@@ -221,7 +250,8 @@ class MAICAgent(nn.Module):
         """generate each agent's incentive messages it sends to its teammates"""
         # get base incentive messages
         h_repeat = (
-            hidden_state.view(bs, self.n_agents, -1)
+            hidden_state
+            .view(bs, self.n_agents, -1)
             .repeat(1, self.n_agents, 1)
             .view(bs * self.n_agents * self.n_agents, -1)
         )
@@ -239,6 +269,11 @@ class MAICAgent(nn.Module):
 
         # apply weighting to messages
         gated_msg: Tensor = alpha * msg
+
+        # simulate message dropping from an unreliable network
+        # only messages that are sent can get dropped
+        if self.msg_drop_rate is not None:
+            gated_msg = self._unscaled_dropout(gated_msg)
         return gated_msg, alpha
 
     def _get_attention_weights(
@@ -266,7 +301,8 @@ class MAICAgent(nn.Module):
 
         query = self.w_query(hidden_tmp).unsqueeze(1)
         key = (
-            self.w_key(latent_tmp)
+            self
+            .w_key(latent_tmp)
             .reshape(bs * self.n_agents, self.n_agents, -1)
             .transpose(1, 2)
         )
@@ -285,10 +321,6 @@ class MAICAgent(nn.Module):
         # if unique_policy_per_msg_budget false, always run filtering during test mode
         if getattr(self.args, "unique_policy_per_msg_budget", False) or test_mode:
             alpha = self._msg_filter(alpha, compute_loss)
-
-        # random dropping of messages to model comms network reliability
-        if hasattr(self.args, "msg_drop_rate"):
-            alpha = self._unscaled_dropout(alpha)
 
         return alpha
 
@@ -367,14 +399,16 @@ class MAICAgent(nn.Module):
         # get the variational distribution which includes the other agent's action
         # q_{\xi}(z_{ij} | \tau_i, a_j, d_j)
         hi = (
-            hidden_state.view(bs, self.n_agents, 1, -1)
+            hidden_state
+            .view(bs, self.n_agents, 1, -1)
             .repeat(1, 1, self.n_agents, 1)
             .view(bs * self.n_agents * self.n_agents, -1)
         )
 
         selected_action = th.max(q, dim=1)[1].unsqueeze(-1)
         one_hot_a = (
-            th.zeros(selected_action.shape[0], self.n_actions)
+            th
+            .zeros(selected_action.shape[0], self.n_actions)
             .to(self.args.device)
             .scatter(1, selected_action, 1)
         )
