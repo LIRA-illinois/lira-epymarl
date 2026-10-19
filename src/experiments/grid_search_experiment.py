@@ -18,7 +18,7 @@ from math import ceil
 from os import environ, getcwd, makedirs, walk
 from os.path import join
 from random import SystemRandom
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -91,6 +91,7 @@ class GridSearch(object):
                 config=config,
                 conditional_config=conditional_config,
                 time_id=time_id,
+                run_priority=full_config.get("run_priority"),
             )
             return
 
@@ -116,7 +117,9 @@ class GridSearch(object):
         """
 
         scenarios, scenario_names, varied_params = self._get_scenarios(
-            config, conditional_config
+            config,
+            conditional_config,
+            run_priority=full_config.get("run_priority"),
         )
 
         run_setups = self._get_run_setups(
@@ -197,6 +200,7 @@ class GridSearch(object):
         config: dict,
         conditional_config: dict | None,
         time_id: str,
+        run_priority: dict[str, list[Any]] | None = None,
     ) -> None:
         if not config.get("time_id", {}).get("values"):
             raise ValueError(
@@ -214,6 +218,7 @@ class GridSearch(object):
         scenarios, _, _ = self._get_scenarios(
             post_processing_config,
             conditional_config,
+            run_priority=run_priority,
         )
         if not scenarios:
             raise ValueError("No configuration was generated for post-processing")
@@ -244,7 +249,10 @@ class GridSearch(object):
             return
 
     def _get_scenarios(
-        self, base_config: dict, conditional_config: dict | None = None
+        self,
+        base_config: dict,
+        conditional_config: dict | None = None,
+        run_priority: dict[str, list[Any]] | None = None,
     ) -> tuple[list[dict], list[str], list[str]]:
         scenarios, varied_param_names = self._gen_dict_combinations(base_config)
         varied_param_names = [
@@ -341,11 +349,41 @@ class GridSearch(object):
                     ]
                     scenarios += updated_scenarios
 
+        scenarios = self._prioritize_scenarios(scenarios, run_priority)
+
         scenario_names: list[str] = [
             f"{scenario_idx + 1}".zfill(2) for scenario_idx, _ in enumerate(scenarios)
         ]
 
         return scenarios, scenario_names, varied_param_names
+
+    @staticmethod
+    def _prioritize_scenarios(
+        scenarios: list[dict],
+        run_priority: dict[str, list[Any]] | None,
+    ) -> list[dict]:
+        if run_priority is None:
+            return scenarios
+        if not isinstance(run_priority, dict) or any(
+            not isinstance(parameter, str) or not isinstance(values, list)
+            for parameter, values in run_priority.items()
+        ):
+            raise ValueError("run_priority must map parameter names to ordered lists")
+
+        return sorted(
+            scenarios,
+            key=lambda scenario: tuple(
+                next(
+                    (
+                        priority_idx
+                        for priority_idx, value in enumerate(values)
+                        if scenario.get(parameter) == value
+                    ),
+                    len(values),
+                )
+                for parameter, values in run_priority.items()
+            ),
+        )
 
     def _get_run_setups(
         self,

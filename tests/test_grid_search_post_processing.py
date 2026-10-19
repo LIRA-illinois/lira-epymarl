@@ -34,3 +34,24 @@ def test_post_processing_preserves_all_message_budgets(monkeypatch):
         if argument.startswith("msg_budget_per_agent=")
     )
     assert budget_argument == "msg_budget_per_agent=['0 1 2']"
+
+
+def test_run_priority_orders_scenarios_before_assigning_names():
+    grid_search = object.__new__(GridSearch)
+
+    scenarios, scenario_names, _ = grid_search._get_scenarios(
+        {
+            "env_args.n_agents": {"values": [6, 3]},
+            "hl_task": {"values": [["1 3"], ["0 1"]]},
+        },
+        run_priority={
+            "env_args.n_agents": [3, 6],
+            "hl_task": [["0 1"], ["1 3"]],
+        },
+    )
+
+    assert [
+        (scenario["env_args.n_agents"], scenario["hl_task"])
+        for scenario in scenarios
+    ] == [(3, ["0 1"]), (3, ["1 3"]), (6, ["0 1"]), (6, ["1 3"])]
+    assert scenario_names == ["01", "02", "03", "04"]
