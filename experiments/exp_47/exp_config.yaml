@@ -3,7 +3,7 @@
 
 parameters:
   n_seeds:
-    values: [1]
+    values: [2]
 
   wandb_project:
     values: [comm_experiments]
@@ -62,7 +62,8 @@ parameters:
   # by its intended recipient (i.e., the comms network drops the message)
   # you could probably do like 3 or 4 of these, want a denser sampling of it
   team_msg_drop_rate:
-    values: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+    values: [0.0, 0.25, 0.5]
+    # values: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
 
   env-config:
     values: [team-nav-v0]
@@ -76,13 +77,15 @@ parameters:
   env_args.hierarchical:
     values: [True]
   hl_task:
-    values: [[0 1], [1 3]]
+    values: [[0 1]]
+    # values: [[0 1], [1 3]]
   env_args.terminate_on_task_completed:
     values: [True]
   env_args.max_episode_steps:
     values: [15]
   env_args.n_agents:
-    values: [3, 6]
+    values: [3]
+    # values: [3, 6]
 
   env_args.goal_type:
     values: [simultaneous_arrival]
@@ -103,6 +106,6 @@ conditional_parameters:
     3:
       env_args.n_agents_delay:
         values: [1, 2, 3]
-    6:
-      env_args.n_agents_delay:
-        values: [1, 2, 4, 6]
+    # 6:
+    #   env_args.n_agents_delay:
+    #     values: [1, 2, 4, 6]

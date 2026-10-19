@@ -233,7 +233,7 @@ def _sync_node(project_dir: str, baseline_runs: list[str]) -> list[dict]:
     return outcomes
 
 
-class RayLabFleet:
+class RayCluster:
     def __init__(
         self,
         config_path: str,
@@ -254,7 +254,7 @@ class RayLabFleet:
             from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
         except ImportError as error:
             raise RuntimeError(
-                "Ray lab-fleet execution requires the optional 'ray' dependency. "
+                "Ray cluster execution requires the optional 'ray' dependency. "
                 "Install it with `poetry install --with ray`."
             ) from error
 
@@ -368,7 +368,7 @@ class RayLabFleet:
                             print(f"[{host['name']}] synced {outcome['run_dir']}")
 
             if failures:
-                raise RuntimeError("Lab-fleet failures:\n" + "\n".join(failures))
+                raise RuntimeError("Ray cluster failures:\n" + "\n".join(failures))
         finally:
             if owns_ray:
                 ray.shutdown()

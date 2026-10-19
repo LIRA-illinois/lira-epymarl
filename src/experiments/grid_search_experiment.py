@@ -25,7 +25,7 @@ import pandas as pd
 import yaml
 from pandas.core.frame import DataFrame
 
-from src.experiments.ray_lab_fleet import RayLabFleet
+from src.experiments.ray_cluster import RayCluster
 from src.experiments.slurm_config import (
     Computers,
     get_slurm_args,
@@ -126,9 +126,9 @@ class GridSearch(object):
             time_id=time_id,
         )
 
-        self.lab_fleet = None
-        if not self.args.debug and self.args.computer == "lab-fleet":
-            self.lab_fleet = RayLabFleet(
+        self.ray_cluster = None
+        if not self.args.debug and self.args.computer == "ray-cluster":
+            self.ray_cluster = RayCluster(
                 config_path=self.args.lab_hosts_config,
                 experiment=self.args.experiment,
                 ray_address=self.args.ray_address,
@@ -180,10 +180,10 @@ class GridSearch(object):
                 match self.args.computer:
                     case "lab":
                         self._run_experiment_lab(run_setups.cmd)
-                    case "lab-fleet":
-                        if self.lab_fleet is None:
-                            raise RuntimeError("Lab fleet was not initialized")
-                        self.lab_fleet.run(run_setups.cmd)
+                    case "ray-cluster":
+                        if self.ray_cluster is None:
+                            raise RuntimeError("Ray cluster was not initialized")
+                        self.ray_cluster.run(run_setups.cmd)
                     case "campus" | "delta":
                         makedirs(cluster_log_dir, exist_ok=True)
                         self._run_experiment_cluster(job_paths)
@@ -568,16 +568,16 @@ class GridSearch(object):
             "--computer",
             type=str,
             required=False,
-            choices=["lab", "lab-fleet", "campus", "delta"],
+            choices=["lab", "ray-cluster", "campus", "delta"],
             default="lab",
-            help="Computer workflow to use (lab-fleet launches over SSH to lab hosts).",
+            help="Computer workflow to use (ray-cluster runs across Ray nodes).",
         )
         parser.add_argument(
             "--lab-hosts-config",
             "--lab_hosts_config",
             type=str,
             default="experiments/lab_hosts.yaml",
-            help="YAML host inventory used by --computer lab-fleet.",
+            help="YAML host inventory used by --computer ray-cluster.",
         )
         parser.add_argument(
             "--ray-address",
@@ -596,7 +596,7 @@ class GridSearch(object):
             action="store_false",
             dest="sync_wandb",
             default=True,
-            help="Do not sync newly created offline W&B runs after lab-fleet jobs finish.",
+            help="Do not sync newly created offline W&B runs after Ray cluster jobs finish.",
         )
         parser.add_argument(
             "-d",
@@ -678,16 +678,16 @@ class GridSearch(object):
 
         print("")
 
-        if self.args.computer in ["lab", "lab-fleet"]:
+        if self.args.computer in ["lab", "ray-cluster"]:
             if self.args.computer == "lab":
                 print(
                     f"Using {self.args.n_runners} parallel runners with a max of {ceil(n_runs / self.args.n_runners)} sequential runs per runner"
                 )
             else:
-                print("Lab fleet runners:")
-                if self.lab_fleet is None:
-                    raise RuntimeError("Lab fleet was not initialized")
-                for host in self.lab_fleet.hosts:
+                print("Ray cluster runners:")
+                if self.ray_cluster is None:
+                    raise RuntimeError("Ray cluster was not initialized")
+                for host in self.ray_cluster.hosts:
                     print(
                         f"{spaces}- {host['name']}: {host['n_runners']} runners, "
                         f"GPUs {host['gpus']}"

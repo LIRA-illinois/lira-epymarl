@@ -21,7 +21,13 @@ sync_results_wandb:
 # pass in gpus as a space-	 string like g="0 1 2"
 g ?= 0
 c ?= lab
-# at ~4 GB per run, 20 runs per job is about 80 GB RAM, which works well for requested RAM of 128 GB while leaving plenty of headroom to avoid throttling the system
+ray_address ?= auto
+ray_dashboard ?= --ray-dashboard
+ifeq ($(c),ray-cluster)
+	ray_options = --ray-address=$(ray_address) $(ray_dashboard)
+else
+	ray_options =
+endif
 m ?= 20
 r ?= 2
 # debugging
@@ -34,7 +40,7 @@ else
 	cmd = python3
 endif
 run_experiment:
-	bash -c 'source .venv/bin/activate; ${cmd} src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${debug}'
+	bash -c 'source .venv/bin/activate; ${cmd} src/experiments/grid_search_experiment.py -e exp_${e} -c ${c} -g ${g} --max_runs_per_job=${m} --n_runners=${r} ${ray_options} ${debug}'
 
 activate_venv:
 	bash -c 'source .venv/bin/activate
@@ -50,7 +56,6 @@ clean_wandb_cache:
 # screen_experiments:
 # 	screen -ls | grep "exp" | awk "{print $1}" | cut -d"	" -f 2
 
-# find screen sesions with "exp" in them, use cut to grab the session names, adds a prefix and suffix to quit the session, puts commands in a txt file, and opens the txt file. Does NOT stop the experiments, user must choose which sessions to quit and copy + paste the commands into the terminal.
 tmux_experiments_cancel:
 	@tmux list-panes -a -F "#{session_name}" | sed 's/^/tmux kill-session -t /; s/$$/ /' > tmp.txt
 	@nano tmp.txt
@@ -61,7 +66,7 @@ tmux_experiments_cancel:
 campus-int-gpu:
 	srun --time=00:30:00 --account=huytran1-ic --partition=IllinoisComputes-GPU,eng-research-gpu,csl --nodes=1 --mem=64G --ntasks=64 --gpus-per-node=1 --pty /bin/bash
 
-# get RAM usage by user
+# get RAM usage by u# at ~4 GB per run, 20 runs per job is about 80 GB RAM, which works well for requested RAM of 128 GB while leaving plenty of headroom to avoid throttling the system
 # 	watch "mpstat; echo; bash src/utils/get_ram_usage.bash; nvidia-smi"
 compute-usage:
 	nvidia-smi; bash src/utils/get_cpu_usage.bash; echo; bash src/utils/get_ram_usage.bash
@@ -78,7 +83,8 @@ queue:
 	squeue -p gpuA100x4 ${job_fmt}
 	printf "\n"
 	squeue -p IllinoisComputes-GPU ${job_fmt}
-	printf "\n"
+	printf "\n"# find screen sesions with "exp" in them, use cut to grab the session names, adds a prefix and suffix to quit the session, puts commands in a txt file, and opens the txt file. Does NOT stop the experiments, user must choose which sessions to quit and copy + paste the commands into the terminal.
+
 	squeue -p eng-research-gpu ${job_fmt}
 	printf "\n"
 	squeue -p csl ${job_fmt}

@@ -463,9 +463,9 @@ python search.py run --config=search.config.example.yaml --seeds 5 single 1
 ```
 where the 1 is an index to the particular hyperparameter configuration and can take values from 1 to the number of different combinations.
 
-## Running grid searches across lab computers
+## Running grid searches on a Ray cluster
 
-The separate `lab-fleet` workflow uses Ray to coordinate independent grid-search runs across computers. Commit and distribute `poetry.lock` so each computer resolves the same dependency versions, then run `poetry install --with ray` on the driver and each lab computer. Configure the computers in `experiments/lab_hosts.yaml` for experiment scheduling, and copy [the Ray cluster example](experiments/ray_cluster.example.yaml) to the gitignored `experiments/ray_cluster.yaml`. In that file, set `provider.head_ip` to the head computer's address, list the other computers under `provider.worker_ips`, and update the SSH user, private-key path, token destination, and Ray executable paths to match the machines.
+The `ray-cluster` workflow uses Ray to coordinate independent grid-search runs across computers. Commit and distribute `poetry.lock` so each computer resolves the same dependency versions, then run `poetry install --with ray` on the driver and each cluster node. Configure the computers in `experiments/lab_hosts.yaml` for experiment scheduling, and copy [the Ray cluster example](experiments/ray_cluster.example.yaml) to the gitignored `experiments/ray_cluster.yaml`. In that file, set `provider.head_ip` to the head computer's address, list the other computers under `provider.worker_ips`, and update the SSH user, private-key path, token destination, and Ray executable paths to match the machines.
 
 ```sh
 mkdir -p ~/.ray && chmod 700 ~/.ray
@@ -481,10 +481,10 @@ Configure each computer's Ray node IP, absolute checkout path, runner count, and
 
 Run a search with:
 ```sh
-python src/experiments/grid_search_experiment.py -e exp_46 --computer lab-fleet
+python src/experiments/grid_search_experiment.py -e exp_46 --computer ray-cluster
 ```
 
-To fast-forward the checkouts on currently live configured lab computers without starting an experiment, run `python src/experiments/update_lab_fleet.py`. It uses the same host inventory and Ray cluster, skips offline hosts, refuses tracked local edits, and does not reset or clean repositories; untracked and ignored result files are left alone.
+To fast-forward the checkouts on currently live configured cluster nodes without starting an experiment, run `python src/experiments/ray_nodes_git_update.py`. It uses the same host inventory and Ray cluster, skips offline hosts, refuses tracked local edits, and does not reset or clean repositories; untracked and ignored result files are left alone.
 
 Each generated run is assigned round-robin across configured runner slots. Ray pins one task to each runner slot and its configured node; the task sets `CUDA_VISIBLE_DEVICES` to the selected GPU and runs its queue sequentially. GPU IDs are assigned round-robin; set `gpus: []` for a CPU-only host. With W&B enabled, Ray sync tasks run on each host after all its runner queues finish and upload only new offline run folders. Authenticate W&B on every host beforehand with `wandb login`; use `--no-wandb-sync` to disable automatic syncing. Pass `--ray-dashboard` to open the connected cluster's dashboard once run tasks have been submitted.
 

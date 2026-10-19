@@ -1,8 +1,8 @@
 import pytest
 
 from experiments.ray_nodes_git_update import _update_checkout
-from src.experiments.ray_lab_fleet import (
-    RayLabFleet,
+from src.experiments.ray_cluster import (
+    RayCluster,
     _run_queue,
     _sync_node,
     distribute_commands,
@@ -54,7 +54,7 @@ def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
         captured["visible_gpu"] = env["CUDA_VISIBLE_DEVICES"]
         return type("Completed", (), {"returncode": 0})()
 
-    monkeypatch.setattr("src.experiments.ray_lab_fleet.subprocess.run", fake_run)
+    monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fake_run)
     outcomes = _run_queue(
         "/home/user/project",
         gpu=5,
@@ -81,7 +81,7 @@ def test_checkout_update_fast_forwards_without_resetting_or_cleaning(
             {"returncode": 0, "stdout": "Already up to date.\n", "stderr": ""},
         )()
 
-    monkeypatch.setattr("src.experiments.update_lab_fleet.subprocess.run", fake_run)
+    monkeypatch.setattr("src.experiments.ray_nodes_git_update.subprocess.run", fake_run)
 
     outcome = _update_checkout(str(tmp_path))
     shell_script = captured["command"][-1]
@@ -95,9 +95,9 @@ def test_checkout_update_fast_forwards_without_resetting_or_cleaning(
 
 
 def test_preflight_accepts_python_minor_and_tooling_differences(capsys):
-    fleet = RayLabFleet.__new__(RayLabFleet)
-    fleet.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
-    fleet._ensure_matching_environments([
+    cluster = RayCluster.__new__(RayCluster)
+    cluster.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
+    cluster._ensure_matching_environments([
         {
             "venv": {
                 "python_major": 3,
@@ -120,13 +120,13 @@ def test_preflight_accepts_python_minor_and_tooling_differences(capsys):
 
 
 def test_preflight_rejects_different_lockfiles():
-    fleet = RayLabFleet.__new__(RayLabFleet)
-    fleet.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
+    cluster = RayCluster.__new__(RayCluster)
+    cluster.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
 
     with pytest.raises(
         RuntimeError, match="Python major versions or Poetry lockfiles differ"
     ):
-        fleet._ensure_matching_environments([
+        cluster._ensure_matching_environments([
             {
                 "venv": {
                     "python_major": 3,
@@ -145,11 +145,11 @@ def test_preflight_rejects_different_lockfiles():
 
 
 def test_preflight_rejects_different_python_major_versions():
-    fleet = RayLabFleet.__new__(RayLabFleet)
-    fleet.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
+    cluster = RayCluster.__new__(RayCluster)
+    cluster.hosts = [{"name": "lab-a"}, {"name": "lab-b"}]
 
     with pytest.raises(RuntimeError, match="Python major 4"):
-        fleet._ensure_matching_environments([
+        cluster._ensure_matching_environments([
             {
                 "venv": {
                     "python_major": 3,
@@ -177,7 +177,7 @@ def test_wandb_sync_only_selects_new_run_folders(tmp_path, monkeypatch):
         sync_calls.append(command[-1])
         return type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
-    monkeypatch.setattr("src.experiments.ray_lab_fleet.subprocess.run", fake_run)
+    monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fake_run)
 
     outcomes = _sync_node(str(tmp_path), ["offline-run-old"])
 
@@ -189,11 +189,11 @@ def test_wandb_sync_only_selects_new_run_folders(tmp_path, monkeypatch):
 def test_dashboard_opens_when_requested(monkeypatch):
     opened_urls = []
     monkeypatch.setattr(
-        "src.experiments.ray_lab_fleet.webbrowser.open",
+        "src.experiments.ray_cluster.webbrowser.open",
         lambda url: opened_urls.append(url),
     )
-    fleet = RayLabFleet.__new__(RayLabFleet)
+    cluster = RayCluster.__new__(RayCluster)
 
-    fleet._open_dashboard("http://127.0.0.1:8265")
+    cluster._open_dashboard("http://127.0.0.1:8265")
 
     assert opened_urls == ["http://127.0.0.1:8265"]

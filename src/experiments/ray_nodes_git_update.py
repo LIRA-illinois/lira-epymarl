@@ -1,7 +1,7 @@
 import argparse
 import subprocess
 
-from src.experiments.ray_lab_fleet import load_lab_hosts
+from src.experiments.ray_cluster import load_lab_hosts
 
 
 def _update_checkout(project_dir: str) -> dict:
@@ -37,7 +37,7 @@ def update_running_hosts(config_path: str, ray_address: str) -> None:
         from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
     except ImportError as error:
         raise RuntimeError(
-            "Lab fleet updates require Ray. Install it with `poetry install --with ray`."
+            "Ray cluster updates require Ray. Install it with `poetry install --with ray`."
         ) from error
 
     hosts = load_lab_hosts(config_path)
