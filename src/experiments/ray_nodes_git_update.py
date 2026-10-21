@@ -3,6 +3,10 @@ import argparse
 from src.experiments.ray_cluster import RayCluster
 
 
+def _update_checkout(project_dir: str) -> dict:
+    return RayCluster._update_checkout(project_dir)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Fast-forward the checkouts on currently live lab Ray nodes."

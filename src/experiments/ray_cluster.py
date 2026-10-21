@@ -383,7 +383,9 @@ class RayCluster:
                     "No configured lab computers are currently live in Ray"
                 )
 
-            update_task = ray.remote(cls._update_checkout)
+            from src.experiments.ray_nodes_git_update import _update_checkout
+
+            update_task = ray.remote(_update_checkout)
             references = [
                 update_task.options(
                     num_cpus=0,
@@ -474,7 +476,7 @@ class RayCluster:
                     soft=False,
                 )
 
-            prepare_task = ray.remote(self._prepare_node)
+            prepare_task = ray.remote(_prepare_node)
             prepare_refs = [
                 prepare_task.options(
                     num_cpus=1,
@@ -490,7 +492,7 @@ class RayCluster:
                 )
             self._ensure_matching_environments(prepared)
 
-            run_task = ray.remote(max_retries=0)(self._run_queue)
+            run_task = ray.remote(max_retries=0)(_run_queue)
 
             has_commands = any(queue for host_queues in queues for queue in host_queues)
             if self.open_ray_dashboard and has_commands and dashboard_url:
@@ -506,7 +508,7 @@ class RayCluster:
             )
 
             if self.sync_wandb:
-                sync_task = ray.remote(self._sync_node)
+                sync_task = ray.remote(_sync_node)
                 sync_refs = [
                     sync_task.options(
                         num_cpus=1,
@@ -573,3 +575,16 @@ class RayCluster:
     def _open_dashboard(self, dashboard_url: str) -> None:
         print(f"Ray dashboard: {dashboard_url}")
         webbrowser.open(dashboard_url)
+
+
+# Keep Ray's module-level import names stable so older workers can run preflight.
+def _prepare_node(project_dir: str, gpus: list[int], sync_wandb: bool) -> dict:
+    return RayCluster._prepare_node(project_dir, gpus, sync_wandb)
+
+
+def _run_queue(project_dir: str, gpu: int | None, commands: list[str]) -> list[dict]:
+    return RayCluster._run_queue(project_dir, gpu, commands)
+
+
+def _sync_node(project_dir: str, baseline_runs: list[str]) -> list[dict]:
+    return RayCluster._sync_node(project_dir, baseline_runs)

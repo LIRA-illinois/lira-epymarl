@@ -3,7 +3,15 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from src.experiments import ray_cluster, ray_nodes_git_update
 from src.experiments.ray_cluster import RayCluster
+
+
+def test_ray_remote_entrypoints_keep_module_level_names():
+    assert ray_cluster._prepare_node.__qualname__ == "_prepare_node"
+    assert ray_cluster._run_queue.__qualname__ == "_run_queue"
+    assert ray_cluster._sync_node.__qualname__ == "_sync_node"
+    assert ray_nodes_git_update._update_checkout.__qualname__ == "_update_checkout"
 
 
 def test_load_lab_hosts_reads_runner_and_gpu_settings(tmp_path):
