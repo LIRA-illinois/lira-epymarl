@@ -133,7 +133,6 @@ class GridSearch(object):
         if not self.args.debug and self.args.computer == "ray-cluster":
             self.ray_cluster = RayCluster(
                 config_path=self.args.lab_hosts_config,
-                experiment=self.args.experiment,
                 ray_address=self.args.ray_address,
                 sync_wandb=self.args.sync_wandb,
                 open_ray_dashboard=self.args.open_ray_dashboard,

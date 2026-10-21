@@ -1,12 +1,9 @@
+import sys
+from types import ModuleType, SimpleNamespace
+
 import pytest
-from experiments.ray_nodes_git_update import _update_checkout
-from src.experiments.ray_cluster import (
-    RayCluster,
-    _run_queue,
-    _sync_node,
-    distribute_commands,
-    load_lab_hosts,
-)
+
+from src.experiments.ray_cluster import RayCluster
 
 
 def test_load_lab_hosts_reads_runner_and_gpu_settings(tmp_path):
@@ -16,7 +13,7 @@ def test_load_lab_hosts_reads_runner_and_gpu_settings(tmp_path):
         encoding="utf8",
     )
 
-    hosts = load_lab_hosts(str(config_path))
+    hosts = RayCluster.load_lab_hosts(str(config_path))
 
     assert hosts[0]["n_runners"] == 2
     assert hosts[0]["gpus"] == [0, 2]
@@ -30,7 +27,50 @@ def test_load_lab_hosts_requires_absolute_project_path(tmp_path):
     )
 
     with pytest.raises(ValueError, match="absolute path"):
-        load_lab_hosts(str(config_path))
+        RayCluster.load_lab_hosts(str(config_path))
+
+
+@pytest.mark.parametrize("already_initialized", [False, True])
+def test_ray_session_only_shuts_down_ray_it_started(
+    monkeypatch, already_initialized
+):
+    calls = []
+    fake_ray = ModuleType("ray")
+    fake_ray.is_initialized = lambda: already_initialized
+
+    def fake_init(address=None):
+        calls.append(("init", address))
+        return SimpleNamespace(dashboard_url="http://localhost:8265")
+
+    fake_ray.init = fake_init
+    fake_ray.shutdown = lambda: calls.append(("shutdown", None))
+
+    fake_util = ModuleType("ray.util")
+    fake_scheduling = ModuleType("ray.util.scheduling_strategies")
+
+    class FakeNodeAffinitySchedulingStrategy:
+        pass
+
+    fake_scheduling.NodeAffinitySchedulingStrategy = FakeNodeAffinitySchedulingStrategy
+    fake_util.scheduling_strategies = fake_scheduling
+    fake_ray.util = fake_util
+    monkeypatch.setitem(sys.modules, "ray", fake_ray)
+    monkeypatch.setitem(sys.modules, "ray.util", fake_util)
+    monkeypatch.setitem(
+        sys.modules,
+        "ray.util.scheduling_strategies",
+        fake_scheduling,
+    )
+
+    with RayCluster._ray_session("ray-address") as (ray, context, strategy):
+        assert ray is fake_ray
+        assert context.dashboard_url == "http://localhost:8265"
+        assert strategy is FakeNodeAffinitySchedulingStrategy
+
+    expected_calls = [("init", None if already_initialized else "ray-address")]
+    if not already_initialized:
+        expected_calls.append(("shutdown", None))
+    assert calls == expected_calls
 
 
 def test_distribute_commands_round_robins_across_host_runner_slots():
@@ -39,7 +79,9 @@ def test_distribute_commands_round_robins_across_host_runner_slots():
         {"name": "lab-b", "n_runners": 1},
     ]
 
-    queues = distribute_commands(["run-1", "run-2", "run-3", "run-4"], hosts)
+    queues = RayCluster.distribute_commands(
+        ["run-1", "run-2", "run-3", "run-4"], hosts
+    )
 
     assert queues == [[["run-1", "run-4"], ["run-2"]], [["run-3"]]]
 
@@ -54,7 +96,7 @@ def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
         return type("Completed", (), {"returncode": 0})()
 
     monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fake_run)
-    outcomes = _run_queue(
+    outcomes = RayCluster._run_queue(
         "/home/user/project",
         gpu=5,
         commands=["python src/main.py --debug"],
@@ -64,6 +106,79 @@ def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
     assert captured["visible_gpu"] == "5"
     assert "source .venv/bin/activate" in captured["command"][-1]
     assert outcomes[0]["returncode"] == 0
+
+
+def test_command_queues_isolate_failures_and_replenish_slots_immediately():
+    class RayTaskFailure(Exception):
+        pass
+
+    class FakeRef:
+        def __init__(self, command):
+            self.command = command
+
+    class FakeRay:
+        exceptions = SimpleNamespace(RayError=RayTaskFailure)
+
+        def __init__(self):
+            self.wait_calls = []
+
+        def get(self, ref):
+            if ref.command == "oom":
+                raise RayTaskFailure("worker died")
+            return [{"returncode": 1 if ref.command == "nonzero" else 0}]
+
+        def wait(self, refs, num_returns):
+            self.wait_calls.append([ref.command for ref in refs])
+            return refs[:num_returns], refs[num_returns:]
+
+    class FakeRunTask:
+        def __init__(self):
+            self.options_seen = []
+            self.commands = []
+
+        def options(self, **options):
+            self.options_seen.append(options)
+            return self
+
+        def remote(self, project_dir, gpu, commands):
+            assert len(commands) == 1
+            self.commands.append((project_dir, gpu, commands[0]))
+            return FakeRef(commands[0])
+
+    hosts = [
+        {
+            "name": "lab-a",
+            "project_dir": "/home/user/project",
+            "n_runners": 2,
+            "gpus": [0, 2],
+        }
+    ]
+    queues = [[["oom", "nonzero"], ["success"]]]
+    host_nodes = {"lab-a": {"Resources": {"memory": 1000}}}
+    task = FakeRunTask()
+    ray = FakeRay()
+
+    failures = RayCluster._run_command_queues(
+        ray,
+        task,
+        hosts,
+        queues,
+        host_nodes,
+        lambda host: f"node-for-{host['name']}",
+    )
+
+    assert task.commands == [
+        ("/home/user/project", 0, "oom"),
+        ("/home/user/project", 2, "success"),
+        ("/home/user/project", 0, "nonzero"),
+    ]
+    assert all(options["num_cpus"] == 1 for options in task.options_seen)
+    assert all(options["memory"] == 500 for options in task.options_seen)
+    assert ray.wait_calls[1] == ["success", "nonzero"]
+    assert failures == [
+        "lab-a: oom Ray task failed: worker died",
+        "lab-a: nonzero exited with 1",
+    ]
 
 
 def test_checkout_update_fast_forwards_without_resetting_or_cleaning(
@@ -80,9 +195,9 @@ def test_checkout_update_fast_forwards_without_resetting_or_cleaning(
             {"returncode": 0, "stdout": "Already up to date.\n", "stderr": ""},
         )()
 
-    monkeypatch.setattr("src.experiments.ray_nodes_git_update.subprocess.run", fake_run)
+    monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fake_run)
 
-    outcome = _update_checkout(str(tmp_path))
+    outcome = RayCluster._update_checkout(str(tmp_path))
     shell_script = captured["command"][-1]
 
     assert captured["cwd"] == str(tmp_path)
@@ -178,7 +293,7 @@ def test_wandb_sync_only_selects_new_run_folders(tmp_path, monkeypatch):
 
     monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fake_run)
 
-    outcomes = _sync_node(str(tmp_path), ["offline-run-old"])
+    outcomes = RayCluster._sync_node(str(tmp_path), ["offline-run-old"])
 
     assert sync_calls == [str(wandb_dir / "offline-run-new")]
     assert len(outcomes) == 1
