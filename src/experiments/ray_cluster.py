@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import webbrowser
+from collections import deque
 from contextlib import contextmanager
 from hashlib import sha256
 from os.path import isabs, join
@@ -107,23 +108,6 @@ class RayCluster:
                 )
 
         return hosts
-
-    @staticmethod
-    def distribute_commands(commands, hosts: list[dict]) -> list[list[str]]:
-        queues = [[] for _ in hosts]
-        runner_hosts = [
-            host_idx
-            for host_idx, host in enumerate(hosts)
-            for _ in range(host["n_runners"])
-        ]
-        if not runner_hosts:
-            raise ValueError("At least one lab runner is required")
-
-        for command_idx, command in enumerate(commands):
-            host_idx = runner_hosts[command_idx % len(runner_hosts)]
-            queues[host_idx].append(str(command))
-        return queues
-
 
     @staticmethod
     def _prepare_node(project_dir: str, gpus: list[int], sync_wandb: bool) -> dict:
@@ -237,7 +221,7 @@ class RayCluster:
         ray,
         run_task,
         hosts: list[dict],
-        queues: list[list[str]],
+        commands: deque[str],
         host_nodes: dict[str, dict],
         node_strategy,
         config_path: str,
@@ -249,11 +233,11 @@ class RayCluster:
         failures = []
         pending = {}
         active_counts = [0 for _ in hosts]
-        command_indices = [0 for _ in hosts]
         gpu_indices = [0 for _ in hosts]
+        next_host_idx = 0
         last_config_error = None
 
-        def refresh_runner_targets() -> None:
+        def refresh_runner_targets() -> bool:
             nonlocal last_config_error
             try:
                 configured_hosts = RayCluster.load_lab_hosts(config_path)
@@ -290,22 +274,25 @@ class RayCluster:
                         f"retaining the last valid limits: {error_message}"
                     )
                 last_config_error = error_message
-                return
+                return False
 
             last_config_error = None
+            changed = False
             for host, configured_host in zip(hosts, configured_hosts):
                 old_target = host["n_runners"]
                 new_target = configured_host["n_runners"]
                 if old_target != new_target:
                     host["n_runners"] = new_target
+                    changed = True
                     print(
                         f"[{host['name']}] runner target changed from "
                         f"{old_target} to {new_target}"
                     )
+            return changed
 
         def submit_command(host_idx: int) -> None:
             host = hosts[host_idx]
-            command = queues[host_idx][command_indices[host_idx]]
+            command = commands[0]
             gpu_ids = host["gpus"]
             gpu = gpu_ids[gpu_indices[host_idx] % len(gpu_ids)] if gpu_ids else None
             memory_request = (
@@ -316,20 +303,38 @@ class RayCluster:
                 memory=memory_request,
                 scheduling_strategy=node_strategy(host),
             ).remote(host["project_dir"], gpu, [command])
+            commands.popleft()
             pending[run_ref] = (host_idx, command)
             active_counts[host_idx] += 1
-            command_indices[host_idx] += 1
             gpu_indices[host_idx] += 1
 
         def submit_available_commands() -> None:
-            for host_idx, host in enumerate(hosts):
-                while active_counts[host_idx] < host["n_runners"] and command_indices[
-                    host_idx
-                ] < len(queues[host_idx]):
-                    submit_command(host_idx)
+            nonlocal next_host_idx
+            while commands:
+                available_host_idx = None
+                for offset in range(len(hosts)):
+                    host_idx = (next_host_idx + offset) % len(hosts)
+                    if active_counts[host_idx] < hosts[host_idx]["n_runners"]:
+                        available_host_idx = host_idx
+                        break
+                if available_host_idx is None:
+                    break
+                submit_command(available_host_idx)
+                next_host_idx = (available_host_idx + 1) % len(hosts)
+
+        def print_progress() -> None:
+            host_counts = ", ".join(
+                f"{host['name']}={active_counts[host_idx]}/{host['n_runners']}"
+                for host_idx, host in enumerate(hosts)
+            )
+            print(
+                f"[ray-cluster] in-flight tasks: {host_counts}; "
+                f"queued commands: {len(commands)}"
+            )
 
         refresh_runner_targets()
         submit_available_commands()
+        print_progress()
         while pending:
             ready_refs, _ = ray.wait(
                 list(pending),
@@ -358,8 +363,10 @@ class RayCluster:
                             f"{outcomes[0]['returncode']}"
                         )
 
-            refresh_runner_targets()
+            targets_changed = refresh_runner_targets()
             submit_available_commands()
+            if ready_refs or targets_changed:
+                print_progress()
 
         return failures
 
@@ -499,7 +506,7 @@ class RayCluster:
 
     def run(self, commands) -> None:
         self.hosts = self.load_lab_hosts(self.config_path)
-        queues = self.distribute_commands(commands, self.hosts)
+        command_queue = deque(str(command) for command in commands)
         with self._ray_session(self.ray_address) as (
             ray,
             ray_context,
@@ -568,7 +575,7 @@ class RayCluster:
 
             run_task = ray.remote(max_retries=0)(_run_queue)
 
-            has_commands = any(queue for host_queues in queues for queue in host_queues)
+            has_commands = bool(command_queue)
             if self.open_ray_dashboard and has_commands and dashboard_url:
                 self._open_dashboard(dashboard_url)
 
@@ -576,7 +583,7 @@ class RayCluster:
                 ray,
                 run_task,
                 self.hosts,
-                queues,
+                command_queue,
                 host_nodes,
                 node_strategy,
                 self.config_path,

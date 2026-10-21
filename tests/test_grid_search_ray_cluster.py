@@ -1,4 +1,5 @@
 import sys
+from collections import deque
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -81,19 +82,6 @@ def test_ray_session_only_shuts_down_ray_it_started(
     assert calls == expected_calls
 
 
-def test_distribute_commands_round_robins_across_hosts_by_runner_capacity():
-    hosts = [
-        {"name": "lab-a", "n_runners": 2},
-        {"name": "lab-b", "n_runners": 1},
-    ]
-
-    queues = RayCluster.distribute_commands(
-        ["run-1", "run-2", "run-3", "run-4"], hosts
-    )
-
-    assert queues == [["run-1", "run-2", "run-4"], ["run-3"]]
-
-
 def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
     captured = {}
 
@@ -116,7 +104,96 @@ def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
     assert outcomes[0]["returncode"] == 0
 
 
-def test_command_queues_apply_live_runner_changes_and_preserve_failures(tmp_path):
+def test_central_command_queue_dispatches_to_any_host_with_capacity(tmp_path):
+    class FakeRef:
+        def __init__(self, command):
+            self.command = command
+
+    class FakeRay:
+        exceptions = SimpleNamespace(RayError=RuntimeError)
+
+        def __init__(self):
+            self.wait_count = 0
+
+        def get(self, ref):
+            return [{"returncode": 0}]
+
+        def wait(self, refs, num_returns, timeout):
+            self.wait_count += 1
+            ready_idx = 1 if self.wait_count == 1 else 0
+            return [refs[ready_idx]], [
+                ref for idx, ref in enumerate(refs) if idx != ready_idx
+            ]
+
+    class FakeRunTask:
+        def __init__(self):
+            self.commands = []
+
+        def options(self, **options):
+            return self
+
+        def remote(self, project_dir, gpu, commands):
+            command = commands[0]
+            self.commands.append((project_dir, gpu, command))
+            return FakeRef(command)
+
+    config_path = tmp_path / "lab_hosts.yaml"
+    config_path.write_text(
+        "hosts:\n"
+        "  - name: lab-a\n"
+        "    ray_node_ip: 10.0.0.1\n"
+        "    project_dir: /home/lab-a\n"
+        "    n_runners: 1\n"
+        "    gpus: [0]\n"
+        "  - name: lab-b\n"
+        "    ray_node_ip: 10.0.0.2\n"
+        "    project_dir: /home/lab-b\n"
+        "    n_runners: 2\n"
+        "    gpus: [1]\n",
+        encoding="utf8",
+    )
+    hosts = [
+        {
+            "name": "lab-a",
+            "ray_node_ip": "10.0.0.1",
+            "project_dir": "/home/lab-a",
+            "n_runners": 1,
+            "gpus": [0],
+        },
+        {
+            "name": "lab-b",
+            "ray_node_ip": "10.0.0.2",
+            "project_dir": "/home/lab-b",
+            "n_runners": 2,
+            "gpus": [1],
+        },
+    ]
+    host_nodes = {
+        "lab-a": {"Resources": {"CPU": 2, "memory": 1000}},
+        "lab-b": {"Resources": {"CPU": 3, "memory": 1000}},
+    }
+    task = FakeRunTask()
+
+    failures = RayCluster._run_command_queues(
+        FakeRay(),
+        task,
+        hosts,
+        deque(["run-1", "run-2", "run-3", "run-4"]),
+        host_nodes,
+        lambda host: f"node-for-{host['name']}",
+        str(config_path),
+    )
+
+    assert task.commands == [
+        ("/home/lab-a", 0, "run-1"),
+        ("/home/lab-b", 1, "run-2"),
+        ("/home/lab-b", 1, "run-3"),
+        ("/home/lab-b", 1, "run-4"),
+    ]
+    assert failures == []
+
+
+def test_command_queue_applies_live_runner_changes_and_preserves_failures(tmp_path):
     class RayTaskFailure(Exception):
         pass
 
@@ -175,7 +252,7 @@ def test_command_queues_apply_live_runner_changes_and_preserve_failures(tmp_path
             "gpus": [0, 2],
         }
     ]
-    queues = [["oom", "nonzero", "success", "extra-1", "extra-2", "extra-3"]]
+    commands = deque(["oom", "nonzero", "success", "extra-1", "extra-2", "extra-3"])
     host_nodes = {"lab-a": {"Resources": {"CPU": 4, "memory": 1000}}}
     task = FakeRunTask()
     write_config(2)
@@ -185,7 +262,7 @@ def test_command_queues_apply_live_runner_changes_and_preserve_failures(tmp_path
         ray,
         task,
         hosts,
-        queues,
+        commands,
         host_nodes,
         lambda host: f"node-for-{host['name']}",
         str(config_path),
