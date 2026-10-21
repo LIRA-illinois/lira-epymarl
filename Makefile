@@ -58,7 +58,7 @@ else
 endif
 
 activate_venv:
-	bash -c 'source .venv/bin/activate
+	bash -c 'source .venv/bin/activate'
 
 tmux_experiments:
 	tmux list-panes -a -F "#{session_name}"

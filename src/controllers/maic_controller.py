@@ -1,3 +1,5 @@
+from math import prod
+from numbers import Integral
 from typing import Literal
 
 import torch as th
@@ -36,12 +38,17 @@ class MAICMAC:
     def forward(self, ep_batch, t, test_mode=False, **kwargs) -> tuple[th.Tensor, dict]:
         agent_inputs = self._build_inputs(ep_batch, t)
         avail_actions = ep_batch["avail_actions"][:, t]
+        agent_kwargs = kwargs.copy()
+        if getattr(self.args, "condition_on_msg_budget", False):
+            agent_kwargs["msg_budget_per_agent"] = (
+                self._get_contextual_msg_budgets(ep_batch, t)
+            )
         agent_outs, self.hidden_states, agent_info = self.agent.forward(
             agent_inputs,
             self.hidden_states,
             ep_batch.batch_size,
             test_mode=test_mode,
-            **kwargs,
+            **agent_kwargs,
         )
 
         # Softmax the agent outputs if they're policy logits
@@ -132,20 +139,40 @@ class MAICMAC:
             agent_ids = self._agent_ids.unsqueeze(0).expand(bs, -1, -1)
             agent_ids = agent_ids.reshape(bs * self.n_agents, -1)
 
-        if self._obs_last_action and self._obs_agent_id:
-            return th.cat((obs, last_action, agent_ids), dim=1)
+        inputs = [obs]
         if self._obs_last_action:
-            return th.cat((obs, last_action), dim=1)
+            inputs.append(last_action)
         if self._obs_agent_id:
-            return th.cat((obs, agent_ids), dim=1)
-        return obs
+            inputs.append(agent_ids)
+        if getattr(self.args, "condition_on_msg_budget", False) or getattr(
+            self.args, "condition_on_subtask", False
+        ):
+            policy_context = batch["policy_context"][:, t]
+            policy_context = (
+                policy_context.unsqueeze(1)
+                .expand(-1, self.n_agents, -1)
+                .reshape(bs * self.n_agents, -1)
+            )
+            inputs.append(policy_context)
+        return th.cat(inputs, dim=1)
+
+    def _get_contextual_msg_budgets(self, batch, t) -> th.Tensor:
+        context_budget = batch["policy_context"][:, t, 0]
+        return th.round(context_budget * max(self.n_agents - 1, 0)).long()
 
     def _get_input_shape(self, scheme):
-        input_shape = scheme["obs"]["vshape"]
+        obs_shape = scheme["obs"]["vshape"]
+        input_shape = (
+            int(obs_shape) if isinstance(obs_shape, Integral) else int(prod(obs_shape))
+        )
         if self._obs_last_action:
             input_shape += scheme["actions_onehot"]["vshape"][0]
         if self._obs_agent_id:
             input_shape += self.n_agents
+        if getattr(self.args, "condition_on_msg_budget", False):
+            input_shape += 1
+        if getattr(self.args, "condition_on_subtask", False):
+            input_shape += len(self.args.subtask_contexts)
 
         return input_shape
 

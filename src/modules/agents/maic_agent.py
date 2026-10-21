@@ -118,11 +118,26 @@ class MAICAgent(nn.Module):
 
         return 1.0 - (1.0 - self._team_msg_drop_rate) ** (1.0 / n_possible_messages)
 
-    def _unscaled_dropout(self, msg: Tensor):
+    def _unscaled_dropout(
+        self, msg: Tensor, msg_budget_per_agent: Tensor | None = None
+    ):
         # Keep message drops active during evaluation as well as training.
-        assert self.msg_drop_rate is not None
+        if self._team_msg_drop_rate is not None and msg_budget_per_agent is not None:
+            budget = msg_budget_per_agent.to(device=msg.device, dtype=msg.dtype)
+            n_possible_messages = self.n_agents * budget.clamp(0, self.n_agents - 1)
+            drop_rate = 1 - (1 - self._team_msg_drop_rate) ** (
+                1 / n_possible_messages.clamp(min=1)
+            )
+            drop_rate = th.where(n_possible_messages > 0, drop_rate, 0).view(
+                -1, 1, 1, 1
+            )
+        else:
+            drop_rate = self.msg_drop_rate
+        if drop_rate is None:
+            raise RuntimeError("Message dropout was requested without a drop rate.")
+
         sent_mask = msg.ne(0).any(dim=-1, keepdim=True)
-        keep_mask = th.rand_like(sent_mask, dtype=msg.dtype) >= self.msg_drop_rate
+        keep_mask = th.rand_like(sent_mask, dtype=msg.dtype) >= drop_rate
         return msg * (sent_mask & keep_mask).to(msg.dtype)
 
     def init_hidden(self) -> Tensor:
@@ -152,12 +167,17 @@ class MAICAgent(nn.Module):
         )
 
         if self.n_agents > 1:
+            msg_budget_per_agent = kwargs.get("msg_budget_per_agent")
             latent, latent_embed = self._get_teammate_embedding(
                 hidden_state=hidden_state, bs=bs, test_mode=test_mode
             )
 
             gated_msg, msg_weights = self._get_messages(
-                hidden_state=hidden_state, bs=bs, latent=latent, test_mode=test_mode
+                hidden_state=hidden_state,
+                bs=bs,
+                latent=latent,
+                test_mode=test_mode,
+                msg_budget_per_agent=msg_budget_per_agent,
             )
 
             # average over the incoming messages for each agent to get a measure of "importance" for that agent for a given episode
@@ -189,6 +209,7 @@ class MAICAgent(nn.Module):
                         latent=latent,
                         bs=bs,
                         compute_loss=True,
+                        msg_budget_per_agent=msg_budget_per_agent,
                     )
                     agent_info["losses"]["entropy_loss"] = self._get_entropy_loss(alpha)
 
@@ -245,7 +266,12 @@ class MAICAgent(nn.Module):
         return latent, latent_embed
 
     def _get_messages(
-        self, hidden_state: Tensor, bs: int, latent: Tensor, test_mode: bool
+        self,
+        hidden_state: Tensor,
+        bs: int,
+        latent: Tensor,
+        test_mode: bool,
+        msg_budget_per_agent: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         """generate each agent's incentive messages it sends to its teammates"""
         # get base incentive messages
@@ -265,6 +291,7 @@ class MAICAgent(nn.Module):
             latent=latent,
             bs=bs,
             test_mode=test_mode,
+            msg_budget_per_agent=msg_budget_per_agent,
         )
 
         # apply weighting to messages
@@ -272,8 +299,8 @@ class MAICAgent(nn.Module):
 
         # simulate message dropping from an unreliable network
         # only messages that are sent can get dropped
-        if self.msg_drop_rate is not None:
-            gated_msg = self._unscaled_dropout(gated_msg)
+        if self._msg_drop_rate is not None or self._team_msg_drop_rate is not None:
+            gated_msg = self._unscaled_dropout(gated_msg, msg_budget_per_agent)
         return gated_msg, alpha
 
     def _get_attention_weights(
@@ -283,6 +310,7 @@ class MAICAgent(nn.Module):
         bs: int,
         compute_loss: bool = False,
         test_mode: bool = False,
+        msg_budget_per_agent: Tensor | None = None,
     ):
         """
         compute attention weights for the messages
@@ -319,17 +347,50 @@ class MAICAgent(nn.Module):
 
         # always run filtering if unique_policy_per_msg_budget
         # if unique_policy_per_msg_budget false, always run filtering during test mode
-        if getattr(self.args, "unique_policy_per_msg_budget", False) or test_mode:
+        if (
+            getattr(self.args, "condition_on_msg_budget", False)
+            and msg_budget_per_agent is not None
+        ):
+            alpha = self._msg_filter_hard_topk(
+                alpha, compute_loss, msg_budget_per_agent
+            )
+        elif (
+            getattr(self.args, "unique_policy_per_msg_budget", False)
+            or getattr(self.args, "condition_on_msg_budget", False)
+            or test_mode
+        ):
             alpha = self._msg_filter(alpha, compute_loss)
 
         return alpha
 
-    def _msg_filter_hard_topk(self, alpha: Tensor, _):
+    def _msg_filter_hard_topk(
+        self,
+        alpha: Tensor,
+        _,
+        msg_budget_per_agent: Tensor | None = None,
+    ):
         # keep only the top-k message weights and zero out the rest
-        _, top_k_idx = hard_topk(alpha, k=self._msg_budget_per_agent, dim=2)
+        if msg_budget_per_agent is None:
+            budgets = None
+            k = self._msg_budget_per_agent
+        else:
+            budgets = msg_budget_per_agent.to(device=alpha.device).clamp(
+                0, self.n_agents - 1
+            )
+            k = self.n_agents - 1
+
+        _, top_k_idx = hard_topk(alpha, k=k, dim=2)
 
         mask = th.zeros_like(alpha, dtype=th.bool)
-        mask.scatter_(2, top_k_idx, True)
+        if budgets is not None:
+            selected_rank = th.arange(k, device=alpha.device).view(1, 1, k, 1)
+            mask.scatter_(
+                2,
+                top_k_idx,
+                (selected_rank < budgets.view(-1, 1, 1, 1)).expand_as(top_k_idx),
+            )
+        else:
+            mask.scatter_(2, top_k_idx, True)
         alpha = th.where(mask, alpha, th.zeros_like(alpha))
 
         return alpha

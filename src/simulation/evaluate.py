@@ -15,6 +15,7 @@ def run_eval_episodes(
     video_prefix: str = "replay",
     t_env: Optional[int] = None,
     reset_options: Optional[dict] = None,
+    include_terminal_state_distribution: bool = False,
 ):
     """Run n_eval_eps evaluation episodes, optionally recording, and return last result."""
     task_state, msg_budget_per_agent = None, None
@@ -46,6 +47,7 @@ def run_eval_episodes(
         runner.env.terminate_on_task_completed = True
 
     evaluation_result = None
+    final_infos = []
     for i in range(n_eval_eps):
         if i % 50 == 0:
             runner.logger.info(f"Test Episode: {i} / {n_eval_eps}")
@@ -58,6 +60,11 @@ def run_eval_episodes(
             return_log_stats=return_stats,
             reset_options=reset_options,
         )
+        if include_terminal_state_distribution:
+            if "final_infos" in evaluation_result:
+                final_infos.extend(evaluation_result["final_infos"])
+            elif evaluation_result.get("final_info") is not None:
+                final_infos.append(evaluation_result["final_info"])
 
     # Replay generation separate from metric evaluation so the
     # normal evaluation loop does not render or encode video frames.
@@ -85,6 +92,31 @@ def run_eval_episodes(
         raise ValueError("n_eval_eps must be greater than zero")
 
     evaluation_result["log_stats"]["t_env"] = t_env
+    if include_terminal_state_distribution:
+        successful_final_states = []
+        for info in final_infos:
+            if info.get("task_completed", False):
+                if "final_state" not in info:
+                    raise RuntimeError(
+                        "A successful evaluation episode did not include final_state."
+                    )
+                successful_final_states.append(
+                    tuple(np.asarray(info["final_state"]).reshape(-1).tolist())
+                )
+
+        if successful_final_states:
+            states, counts = np.unique(
+                np.asarray(successful_final_states), axis=0, return_counts=True
+            )
+            terminal_state_distribution = {
+                "states": states.tolist(),
+                "probs": (counts / counts.sum()).tolist(),
+            }
+        else:
+            terminal_state_distribution = {"states": [], "probs": []}
+        evaluation_result["log_stats"][
+            "successful_terminal_state_distribution"
+        ] = terminal_state_distribution
 
     # log stuff like current HL task and comms action
     if reset_options is not None:

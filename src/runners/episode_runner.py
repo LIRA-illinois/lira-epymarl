@@ -13,6 +13,7 @@ from torch import Tensor
 from src.components.episode_buffer import EpisodeBatch
 from src.envs import REGISTRY as env_REGISTRY
 from src.envs import register_smac, register_smacv2
+from src.utils.policy_context import build_policy_context
 from src.utils.record_video import RecordVideoExtended
 
 
@@ -230,6 +231,7 @@ class EpisodeRunner:
     def _reset(self, options: dict | None = None) -> None:
         self.batch = self.new_batch()
         obs, info = self.env.reset(options=options)
+        self._policy_context = build_policy_context(self.args, options)
         self._t = 0
 
     def _select_actions(self, test_mode: bool) -> NDArray | tuple:
@@ -290,6 +292,8 @@ class EpisodeRunner:
 
         data["avail_actions"].append(self.env.avail_actions)
         data["obs"].append(self.env.obs)
+        if self._policy_context is not None:
+            data["policy_context"].append(self._policy_context)
 
         return data
 

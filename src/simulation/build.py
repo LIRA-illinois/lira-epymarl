@@ -11,6 +11,7 @@ from ..controllers.factored import REGISTRY as factored_mac_REGISTRY
 from ..learners import REGISTRY as le_REGISTRY
 from ..learners.factored import REGISTRY as factored_le_REGISTRY
 from ..runners import REGISTRY as r_REGISTRY
+from ..utils.policy_context import policy_context_dim
 
 
 def build_sim(
@@ -112,6 +113,10 @@ def _build_env_spec(args: SN, logger):
 
     if "hl_state_shape" in env_info:
         scheme["hl_state"] = {"vshape": env_info["hl_state_shape"]}
+
+    context_dim = policy_context_dim(args)
+    if context_dim:
+        scheme["policy_context"] = {"vshape": (context_dim,)}
 
     groups = {"agents": args.n_agents}
     preprocess = {"actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])}

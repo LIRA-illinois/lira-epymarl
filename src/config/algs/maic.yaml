@@ -30,6 +30,12 @@ hypernet_embed: 64
 mac: "maic_mac"
 agent: "maic"
 
+# Optional episode-level policy inputs. Subtasks are one-hot encoded in the
+# order listed in subtask_contexts; communication budgets are normalized to [0, 1].
+condition_on_msg_budget: False
+condition_on_subtask: False
+subtask_contexts: []
+
 latent_dim: 8
 attention_dim: 32
 nn_hidden_size: 64

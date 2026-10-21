@@ -12,6 +12,7 @@ import torch as th
 from src.components.episode_buffer import EpisodeBatch
 from src.envs import REGISTRY as env_REGISTRY
 from src.envs import register_smac, register_smacv2
+from src.utils.policy_context import build_policy_context
 from src.utils.record_video import RecordVideoExtended
 
 
@@ -159,6 +160,7 @@ class SharedMemoryParallelRunner:
 
     def reset(self, options: dict | None = None) -> None:
         self.batch = self.new_batch()
+        self._policy_context = build_policy_context(self.args, options)
         for conn in self.parent_conns:
             conn.send(("reset", options))
         for conn in self.parent_conns:
@@ -178,6 +180,10 @@ class SharedMemoryParallelRunner:
         if "hl_state" in self._arrays:
             data["hl_state"] = [
                 self._arrays["hl_state"][i].copy() for i in range(self.batch_size)
+            ]
+        if self._policy_context is not None:
+            data["policy_context"] = [
+                self._policy_context for _ in range(self.batch_size)
             ]
         self.batch.update(data, ts=ts)
 

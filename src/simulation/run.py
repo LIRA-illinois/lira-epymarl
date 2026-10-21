@@ -4,6 +4,7 @@ import multiprocessing as mp
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from os import listdir, makedirs, walk
 from os.path import abspath, isdir, join, splitext
 from shutil import rmtree
@@ -15,9 +16,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch as th
-import wandb
 from matplotlib.patches import FancyArrowPatch
 
+import wandb
 from src.modules.agents.ilp_model import ILPModel, InfeasiblePolicyError
 from src.simulation.build import build_sim
 from src.simulation.dependent_subtasks import DependentSubtaskTrainingMixin
@@ -507,9 +508,53 @@ class Simulation(DependentSubtaskTrainingMixin):
         if getattr(self.args, "unique_policy_per_msg_budget", False):
             self.runner.mac.msg_budget_per_agent = self.args.msg_budget_per_agent[0]
 
+        condition_on_budget = getattr(self.args, "condition_on_msg_budget", False)
+        condition_on_subtask = getattr(self.args, "condition_on_subtask", False)
+        rollout_budgets = (
+            list(self.args.msg_budget_per_agent) if condition_on_budget else [None]
+        )
+        rollout_subtasks = (
+            list(self.args.subtask_contexts) if condition_on_subtask else [None]
+        )
+        if condition_on_budget and not rollout_budgets:
+            raise ValueError(
+                "msg_budget_per_agent must contain values when "
+                "condition_on_msg_budget is enabled."
+            )
+        if condition_on_subtask and not rollout_subtasks:
+            raise ValueError(
+                "subtask_contexts must contain values when condition_on_subtask is enabled."
+            )
+        conditioned_rollout_index = 0
+
         while self.runner.t_env <= self.args.t_max:
             # Run for a whole episode at a time
-            result = self.runner.run(test_mode=False, reset_options=reset_options)
+            rollout_options = reset_options
+            if condition_on_budget or condition_on_subtask:
+                rollout_options = deepcopy(reset_options) if reset_options else {}
+                budget_index = conditioned_rollout_index % len(rollout_budgets)
+                subtask_index = (
+                    conditioned_rollout_index // len(rollout_budgets)
+                ) % len(rollout_subtasks)
+                budget = rollout_budgets[budget_index]
+                subtask = rollout_subtasks[subtask_index]
+
+                if budget is not None:
+                    budget = int(budget)
+                    rollout_options["msg_budget_per_agent"] = budget
+                    self.runner.mac.msg_budget_per_agent = budget
+
+                if subtask is not None:
+                    if isinstance(subtask, int):
+                        rollout_options["subtask_idx"] = subtask
+                    else:
+                        edge = [int(subtask[0]), int(subtask[1])]
+                        rollout_options["hl_start_state"] = edge[0]
+                        rollout_options["hl_task"] = edge
+
+                conditioned_rollout_index += 1
+
+            result = self.runner.run(test_mode=False, reset_options=rollout_options)
 
             episode_batch = result["batch"] if isinstance(result, dict) else result
             self.buffer.insert_episode_batch(episode_batch)
@@ -718,17 +763,24 @@ class Simulation(DependentSubtaskTrainingMixin):
     ) -> Optional[float]:
         """Evaluation entry point."""
 
-        # always comms sweep if hierarchical or not
-        if hasattr(self.args, "msg_budget_per_agent"):
-            msg_budget_per_agent_list = self.args.msg_budget_per_agent
+        condition_on_subtask = getattr(self.args, "condition_on_subtask", False)
+        has_budget_sweep = hasattr(self.args, "msg_budget_per_agent")
+        if has_budget_sweep or condition_on_subtask:
+            budgets = (
+                list(self.args.msg_budget_per_agent) if has_budget_sweep else [None]
+            )
+            subtasks = (
+                list(self.args.subtask_contexts) if condition_on_subtask else [None]
+            )
             self.logger.info(
-                f"Evaluating Policy Across Message Budgets: {msg_budget_per_agent_list}",
+                "Evaluating Policy Across Contexts: "
+                f"budgets={budgets}, subtasks={subtasks}",
                 log_header=True,
             )
 
             eval_data: list[dict] = []
 
-            # Keep evaluation layouts matched across communication budgets.
+            # Keep evaluation layouts matched across policy contexts.
             # Process-backed runners keep their RNGs in the worker processes.
             if hasattr(self.runner, "get_env_rng_states"):
                 init_rng_state = self.runner.get_env_rng_states()
@@ -736,28 +788,42 @@ class Simulation(DependentSubtaskTrainingMixin):
                 env_rng = self.runner.env.get_wrapper_attr("np_random")
                 init_rng_state = env_rng.bit_generator.state
 
-            for budget in msg_budget_per_agent_list:
-                if hasattr(self.runner, "set_env_rng_states"):
-                    self.runner.set_env_rng_states(init_rng_state)
-                else:
-                    env_rng = self.runner.env.get_wrapper_attr("np_random")
-                    env_rng.bit_generator.state = init_rng_state
+            base_reset_options = deepcopy(reset_options) if reset_options else {}
+            for subtask in subtasks:
+                for budget in budgets:
+                    if hasattr(self.runner, "set_env_rng_states"):
+                        self.runner.set_env_rng_states(init_rng_state)
+                    else:
+                        env_rng = self.runner.env.get_wrapper_attr("np_random")
+                        env_rng.bit_generator.state = init_rng_state
 
-                self.logger.info(f"Evaluating with msg_budget_per_agent = {budget}")
+                    context_options = deepcopy(base_reset_options)
+                    if subtask is not None:
+                        if isinstance(subtask, int):
+                            context_options["subtask_idx"] = subtask
+                        else:
+                            edge = [int(subtask[0]), int(subtask[1])]
+                            context_options["hl_start_state"] = edge[0]
+                            context_options["hl_task"] = edge
+                    if budget is not None:
+                        context_options["msg_budget_per_agent"] = budget
 
-                if reset_options is None:
-                    reset_options = {"msg_budget_per_agent": budget}
-                else:
-                    reset_options["msg_budget_per_agent"] = budget
+                    self.logger.info(
+                        "Evaluating with "
+                        f"msg_budget_per_agent={budget}, subtask={subtask}"
+                    )
 
-                result = run_eval_episodes(
-                    args=self.args,
-                    runner=self.runner,
-                    n_eval_eps=n_eval_eps,
-                    t_env=self.runner.t_env,
-                    reset_options=reset_options,
-                )
-                eval_data.append(result["log_stats"])
+                    result = run_eval_episodes(
+                        args=self.args,
+                        runner=self.runner,
+                        n_eval_eps=n_eval_eps,
+                        t_env=self.runner.t_env,
+                        reset_options=context_options or None,
+                        include_terminal_state_distribution=(
+                            has_budget_sweep or condition_on_subtask
+                        ),
+                    )
+                    eval_data.append(result["log_stats"])
 
             df_eval = pd.DataFrame.from_records(eval_data)
             success_lcbs = [
@@ -767,9 +833,14 @@ class Simulation(DependentSubtaskTrainingMixin):
             ]
 
             self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
-            self._make_comms_eval_plots(
-                self.logger.data_tables["eval_stats"], t=self.runner.t_env
-            )
+            if has_budget_sweep:
+                self._make_comms_eval_plots(
+                    self.logger.data_tables["eval_stats"], t=self.runner.t_env
+                )
+            if condition_on_subtask or getattr(
+                self.args, "condition_on_msg_budget", False
+            ):
+                return min(success_lcbs, default=None)
             return max(success_lcbs, default=None)
 
             """

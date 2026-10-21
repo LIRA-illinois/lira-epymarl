@@ -88,3 +88,41 @@ def test_individual_and_team_message_drop_rates_are_exclusive():
             input_shape=5,
             args=_agent_args(3, msg_drop_rate=0.1, team_msg_drop_rate=0.1),
         )
+
+
+def test_conditioned_budget_enforces_message_filter_during_training(monkeypatch):
+    agent = MAICAgent(
+        input_shape=5,
+        args=_agent_args(3, condition_on_msg_budget=True),
+    )
+    filtered = []
+    monkeypatch.setattr(
+        agent,
+        "_msg_filter",
+        lambda alpha, compute_loss: filtered.append(compute_loss) or alpha,
+    )
+
+    agent._get_attention_weights(
+        hidden_state=th.ones(3, 8),
+        latent=th.ones(9, 2),
+        bs=1,
+        test_mode=False,
+    )
+
+    assert filtered == [False]
+
+
+def test_conditioned_budgets_apply_per_episode_topk_limits():
+    agent = MAICAgent(input_shape=5, args=_agent_args(3, condition_on_msg_budget=True))
+    alpha = th.ones(2, 3, 3, 1)
+    for agent_idx in range(3):
+        alpha[:, agent_idx, agent_idx] = 0
+
+    filtered = agent._msg_filter_hard_topk(
+        alpha, False, msg_budget_per_agent=th.tensor([0, 2])
+    )
+
+    th.testing.assert_close(
+        filtered.ne(0).sum(dim=2).squeeze(-1),
+        th.tensor([[0, 0, 0], [2, 2, 2]]),
+    )

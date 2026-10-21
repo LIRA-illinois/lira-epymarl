@@ -81,7 +81,7 @@ def test_ray_session_only_shuts_down_ray_it_started(
     assert calls == expected_calls
 
 
-def test_distribute_commands_round_robins_across_host_runner_slots():
+def test_distribute_commands_round_robins_across_hosts_by_runner_capacity():
     hosts = [
         {"name": "lab-a", "n_runners": 2},
         {"name": "lab-b", "n_runners": 1},
@@ -91,7 +91,7 @@ def test_distribute_commands_round_robins_across_host_runner_slots():
         ["run-1", "run-2", "run-3", "run-4"], hosts
     )
 
-    assert queues == [[["run-1", "run-4"], ["run-2"]], [["run-3"]]]
+    assert queues == [["run-1", "run-2", "run-4"], ["run-3"]]
 
 
 def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
@@ -116,7 +116,7 @@ def test_runner_task_sets_requested_gpu_and_returns_command_status(monkeypatch):
     assert outcomes[0]["returncode"] == 0
 
 
-def test_command_queues_isolate_failures_and_replenish_slots_immediately():
+def test_command_queues_apply_live_runner_changes_and_preserve_failures(tmp_path):
     class RayTaskFailure(Exception):
         pass
 
@@ -132,10 +132,13 @@ def test_command_queues_isolate_failures_and_replenish_slots_immediately():
 
         def get(self, ref):
             if ref.command == "oom":
+                write_config(1)
                 raise RayTaskFailure("worker died")
+            if ref.command == "success":
+                write_config(3)
             return [{"returncode": 1 if ref.command == "nonzero" else 0}]
 
-        def wait(self, refs, num_returns):
+        def wait(self, refs, num_returns, timeout):
             self.wait_calls.append([ref.command for ref in refs])
             return refs[:num_returns], refs[num_returns:]
 
@@ -153,17 +156,29 @@ def test_command_queues_isolate_failures_and_replenish_slots_immediately():
             self.commands.append((project_dir, gpu, commands[0]))
             return FakeRef(commands[0])
 
+    config_path = tmp_path / "lab_hosts.yaml"
+
+    def write_config(n_runners):
+        config_path.write_text(
+            "hosts: [{name: lab-a, ray_node_ip: 10.0.0.1, "
+            "project_dir: /home/user/project, "
+            f"n_runners: {n_runners}, gpus: [0, 2]}}]",
+            encoding="utf8",
+        )
+
     hosts = [
         {
             "name": "lab-a",
+            "ray_node_ip": "10.0.0.1",
             "project_dir": "/home/user/project",
             "n_runners": 2,
             "gpus": [0, 2],
         }
     ]
-    queues = [[["oom", "nonzero"], ["success"]]]
-    host_nodes = {"lab-a": {"Resources": {"memory": 1000}}}
+    queues = [["oom", "nonzero", "success", "extra-1", "extra-2", "extra-3"]]
+    host_nodes = {"lab-a": {"Resources": {"CPU": 4, "memory": 1000}}}
     task = FakeRunTask()
+    write_config(2)
     ray = FakeRay()
 
     failures = RayCluster._run_command_queues(
@@ -173,16 +188,27 @@ def test_command_queues_isolate_failures_and_replenish_slots_immediately():
         queues,
         host_nodes,
         lambda host: f"node-for-{host['name']}",
+        str(config_path),
     )
 
     assert task.commands == [
         ("/home/user/project", 0, "oom"),
-        ("/home/user/project", 2, "success"),
-        ("/home/user/project", 0, "nonzero"),
+        ("/home/user/project", 2, "nonzero"),
+        ("/home/user/project", 0, "success"),
+        ("/home/user/project", 2, "extra-1"),
+        ("/home/user/project", 0, "extra-2"),
+        ("/home/user/project", 2, "extra-3"),
+    ]
+    assert [options["memory"] for options in task.options_seen] == [
+        500,
+        500,
+        1000,
+        1000 / 3,
+        1000 / 3,
+        1000 / 3,
     ]
     assert all(options["num_cpus"] == 1 for options in task.options_seen)
-    assert all(options["memory"] == 500 for options in task.options_seen)
-    assert ray.wait_calls[1] == ["success", "nonzero"]
+    assert ray.wait_calls[1] == ["nonzero"]
     assert failures == [
         "lab-a: oom Ray task failed: worker died",
         "lab-a: nonzero exited with 1",

@@ -8,6 +8,8 @@ from os.path import isabs, join
 
 import yaml
 
+_RUNNER_CONFIG_POLL_INTERVAL_SECONDS = 5
+
 
 class RayCluster:
     @classmethod
@@ -107,19 +109,19 @@ class RayCluster:
         return hosts
 
     @staticmethod
-    def distribute_commands(commands, hosts: list[dict]) -> list[list[list[str]]]:
-        queues = [[[] for _ in range(host["n_runners"])] for host in hosts]
-        runner_slots = [
-            (host_idx, runner_idx)
+    def distribute_commands(commands, hosts: list[dict]) -> list[list[str]]:
+        queues = [[] for _ in hosts]
+        runner_hosts = [
+            host_idx
             for host_idx, host in enumerate(hosts)
-            for runner_idx in range(host["n_runners"])
+            for _ in range(host["n_runners"])
         ]
-        if not runner_slots:
+        if not runner_hosts:
             raise ValueError("At least one lab runner is required")
 
         for command_idx, command in enumerate(commands):
-            host_idx, runner_idx = runner_slots[command_idx % len(runner_slots)]
-            queues[host_idx][runner_idx].append(str(command))
+            host_idx = runner_hosts[command_idx % len(runner_hosts)]
+            queues[host_idx].append(str(command))
         return queues
 
 
@@ -235,19 +237,77 @@ class RayCluster:
         ray,
         run_task,
         hosts: list[dict],
-        queues: list[list[list[str]]],
+        queues: list[list[str]],
         host_nodes: dict[str, dict],
         node_strategy,
+        config_path: str,
+        poll_interval: float = _RUNNER_CONFIG_POLL_INTERVAL_SECONDS,
     ) -> list[str]:
+        if poll_interval <= 0:
+            raise ValueError("Runner config poll interval must be positive")
+
         failures = []
         pending = {}
+        active_counts = [0 for _ in hosts]
+        command_indices = [0 for _ in hosts]
+        gpu_indices = [0 for _ in hosts]
+        last_config_error = None
 
-        def submit_command(host_idx: int, runner_idx: int, command_idx: int) -> None:
+        def refresh_runner_targets() -> None:
+            nonlocal last_config_error
+            try:
+                configured_hosts = RayCluster.load_lab_hosts(config_path)
+                if len(configured_hosts) != len(hosts):
+                    raise ValueError(
+                        "The configured host list cannot change while a search is running"
+                    )
+
+                for host, configured_host in zip(hosts, configured_hosts):
+                    current_settings = {
+                        key: value for key, value in host.items() if key != "n_runners"
+                    }
+                    configured_settings = {
+                        key: value
+                        for key, value in configured_host.items()
+                        if key != "n_runners"
+                    }
+                    if current_settings != configured_settings:
+                        raise ValueError(
+                            "Only n_runners may change while a search is running"
+                        )
+                    cpu_capacity = host_nodes[host["name"]]["Resources"].get("CPU", 0)
+                    if configured_host["n_runners"] > cpu_capacity:
+                        raise ValueError(
+                            f"{host['name']} requests {configured_host['n_runners']} "
+                            f"runners but its Ray node advertises "
+                            f"{cpu_capacity:g} CPUs"
+                        )
+            except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
+                error_message = str(error)
+                if error_message != last_config_error:
+                    print(
+                        "[ray-cluster] Could not apply live runner settings; "
+                        f"retaining the last valid limits: {error_message}"
+                    )
+                last_config_error = error_message
+                return
+
+            last_config_error = None
+            for host, configured_host in zip(hosts, configured_hosts):
+                old_target = host["n_runners"]
+                new_target = configured_host["n_runners"]
+                if old_target != new_target:
+                    host["n_runners"] = new_target
+                    print(
+                        f"[{host['name']}] runner target changed from "
+                        f"{old_target} to {new_target}"
+                    )
+
+        def submit_command(host_idx: int) -> None:
             host = hosts[host_idx]
-            queue = queues[host_idx][runner_idx]
-            command = queue[command_idx]
+            command = queues[host_idx][command_indices[host_idx]]
             gpu_ids = host["gpus"]
-            gpu = gpu_ids[runner_idx % len(gpu_ids)] if gpu_ids else None
+            gpu = gpu_ids[gpu_indices[host_idx] % len(gpu_ids)] if gpu_ids else None
             memory_request = (
                 host_nodes[host["name"]]["Resources"]["memory"] / host["n_runners"]
             )
@@ -256,38 +316,50 @@ class RayCluster:
                 memory=memory_request,
                 scheduling_strategy=node_strategy(host),
             ).remote(host["project_dir"], gpu, [command])
-            pending[run_ref] = (host_idx, runner_idx, command_idx, command)
+            pending[run_ref] = (host_idx, command)
+            active_counts[host_idx] += 1
+            command_indices[host_idx] += 1
+            gpu_indices[host_idx] += 1
 
-        for host_idx, host_queues in enumerate(queues):
-            for runner_idx, queue in enumerate(host_queues):
-                if queue:
-                    submit_command(host_idx, runner_idx, 0)
+        def submit_available_commands() -> None:
+            for host_idx, host in enumerate(hosts):
+                while active_counts[host_idx] < host["n_runners"] and command_indices[
+                    host_idx
+                ] < len(queues[host_idx]):
+                    submit_command(host_idx)
 
+        refresh_runner_targets()
+        submit_available_commands()
         while pending:
-            ready_refs, _ = ray.wait(list(pending), num_returns=1)
-            if not ready_refs:
-                raise RuntimeError("Ray returned no ready command tasks while work remained")
-
-            run_ref = ready_refs[0]
-            host_idx, runner_idx, command_idx, command = pending.pop(run_ref)
-            host = hosts[host_idx]
-            try:
-                outcomes = ray.get(run_ref)
-            except ray.exceptions.RayError as error:
-                failures.append(f"{host['name']}: {command} Ray task failed: {error}")
-            else:
-                if len(outcomes) != 1:
-                    raise RuntimeError(
-                        f"Expected one outcome for {host['name']} command {command}"
-                    )
-                if outcomes[0]["returncode"]:
+            ready_refs, _ = ray.wait(
+                list(pending),
+                num_returns=1,
+                timeout=poll_interval,
+            )
+            if ready_refs:
+                run_ref = ready_refs[0]
+                host_idx, command = pending.pop(run_ref)
+                host = hosts[host_idx]
+                active_counts[host_idx] -= 1
+                try:
+                    outcomes = ray.get(run_ref)
+                except ray.exceptions.RayError as error:
                     failures.append(
-                        f"{host['name']}: {command} exited with {outcomes[0]['returncode']}"
+                        f"{host['name']}: {command} Ray task failed: {error}"
                     )
+                else:
+                    if len(outcomes) != 1:
+                        raise RuntimeError(
+                            f"Expected one outcome for {host['name']} command {command}"
+                        )
+                    if outcomes[0]["returncode"]:
+                        failures.append(
+                            f"{host['name']}: {command} exited with "
+                            f"{outcomes[0]['returncode']}"
+                        )
 
-            next_command_idx = command_idx + 1
-            if next_command_idx < len(queues[host_idx][runner_idx]):
-                submit_command(host_idx, runner_idx, next_command_idx)
+            refresh_runner_targets()
+            submit_available_commands()
 
         return failures
 
@@ -419,12 +491,14 @@ class RayCluster:
         sync_wandb: bool = True,
         open_ray_dashboard: bool = False,
     ) -> None:
+        self.config_path = config_path
         self.hosts = self.load_lab_hosts(config_path)
         self.ray_address = ray_address
         self.sync_wandb = sync_wandb
         self.open_ray_dashboard = open_ray_dashboard
 
     def run(self, commands) -> None:
+        self.hosts = self.load_lab_hosts(self.config_path)
         queues = self.distribute_commands(commands, self.hosts)
         with self._ray_session(self.ray_address) as (
             ray,
@@ -505,6 +579,7 @@ class RayCluster:
                 queues,
                 host_nodes,
                 node_strategy,
+                self.config_path,
             )
 
             if self.sync_wandb:

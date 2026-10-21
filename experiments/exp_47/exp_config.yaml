@@ -57,7 +57,7 @@ parameters:
   correlated_exploration_prob:
     values: [0.5]
   unique_policy_per_msg_budget:
-    values: [True]
+    values: [False]
   msg_budget_per_agent:
     values: [[0 1 2]]
   msg_filter_type:
@@ -80,7 +80,8 @@ parameters:
   env_args.hierarchical:
     values: [True]
   hl_task:
-    values: [[0 1], [1 3]]
+    values: [[0 1]]
+    # values: [[0 1], [1 3]]
   env_args.terminate_on_task_completed:
     values: [True]
   env_args.max_episode_steps:
