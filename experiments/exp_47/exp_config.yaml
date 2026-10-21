@@ -35,7 +35,7 @@ parameters:
   runner:
     values: [parallel_shared_memory]
   batch_size_run:
-    values: [20]
+    values: [10]
   lr:
     values: [0.00005]
   t_max:
