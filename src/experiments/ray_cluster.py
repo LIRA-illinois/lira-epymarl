@@ -94,6 +94,17 @@ class RayCluster:
             ):
                 raise ValueError(f"n_runners for lab host {name} must be positive")
 
+            max_runners = host.get("max_runners", n_runners)
+            if (
+                not isinstance(max_runners, int)
+                or isinstance(max_runners, bool)
+                or max_runners < n_runners
+            ):
+                raise ValueError(
+                    f"max_runners for lab host {name} must be an integer "
+                    "greater than or equal to n_runners"
+                )
+
             gpus = host["gpus"]
             if (
                 not isinstance(gpus, list)
@@ -108,6 +119,11 @@ class RayCluster:
                 )
 
         return hosts
+
+    @staticmethod
+    def _set_default_max_runners(hosts: list[dict]) -> None:
+        for host in hosts:
+            host.setdefault("max_runners", host["n_runners"])
 
     @staticmethod
     def _prepare_node(project_dir: str, gpus: list[int], sync_wandb: bool) -> dict:
@@ -248,16 +264,31 @@ class RayCluster:
 
                 for host, configured_host in zip(hosts, configured_hosts):
                     current_settings = {
-                        key: value for key, value in host.items() if key != "n_runners"
+                        key: value
+                        for key, value in host.items()
+                        if key not in {"n_runners", "max_runners"}
                     }
                     configured_settings = {
                         key: value
                         for key, value in configured_host.items()
-                        if key != "n_runners"
+                        if key not in {"n_runners", "max_runners"}
                     }
                     if current_settings != configured_settings:
                         raise ValueError(
                             "Only n_runners may change while a search is running"
+                        )
+                    configured_max_runners = configured_host.get(
+                        "max_runners", host["max_runners"]
+                    )
+                    if configured_max_runners != host["max_runners"]:
+                        raise ValueError(
+                            "max_runners cannot change while a search is running"
+                        )
+                    if configured_host["n_runners"] > host["max_runners"]:
+                        raise ValueError(
+                            f"{host['name']} requests {configured_host['n_runners']} "
+                            f"runners, exceeding its max_runners of "
+                            f"{host['max_runners']}"
                         )
                     cpu_capacity = host_nodes[host["name"]]["Resources"].get("CPU", 0)
                     if configured_host["n_runners"] > cpu_capacity:
@@ -296,7 +327,8 @@ class RayCluster:
             gpu_ids = host["gpus"]
             gpu = gpu_ids[gpu_indices[host_idx] % len(gpu_ids)] if gpu_ids else None
             memory_request = (
-                host_nodes[host["name"]]["Resources"]["memory"] / host["n_runners"]
+                host_nodes[host["name"]]["Resources"]["memory"]
+                / host["max_runners"]
             )
             run_ref = run_task.options(
                 num_cpus=1,
@@ -500,12 +532,14 @@ class RayCluster:
     ) -> None:
         self.config_path = config_path
         self.hosts = self.load_lab_hosts(config_path)
+        self._set_default_max_runners(self.hosts)
         self.ray_address = ray_address
         self.sync_wandb = sync_wandb
         self.open_ray_dashboard = open_ray_dashboard
 
     def run(self, commands) -> None:
         self.hosts = self.load_lab_hosts(self.config_path)
+        self._set_default_max_runners(self.hosts)
         command_queue = deque(str(command) for command in commands)
         with self._ray_session(self.ray_address) as (
             ray,
@@ -534,9 +568,9 @@ class RayCluster:
                     )
                 node = matching_nodes[0]
                 cpu_capacity = node.get("Resources", {}).get("CPU", 0)
-                if host["n_runners"] > cpu_capacity:
+                if host["max_runners"] > cpu_capacity:
                     raise ValueError(
-                        f"{host['name']} requests {host['n_runners']} runners but "
+                        f"{host['name']} allows {host['max_runners']} runners but "
                         f"its Ray node advertises {cpu_capacity:g} CPUs"
                     )
                 memory_capacity = node.get("Resources", {}).get("memory")

@@ -18,14 +18,26 @@ def test_ray_remote_entrypoints_keep_module_level_names():
 def test_load_lab_hosts_reads_runner_and_gpu_settings(tmp_path):
     config_path = tmp_path / "lab_hosts.yaml"
     config_path.write_text(
-        "hosts: [{name: lab-a, ray_node_ip: 10.0.0.1, project_dir: /home/user/project, n_runners: 2, gpus: [0, 2]}]",
+        "hosts: [{name: lab-a, ray_node_ip: 10.0.0.1, project_dir: /home/user/project, n_runners: 2, max_runners: 3, gpus: [0, 2]}]",
         encoding="utf8",
     )
 
     hosts = RayCluster.load_lab_hosts(str(config_path))
 
     assert hosts[0]["n_runners"] == 2
+    assert hosts[0]["max_runners"] == 3
     assert hosts[0]["gpus"] == [0, 2]
+
+
+def test_load_lab_hosts_requires_max_runners_at_least_n_runners(tmp_path):
+    config_path = tmp_path / "lab_hosts.yaml"
+    config_path.write_text(
+        "hosts: [{name: lab-a, ray_node_ip: 10.0.0.1, project_dir: /home/user/project, n_runners: 2, max_runners: 1, gpus: [0]}]",
+        encoding="utf8",
+    )
+
+    with pytest.raises(ValueError, match="max_runners"):
+        RayCluster.load_lab_hosts(str(config_path))
 
 
 def test_load_lab_hosts_requires_absolute_project_path(tmp_path):
@@ -144,11 +156,13 @@ def test_central_command_queue_dispatches_to_any_host_with_capacity(tmp_path):
         "    ray_node_ip: 10.0.0.1\n"
         "    project_dir: /home/lab-a\n"
         "    n_runners: 1\n"
+        "    max_runners: 1\n"
         "    gpus: [0]\n"
         "  - name: lab-b\n"
         "    ray_node_ip: 10.0.0.2\n"
         "    project_dir: /home/lab-b\n"
         "    n_runners: 2\n"
+        "    max_runners: 2\n"
         "    gpus: [1]\n",
         encoding="utf8",
     )
@@ -158,6 +172,7 @@ def test_central_command_queue_dispatches_to_any_host_with_capacity(tmp_path):
             "ray_node_ip": "10.0.0.1",
             "project_dir": "/home/lab-a",
             "n_runners": 1,
+            "max_runners": 1,
             "gpus": [0],
         },
         {
@@ -165,6 +180,7 @@ def test_central_command_queue_dispatches_to_any_host_with_capacity(tmp_path):
             "ray_node_ip": "10.0.0.2",
             "project_dir": "/home/lab-b",
             "n_runners": 2,
+            "max_runners": 2,
             "gpus": [1],
         },
     ]
@@ -239,7 +255,7 @@ def test_command_queue_applies_live_runner_changes_and_preserves_failures(tmp_pa
         config_path.write_text(
             "hosts: [{name: lab-a, ray_node_ip: 10.0.0.1, "
             "project_dir: /home/user/project, "
-            f"n_runners: {n_runners}, gpus: [0, 2]}}]",
+            f"n_runners: {n_runners}, max_runners: 3, gpus: [0, 2]}}]",
             encoding="utf8",
         )
 
@@ -249,6 +265,7 @@ def test_command_queue_applies_live_runner_changes_and_preserves_failures(tmp_pa
             "ray_node_ip": "10.0.0.1",
             "project_dir": "/home/user/project",
             "n_runners": 2,
+            "max_runners": 3,
             "gpus": [0, 2],
         }
     ]
@@ -277,9 +294,9 @@ def test_command_queue_applies_live_runner_changes_and_preserves_failures(tmp_pa
         ("/home/user/project", 2, "extra-3"),
     ]
     assert [options["memory"] for options in task.options_seen] == [
-        500,
-        500,
-        1000,
+        1000 / 3,
+        1000 / 3,
+        1000 / 3,
         1000 / 3,
         1000 / 3,
         1000 / 3,
