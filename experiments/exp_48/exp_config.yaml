@@ -80,6 +80,9 @@ conditional_parameters:
         values: [True]
       condition_on_subtask:
         values: [True]
+      subtask_contexts:
+        values:
+          - [[0, 1], [1, 3]]
       unique_policy_per_msg_budget:
         values: [False]
       msg_budget_per_agent:
