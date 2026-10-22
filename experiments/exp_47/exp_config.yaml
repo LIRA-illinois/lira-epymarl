@@ -39,7 +39,8 @@ parameters:
   lr:
     values: [0.00005]
   t_max:
-    values: [4_050_000]
+    values: [2000]
+    # values: [4_050_000]
   epsilon_anneal_time:
     values: [2_000_000]
 
