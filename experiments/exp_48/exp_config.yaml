@@ -1,5 +1,5 @@
-# Compare a single policy conditioned on communication budget and navigation
-# subtask against an independently trained policy for every (task, budget).
+# Compare a policy conditioned on communication budget against independent
+# per-budget policies on the three-agent exp 47 benchmark.
 parameters:
   n_seeds:
     values: [2]
@@ -18,41 +18,48 @@ parameters:
   runner:
     values: [parallel_shared_memory]
   batch_size_run:
-    values: [5]
+    values: [10]
   batch_size:
     values: [32]
   buffer_size:
     values: [5000]
   lr:
     values: [0.00005]
-  test_nepisode:
-    values: [10]
-  test_interval:
-    values: [50000]
-  log_interval:
-    values: [50000]
-  runner_log_interval:
-    values: [50000]
+  t_max:
+    values: [4_000_000]
   epsilon_anneal_time:
-    values: [20000]
+    values: [2_000_000]
+
+  test_nepisode:
+    values: [50]
+  test_interval:
+    values: [500000]
+  log_interval:
+    values: [500000]
+  runner_log_interval:
+    values: [500000]
   msg_filter_type:
     values: [hard_topk]
   policy_mode:
     values: [conditioned_shared, independent_reference]
-  network_size:
-    values: [small, medium]
+  hidden_dim:
+    values: [32, 64, 128]
 
   env-config:
     values: [team-nav-v0]
   env_args.map_name:
-    values: [5ga_1r_small_hall]
+    values: [3ga_1r_small_hall]
   env_args.navigation_config:
     values:
-      [experiments/exp_48/navigation_tasks.yaml]
+      [
+        submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_small_hall.yaml,
+      ]
   env_args.hierarchical:
     values: [True]
   env_args.n_agents:
-    values: [5]
+    values: [3]
+  hl_task:
+    values: [[0 1], [1, 3]]
   env_args.max_episode_steps:
     values: [15]
   env_args.terminate_on_task_completed:
@@ -61,6 +68,10 @@ parameters:
     values: [simultaneous_arrival]
   env_args.reward_config.simultaneous_goal_reward_type:
     values: [per_step_arrival_group_size]
+  env_args.team_delay_prob:
+    values: [0.05, 0.1]
+  env_args.n_agents_delay:
+    values: [1]
 
 conditional_parameters:
   policy_mode:
@@ -69,17 +80,10 @@ conditional_parameters:
         values: [True]
       condition_on_subtask:
         values: [True]
-      subtask_contexts:
-        values:
-          - [[0, 1], [1, 3]]
       unique_policy_per_msg_budget:
         values: [False]
       msg_budget_per_agent:
-        values: [[0 1 2 3 4]]
-      t_max:
-        values: [250000]
-      epsilon_anneal_time:
-        values: [200000]
+        values: [[0 1 2]]
     independent_reference:
       condition_on_msg_budget:
         values: [False]
@@ -88,22 +92,15 @@ conditional_parameters:
       unique_policy_per_msg_budget:
         values: [True]
       msg_budget_per_agent:
-        values: [[0 1 2 3 4]]
-      hl_task:
-        values: [[0 1], [1 3]]
-      t_max:
-        values: [25000]
-      epsilon_anneal_time:
-        values: [20000]
+        values: [[0 1 2]]
 
-  network_size:
-    small:
-      hidden_dim:
-        values: [32]
+  hidden_dim:
+    32:
       nn_hidden_size:
         values: [32]
-    medium:
-      hidden_dim:
-        values: [64]
+    64:
       nn_hidden_size:
         values: [64]
+    128:
+      nn_hidden_size:
+        values: [128]

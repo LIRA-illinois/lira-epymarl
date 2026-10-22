@@ -40,6 +40,88 @@ def test_load_lab_hosts_requires_max_runners_at_least_n_runners(tmp_path):
         RayCluster.load_lab_hosts(str(config_path))
 
 
+def test_runner_targets_override_n_runners_but_keep_shared_cap(tmp_path):
+    inventory_path = tmp_path / "lab_hosts.yaml"
+    inventory_path.write_text(
+        "hosts: [{name: lab-a, ray_node_ip: 10.0.0.1, "
+        "project_dir: /home/user/project, n_runners: 2, max_runners: 5, "
+        "gpus: [0]}]",
+        encoding="utf8",
+    )
+    targets_path = tmp_path / "exp_47.yaml"
+    targets_path.write_text(
+        "ray_cluster: {hosts: [{name: lab-a, n_runners: 3}]}",
+        encoding="utf8",
+    )
+
+    hosts = RayCluster.load_lab_hosts(str(inventory_path))
+    RayCluster._set_default_max_runners(hosts)
+    RayCluster._apply_runner_targets(hosts, str(targets_path))
+
+    assert hosts[0]["n_runners"] == 3
+    assert hosts[0]["max_runners"] == 5
+    assert hosts[0]["project_dir"] == "/home/user/project"
+
+
+def test_cluster_config_without_ray_section_uses_shared_runner_defaults(tmp_path):
+    config_path = tmp_path / "cluster_config.yaml"
+    config_path.write_text(
+        "time: '0-48:00:00'\nmemory_gb: 128\ncpus_per_task: 1\n",
+        encoding="utf8",
+    )
+    hosts = [{"name": "lab-a", "max_runners": 3, "n_runners": 2}]
+
+    assert RayCluster.load_runner_targets(str(config_path), hosts) is None
+
+
+def test_runner_target_can_disable_a_host_for_one_experiment(tmp_path):
+    targets_path = tmp_path / "exp_47.yaml"
+    targets_path.write_text(
+        "ray_cluster: {hosts: [{name: lab-a, n_runners: 0}]}",
+        encoding="utf8",
+    )
+    hosts = [
+        {
+            "name": "lab-a",
+            "ray_node_ip": "10.0.0.1",
+            "project_dir": "/home/user/project",
+            "n_runners": 2,
+            "max_runners": 3,
+            "gpus": [0],
+        }
+    ]
+
+    assert RayCluster.load_runner_targets(str(targets_path), hosts) == {"lab-a": 0}
+
+
+def test_runner_targets_cannot_exceed_shared_cap_or_change_host_settings(tmp_path):
+    targets_path = tmp_path / "exp_47.yaml"
+    hosts = [
+        {
+            "name": "lab-a",
+            "ray_node_ip": "10.0.0.1",
+            "project_dir": "/home/user/project",
+            "n_runners": 2,
+            "max_runners": 3,
+            "gpus": [0],
+        }
+    ]
+    targets_path.write_text(
+        "ray_cluster: {hosts: [{name: lab-a, n_runners: 4}]}",
+        encoding="utf8",
+    )
+
+    with pytest.raises(ValueError, match="shared max_runners"):
+        RayCluster.load_runner_targets(str(targets_path), hosts)
+
+    targets_path.write_text(
+        "ray_cluster: {hosts: [{name: lab-a, n_runners: 2, max_runners: 5}]}",
+        encoding="utf8",
+    )
+    with pytest.raises(ValueError, match="only name and n_runners"):
+        RayCluster.load_runner_targets(str(targets_path), hosts)
+
+
 def test_load_lab_hosts_requires_absolute_project_path(tmp_path):
     config_path = tmp_path / "lab_hosts.yaml"
     config_path.write_text(
@@ -253,9 +335,7 @@ def test_command_queue_applies_live_runner_changes_and_preserves_failures(tmp_pa
 
     def write_config(n_runners):
         config_path.write_text(
-            "hosts: [{name: lab-a, ray_node_ip: 10.0.0.1, "
-            "project_dir: /home/user/project, "
-            f"n_runners: {n_runners}, max_runners: 3, gpus: [0, 2]}}]",
+            f"ray_cluster: {{hosts: [{{name: lab-a, n_runners: {n_runners}}}]}}",
             encoding="utf8",
         )
 
@@ -283,6 +363,7 @@ def test_command_queue_applies_live_runner_changes_and_preserves_failures(tmp_pa
         host_nodes,
         lambda host: f"node-for-{host['name']}",
         str(config_path),
+        cluster_config_path=str(config_path),
     )
 
     assert task.commands == [

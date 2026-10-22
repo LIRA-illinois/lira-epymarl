@@ -1,0 +1,8 @@
+ray_cluster:
+  hosts:
+    - name: jaye-pc
+      n_runners: 3
+    - name: ganymede
+      n_runners: 3
+    - name: titan
+      n_runners: 3

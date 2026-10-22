@@ -16,7 +16,7 @@ from argparse import Namespace
 from itertools import product
 from math import ceil
 from os import environ, getcwd, makedirs, walk
-from os.path import join
+from os.path import isfile, join
 from random import SystemRandom
 from typing import Any, Literal
 
@@ -136,6 +136,11 @@ class GridSearch(object):
                 ray_address=self.args.ray_address,
                 sync_wandb=self.args.sync_wandb,
                 open_ray_dashboard=self.args.open_ray_dashboard,
+                cluster_config_path=(
+                    join(self.exp_dir, "cluster_config.yaml")
+                    if isfile(join(self.exp_dir, "cluster_config.yaml"))
+                    else None
+                ),
             )
 
         if self.args.debug:
@@ -148,10 +153,9 @@ class GridSearch(object):
             self._print_exp_info(scenarios, run_setups, varied_params)
 
             if self.args.computer in Computers.cluster:
-                # get config for slurm job on cluster
-                slurm_config_path = join(self.exp_dir, "slurm_config.yaml")
-                with open(slurm_config_path, "r", encoding="utf8") as f:
-                    slurm_config: dict = yaml.safe_load(f)
+                cluster_config_path = join(self.exp_dir, "cluster_config.yaml")
+                with open(cluster_config_path, "r", encoding="utf8") as f:
+                    cluster_config: dict = yaml.safe_load(f)
 
                 cluster_log_dir: str = join(
                     "results",
@@ -160,6 +164,11 @@ class GridSearch(object):
                     time_id,
                 )
 
+                slurm_config = {
+                    key: value
+                    for key, value in cluster_config.items()
+                    if key != "ray_cluster"
+                }
                 slurm_config["experiment"] = self.args.experiment
                 slurm_config["cluster"] = self.args.computer
                 slurm_config["log_dir"] = cluster_log_dir
@@ -614,7 +623,7 @@ class GridSearch(object):
             "--lab_hosts_config",
             type=str,
             default="experiments/lab_hosts.yaml",
-            help="YAML host inventory used by --computer ray-cluster.",
+            help="Shared YAML host inventory and runner-capacity config for Ray.",
         )
         parser.add_argument(
             "--ray-address",

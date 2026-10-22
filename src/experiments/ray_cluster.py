@@ -121,6 +121,74 @@ class RayCluster:
         return hosts
 
     @staticmethod
+    def load_runner_targets(
+        cluster_config_path: str, hosts: list[dict]
+    ) -> dict[str, int] | None:
+        with open(cluster_config_path, "r", encoding="utf8") as f:
+            config = yaml.safe_load(f)
+
+        if not isinstance(config, dict):
+            raise TypeError(f"{cluster_config_path} must contain a YAML mapping")
+        ray_config = config.get("ray_cluster")
+        if ray_config is None:
+            return None
+        if not isinstance(ray_config, dict):
+            raise TypeError("ray_cluster in cluster config must be a mapping")
+
+        configured_hosts = ray_config.get("hosts")
+        if not isinstance(configured_hosts, list) or not configured_hosts:
+            raise ValueError(
+                f"{cluster_config_path} ray_cluster section must contain a "
+                "non-empty hosts list"
+            )
+
+        capacities = {host["name"]: host["max_runners"] for host in hosts}
+        targets = {}
+        for host in configured_hosts:
+            if not isinstance(host, dict):
+                raise TypeError("Each runner target must be a mapping")
+            if set(host) != {"name", "n_runners"}:
+                raise ValueError(
+                    "Runner target entries may contain only name and n_runners"
+                )
+
+            name = host["name"]
+            if not isinstance(name, str) or name not in capacities:
+                raise ValueError(f"Unknown lab host in runner targets: {name}")
+            if name in targets:
+                raise ValueError(f"Duplicate lab host in runner targets: {name}")
+
+            n_runners = host["n_runners"]
+            if (
+                not isinstance(n_runners, int)
+                or isinstance(n_runners, bool)
+                or n_runners < 0
+            ):
+                raise ValueError(f"n_runners for lab host {name} must be non-negative")
+            if n_runners > capacities[name]:
+                raise ValueError(
+                    f"{name} requests {n_runners} runners, exceeding its "
+                    f"shared max_runners of {capacities[name]}"
+                )
+            targets[name] = n_runners
+
+        missing_hosts = set(capacities) - set(targets)
+        if missing_hosts:
+            raise ValueError(
+                "Runner targets are missing configured lab hosts: "
+                + ", ".join(sorted(missing_hosts))
+            )
+        return targets
+
+    @staticmethod
+    def _apply_runner_targets(hosts: list[dict], cluster_config_path: str) -> None:
+        targets = RayCluster.load_runner_targets(cluster_config_path, hosts)
+        if targets is None:
+            return
+        for host in hosts:
+            host["n_runners"] = targets[host["name"]]
+
+    @staticmethod
     def _set_default_max_runners(hosts: list[dict]) -> None:
         for host in hosts:
             host.setdefault("max_runners", host["n_runners"])
@@ -242,6 +310,7 @@ class RayCluster:
         node_strategy,
         config_path: str,
         poll_interval: float = _RUNNER_CONFIG_POLL_INTERVAL_SECONDS,
+        cluster_config_path: str | None = None,
     ) -> list[str]:
         if poll_interval <= 0:
             raise ValueError("Runner config poll interval must be positive")
@@ -256,44 +325,55 @@ class RayCluster:
         def refresh_runner_targets() -> bool:
             nonlocal last_config_error
             try:
-                configured_hosts = RayCluster.load_lab_hosts(config_path)
-                if len(configured_hosts) != len(hosts):
-                    raise ValueError(
-                        "The configured host list cannot change while a search is running"
-                    )
+                configured_targets = (
+                    RayCluster.load_runner_targets(cluster_config_path, hosts)
+                    if cluster_config_path is not None
+                    else None
+                )
+                if configured_targets is None:
+                    configured_hosts = RayCluster.load_lab_hosts(config_path)
+                    if len(configured_hosts) != len(hosts):
+                        raise ValueError(
+                            "The configured host list cannot change while a search is running"
+                        )
 
-                for host, configured_host in zip(hosts, configured_hosts):
-                    current_settings = {
-                        key: value
-                        for key, value in host.items()
-                        if key not in {"n_runners", "max_runners"}
-                    }
-                    configured_settings = {
-                        key: value
-                        for key, value in configured_host.items()
-                        if key not in {"n_runners", "max_runners"}
-                    }
-                    if current_settings != configured_settings:
-                        raise ValueError(
-                            "Only n_runners may change while a search is running"
+                    configured_targets = {}
+                    for host, configured_host in zip(hosts, configured_hosts):
+                        current_settings = {
+                            key: value
+                            for key, value in host.items()
+                            if key not in {"n_runners", "max_runners"}
+                        }
+                        configured_settings = {
+                            key: value
+                            for key, value in configured_host.items()
+                            if key not in {"n_runners", "max_runners"}
+                        }
+                        if current_settings != configured_settings:
+                            raise ValueError(
+                                "Only n_runners may change while a search is running"
+                            )
+                        configured_max_runners = configured_host.get(
+                            "max_runners", host["max_runners"]
                         )
-                    configured_max_runners = configured_host.get(
-                        "max_runners", host["max_runners"]
-                    )
-                    if configured_max_runners != host["max_runners"]:
+                        if configured_max_runners != host["max_runners"]:
+                            raise ValueError(
+                                "max_runners cannot change while a search is running"
+                            )
+                        configured_targets[host["name"]] = configured_host["n_runners"]
+
+                for host in hosts:
+                    target = configured_targets[host["name"]]
+                    if target > host["max_runners"]:
                         raise ValueError(
-                            "max_runners cannot change while a search is running"
-                        )
-                    if configured_host["n_runners"] > host["max_runners"]:
-                        raise ValueError(
-                            f"{host['name']} requests {configured_host['n_runners']} "
+                            f"{host['name']} requests {target} "
                             f"runners, exceeding its max_runners of "
                             f"{host['max_runners']}"
                         )
                     cpu_capacity = host_nodes[host["name"]]["Resources"].get("CPU", 0)
-                    if configured_host["n_runners"] > cpu_capacity:
+                    if target > cpu_capacity:
                         raise ValueError(
-                            f"{host['name']} requests {configured_host['n_runners']} "
+                            f"{host['name']} requests {target} "
                             f"runners but its Ray node advertises "
                             f"{cpu_capacity:g} CPUs"
                         )
@@ -309,9 +389,9 @@ class RayCluster:
 
             last_config_error = None
             changed = False
-            for host, configured_host in zip(hosts, configured_hosts):
+            for host in hosts:
                 old_target = host["n_runners"]
-                new_target = configured_host["n_runners"]
+                new_target = configured_targets[host["name"]]
                 if old_target != new_target:
                     host["n_runners"] = new_target
                     changed = True
@@ -529,10 +609,14 @@ class RayCluster:
         ray_address: str,
         sync_wandb: bool = True,
         open_ray_dashboard: bool = False,
+        cluster_config_path: str | None = None,
     ) -> None:
         self.config_path = config_path
+        self.cluster_config_path = cluster_config_path
         self.hosts = self.load_lab_hosts(config_path)
         self._set_default_max_runners(self.hosts)
+        if cluster_config_path is not None:
+            self._apply_runner_targets(self.hosts, cluster_config_path)
         self.ray_address = ray_address
         self.sync_wandb = sync_wandb
         self.open_ray_dashboard = open_ray_dashboard
@@ -540,6 +624,8 @@ class RayCluster:
     def run(self, commands) -> None:
         self.hosts = self.load_lab_hosts(self.config_path)
         self._set_default_max_runners(self.hosts)
+        if self.cluster_config_path is not None:
+            self._apply_runner_targets(self.hosts, self.cluster_config_path)
         command_queue = deque(str(command) for command in commands)
         with self._ray_session(self.ray_address) as (
             ray,
@@ -621,6 +707,7 @@ class RayCluster:
                 host_nodes,
                 node_strategy,
                 self.config_path,
+                cluster_config_path=self.cluster_config_path,
             )
 
             if self.sync_wandb:
