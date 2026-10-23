@@ -107,7 +107,8 @@ parameters:
   env_args.reward_config.simultaneous_goal_reward_type:
     values: [per_step_arrival_group_size]
   env_args.team_delay_prob:
-    values: [0.05, 0.1]
+    values: [0.1]
+    # values: [0.05, 0.1]
   env_args.n_agents_delay:
     values: [1]
 

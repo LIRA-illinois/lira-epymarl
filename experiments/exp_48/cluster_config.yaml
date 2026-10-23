@@ -5,4 +5,4 @@ ray_cluster:
     - name: ganymede
       n_runners: 5
     - name: titan
-      n_runners: 4
+      n_runners: 8

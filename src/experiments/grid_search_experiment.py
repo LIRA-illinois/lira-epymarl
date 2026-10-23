@@ -10,6 +10,7 @@ be stopped 1 at a time.
 
 import argparse
 import datetime
+import json
 import shlex
 import subprocess
 from argparse import Namespace
@@ -645,6 +646,11 @@ class GridSearch(object):
             help="Do not sync newly created offline W&B runs after Ray cluster jobs finish.",
         )
         parser.add_argument(
+            "--print-scenarios",
+            action="store_true",
+            help="Print the full scenario table in the terminal.",
+        )
+        parser.add_argument(
             "-d",
             "--debug",
             action="store_true",
@@ -658,76 +664,114 @@ class GridSearch(object):
         run_setups: pd.DataFrame,
         parameters_to_print: list[str],
     ) -> None:
-        """print experiment summary in a markdown-formatted table"""
-        spaces = " " * 4
-        n_scenarios = run_setups.scenario.nunique()
-        seeds = run_setups.seed.unique()
+        """Print a compact summary and save an Obsidian note."""
+        scenario_ids = run_setups["scenario"].drop_duplicates().tolist()
+        seeds = [int(seed) for seed in run_setups["seed"].drop_duplicates()]
+        time_id = str(run_setups["time_id"].iloc[0])
+        date_token = next(
+            (
+                part
+                for part in time_id.split("_")
+                if len(part) == 8 and part[2] == "-" and part[5] == "-"
+            ),
+            None,
+        )
+        run_date = (
+            datetime.datetime.strptime(date_token, "%y-%m-%d").strftime("%Y-%m-%d")
+            if date_token
+            else time_id
+        )
+        n_scenarios = len(scenarios)
         n_seeds = len(seeds)
-        time_id = run_setups.time_id[0]
+        n_runs = len(run_setups)
 
-        n_runs = n_scenarios * n_seeds
-        # n_cols = 3 + len(parameters_to_print)
-        param_string = ""
-        for i in parameters_to_print:
-            param_string += f" {i} |"
+        summary_path = join(self.job_dir, f"summary_{time_id}.md")
 
-        table_header = (
-            f"| Scen | Alg | Env | Map | {param_string}"
-            + f"\n|----| ---- | ---- | ---- | {'---- |' * len(parameters_to_print)}"
-        )
-        print(table_header)
+        sweep_summary = []
+        for parameter in parameters_to_print:
+            values = []
+            seen_values = set()
+            for params in scenarios:
+                rendered = json.dumps(params.get(parameter, "-"), default=str)
+                if rendered not in seen_values:
+                    seen_values.add(rendered)
+                    values.append(rendered)
+            display_values = ", ".join(values[:8])
+            if len(values) > 8:
+                display_values += f", ... ({len(values)} values)"
+            sweep_summary.append((parameter, display_values))
 
-        for scenario_idx, params in enumerate(scenarios):
-            # print params to markdown table
-            other_params = ""
-
-            if parameters_to_print is not None:
-                for parameter in parameters_to_print:
-                    other_params += f" {params.get(parameter, '-')} |"
-            else:
-                no_print_params: list[str] = [
-                    "cmd",
-                    "wandb_project",
-                    "wandb_mode",
-                    "wandb_save_model",
-                    "wandb_save_test_replays",
-                    "use_wandb",
-                    "save_model",
-                    "save_model_interval",
-                    "save_test_replays",
-                    "use_sacred",
-                    "save_replay_buffer",
-                    "delete_local_models",
-                    "live_render",
-                    "save_model_interval",
-                    "runner_log_interval",
-                    "n_test_replays_save",
-                ]
-
-                for k, v in params.items():
-                    if k not in self.basic_config_params + no_print_params:
-                        other_params += f"{k}={v} "
-
-            table_line = (
-                f"| {run_setups.scenario[scenario_idx * n_seeds]} | "
-                f"{params['config']} | {params['env-config']} | "
-                f"{params.get('env_args.map_name', '-')} | {other_params}"
+        note_lines = [
+            f"## {run_date} - {self.args.experiment}",
+            "",
+            "### Experiment outline",
+            "",
+            "- Experiment purpose: [fill in]",
+            "",
+            "- Copy the param table + seeds printed by grid_search_experiment.py",
+            f"  - **Run ID:** `{time_id}`",
+            f"  - **Computer:** {self.args.computer}",
+            f"  - **Scenarios:** {n_scenarios}",
+            f"  - **Seeds:** {', '.join(map(str, seeds))}",
+            f"  - **Total runs:** {n_runs}",
+            "",
+            "| Parameter | Values |",
+            "|---|---|",
+        ]
+        if sweep_summary:
+            note_lines.extend(
+                f"| `{parameter}` | {values} |" for parameter, values in sweep_summary
             )
-            print(table_line)
-
-        print(f"\n- Experiment summary ({self.args.computer} computer)")
-        print(
-            f"{spaces}- {n_scenarios} scenarios, {n_seeds} seeds per scenario, {n_runs} total runs"
+        else:
+            note_lines.append("| No scenario parameters varied. | |")
+        note_lines.extend(
+            [
+                "",
+                "#### Experiment running checklist",
+                "",
+                "- Give this experiment a unique name",
+                "- Fill out LIRA lab computer schedule for used resources",
+                "",
+                "- [LIRA lab computer schedule](https://docs.google.com/spreadsheets/d/1MwynWJxu7eEhMX8H99Uam99t2Vd3qkCR0O3_40rfrR8/edit?gid=0#gid=0)",
+                "- Code cleanup + computer setup",
+                "",
+                "- Make sure all trace() functions are deleted or commented out in your code",
+                "- Try manually running a single command from the experiment text file to make sure everything is working",
+                "- Push the code to git w/ exp name in the message",
+                "",
+                "- so you can find the exact code used to run this experiment later if needed",
+                "- Kick off experiment",
+                "",
+                "### Results",
+                "",
+                "- Wandb report link (if analyzed online)",
+                "- Basic summary of results including observations, data supporting those observations, questions those observations bring up, and any notes on follow-up experiments",
+                "",
+                "- Common things to include are training curves, gifs of agent performance, and other plots you may make with your experiment analysis code",
+                "",
+                "### TODOs for future experiments",
+            ]
         )
+        with open(summary_path, "w", encoding="utf8") as summary_file:
+            summary_file.write("\n".join(note_lines) + "\n")
 
-        print(f"{spaces}- Seeds: {seeds}\n{spaces}- time_id: {time_id}\n")
+        print(f"Experiment {self.args.experiment} ({self.args.computer})")
+        print(f"- Run ID: {time_id}")
+        print(f"- {n_scenarios} scenarios x {n_seeds} seeds = {n_runs} runs")
+        print(f"- Seeds: {', '.join(map(str, seeds))}")
+        if sweep_summary:
+            print("- Sweep:")
+            for parameter, values in sweep_summary:
+                print(f"    {parameter}: {values}")
+        print(f"- Obsidian summary: {summary_path}")
 
-        print("")
+        if getattr(self.args, "print_scenarios", False):
+            self._print_scenario_table(scenarios, scenario_ids, parameters_to_print)
 
         if self.args.computer in ["lab", "ray-cluster"]:
             if self.args.computer == "lab":
                 print(
-                    f"Using {self.args.n_runners} parallel runners with a max of {ceil(n_runs / self.args.n_runners)} sequential runs per runner"
+                    f"- Using {self.args.n_runners} parallel runners with a max of {ceil(n_runs / self.args.n_runners)} sequential runs per runner"
                 )
             else:
                 print("Ray cluster runners:")
@@ -735,7 +779,7 @@ class GridSearch(object):
                     raise RuntimeError("Ray cluster was not initialized")
                 for host in self.ray_cluster.hosts:
                     print(
-                        f"{spaces}- {host['name']}: {host['n_runners']} runners, "
+                        f"- {host['name']}: {host['n_runners']} runners, "
                         f"GPUs {host['gpus']}"
                     )
 
@@ -744,6 +788,25 @@ class GridSearch(object):
             with open(save_path, "w", encoding="utf8") as f:
                 for cmd in run_setups.cmd:
                     f.write(f"{cmd}\n")
+
+    def _print_scenario_table(
+        self,
+        scenarios: list[dict],
+        scenario_ids: list[str],
+        parameters_to_print: list[str],
+    ) -> None:
+        columns = ["Scenario", "Algorithm", "Environment", "Map", *parameters_to_print]
+        print("\n" + " | ".join(columns))
+        print(" | ".join("---" for _ in columns))
+        for scenario_id, params in zip(scenario_ids, scenarios, strict=True):
+            values = [
+                scenario_id,
+                str(params.get("config", "-")),
+                str(params.get("env-config", "-")),
+                str(params.get("env_args.map_name", "-")),
+                *(str(params.get(parameter, "-")) for parameter in parameters_to_print),
+            ]
+            print(" | ".join(values))
 
     def _print_hardware_info(self) -> None:
         import psutil
