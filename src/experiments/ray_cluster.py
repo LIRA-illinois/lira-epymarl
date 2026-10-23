@@ -514,6 +514,47 @@ class RayCluster:
         return outcomes
 
     @staticmethod
+    def _offline_run_dirs(project_dir: str) -> list[str]:
+        wandb_dir = join(project_dir, "results", "wandb")
+        if not os.path.isdir(wandb_dir):
+            return []
+
+        return sorted(
+            join(wandb_dir, name)
+            for name in os.listdir(wandb_dir)
+            if name.startswith("offline-run-")
+            and os.path.isdir(join(wandb_dir, name))
+        )
+
+    @staticmethod
+    def _sync_offline_run(project_dir: str, run_dir: str) -> dict:
+        expected_wandb_dir = os.path.realpath(join(project_dir, "results", "wandb"))
+        if (
+            os.path.dirname(os.path.realpath(run_dir)) != expected_wandb_dir
+            or not os.path.basename(run_dir).startswith("offline-run-")
+        ):
+            return {
+                "run_dir": run_dir,
+                "returncode": 1,
+                "output": "Refusing to sync a path outside the offline W&B run folders",
+            }
+        try:
+            result = subprocess.run(
+                [join(project_dir, ".venv", "bin", "wandb"), "sync", run_dir],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as error:
+            return {"run_dir": run_dir, "returncode": 1, "output": str(error)}
+        return {
+            "run_dir": run_dir,
+            "returncode": result.returncode,
+            "output": result.stdout + result.stderr,
+        }
+
+    @staticmethod
     def _update_checkout(project_dir: str) -> dict:
         setup_lines = [
             "set -euo pipefail",
@@ -602,6 +643,137 @@ class RayCluster:
 
             if failures:
                 raise RuntimeError("Update failed on: " + ", ".join(failures))
+
+    @classmethod
+    def sync_offline_wandb_runs(
+        cls,
+        config_path: str,
+        ray_address: str,
+        selected_hosts: list[str] | None = None,
+        dry_run: bool = False,
+        parallelism: int = 5,
+    ) -> None:
+        if parallelism <= 0:
+            raise ValueError("W&B sync parallelism must be positive")
+        hosts = cls.load_lab_hosts(config_path)
+        if selected_hosts:
+            configured_names = {host["name"] for host in hosts}
+            unknown_hosts = set(selected_hosts) - configured_names
+            if unknown_hosts:
+                raise ValueError(
+                    "Unknown lab computers: " + ", ".join(sorted(unknown_hosts))
+                )
+            hosts = [host for host in hosts if host["name"] in selected_hosts]
+
+        with cls._ray_session(ray_address) as (
+            ray,
+            _,
+            NodeAffinitySchedulingStrategy,
+        ):
+            nodes_by_ip = {}
+            for node in ray.nodes():
+                if node.get("Alive"):
+                    nodes_by_ip.setdefault(node["NodeManagerAddress"], []).append(node)
+
+            running_hosts = []
+            for host in hosts:
+                matching_nodes = nodes_by_ip.get(host["ray_node_ip"], [])
+                if not matching_nodes:
+                    print(
+                        f"[{host['name']}] skipped: no live Ray node at "
+                        f"{host['ray_node_ip']}"
+                    )
+                    continue
+                if len(matching_nodes) != 1:
+                    raise RuntimeError(
+                        f"Expected one live Ray node at {host['ray_node_ip']} for "
+                        f"{host['name']}, found {len(matching_nodes)}"
+                    )
+                running_hosts.append((host, matching_nodes[0]))
+
+            if not running_hosts:
+                raise RuntimeError(
+                    "No selected lab computers are currently live in Ray"
+                )
+
+            list_task = ray.remote(_offline_run_dirs)
+            run_directories = {}
+            for host, node in running_hosts:
+                reference = list_task.options(
+                    num_cpus=0,
+                    scheduling_strategy=NodeAffinitySchedulingStrategy(
+                        node_id=node["NodeID"],
+                        soft=False,
+                    ),
+                ).remote(host["project_dir"])
+                try:
+                    run_directories[host["name"]] = ray.get(reference)
+                except ray.exceptions.RayError as error:
+                    raise RuntimeError(
+                        f"[{host['name']}] could not list offline W&B runs: {error}"
+                    ) from error
+
+            failures = []
+            pending_runs = [
+                (host, node, run_dir)
+                for host, node in running_hosts
+                for run_dir in run_directories[host["name"]]
+            ]
+            if dry_run:
+                for host, _, run_dir in pending_runs:
+                    print(f"[{host['name']}] would sync {run_dir}")
+                if not pending_runs:
+                    print("No offline W&B runs found")
+                return
+
+            if not pending_runs:
+                print("No offline W&B runs found")
+                return
+
+            sync_task = ray.remote(_sync_offline_run)
+            for start in range(0, len(pending_runs), parallelism):
+                batch = pending_runs[start : start + parallelism]
+                references = [
+                    sync_task.options(
+                        num_cpus=0,
+                        scheduling_strategy=NodeAffinitySchedulingStrategy(
+                            node_id=node["NodeID"],
+                            soft=False,
+                        ),
+                    ).remote(host["project_dir"], run_dir)
+                    for host, node, run_dir in batch
+                ]
+                outcomes = []
+                for (host, _, run_dir), reference in zip(batch, references):
+                    try:
+                        outcomes.append((host, ray.get(reference)))
+                    except ray.exceptions.RayError as error:
+                        failures.append(host["name"])
+                        print(
+                            f"[{host['name']}] W&B sync task failed for "
+                            f"{run_dir}: {error}"
+                        )
+                for host, outcome in outcomes:
+                    output = outcome["output"].strip()
+                    if outcome["returncode"]:
+                        failures.append(host["name"])
+                        print(
+                            f"[{host['name']}] sync failed for "
+                            f"{outcome['run_dir']}:\n{output}"
+                        )
+                    else:
+                        print(f"[{host['name']}] synced {outcome['run_dir']}")
+                        if output:
+                            print(output)
+
+            for host, _ in running_hosts:
+                if not run_directories[host["name"]]:
+                    print(f"[{host['name']}] no offline W&B runs found")
+
+            if failures:
+                raise RuntimeError(
+                    "W&B sync failed on: " + ", ".join(sorted(set(failures)))
+                )
 
     def __init__(
         self,
@@ -791,3 +963,11 @@ def _run_queue(project_dir: str, gpu: int | None, commands: list[str]) -> list[d
 
 def _sync_node(project_dir: str, baseline_runs: list[str]) -> list[dict]:
     return RayCluster._sync_node(project_dir, baseline_runs)
+
+
+def _offline_run_dirs(project_dir: str) -> list[str]:
+    return RayCluster._offline_run_dirs(project_dir)
+
+
+def _sync_offline_run(project_dir: str, run_dir: str) -> dict:
+    return RayCluster._sync_offline_run(project_dir, run_dir)

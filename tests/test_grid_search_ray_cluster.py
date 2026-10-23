@@ -509,6 +509,56 @@ def test_wandb_sync_only_selects_new_run_folders(tmp_path, monkeypatch):
     assert outcomes[0]["returncode"] == 0
 
 
+def test_manual_wandb_sync_selects_only_offline_runs(tmp_path, monkeypatch):
+    wandb_dir = tmp_path / "results" / "wandb"
+    (wandb_dir / "offline-run-finished").mkdir(parents=True)
+    (wandb_dir / "offline-run-another").mkdir()
+    (wandb_dir / "run-online").mkdir()
+    sync_calls = []
+
+    def fake_run(command, cwd, capture_output, text, check):
+        sync_calls.append(command[-1])
+        return type("Completed", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
+
+    monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fake_run)
+
+    offline_runs = RayCluster._offline_run_dirs(str(tmp_path))
+    outcomes = [
+        RayCluster._sync_offline_run(str(tmp_path), run_dir)
+        for run_dir in offline_runs
+    ]
+
+    assert sync_calls == [
+        str(wandb_dir / "offline-run-another"),
+        str(wandb_dir / "offline-run-finished"),
+    ]
+    assert all(outcome["returncode"] == 0 for outcome in outcomes)
+
+
+def test_manual_wandb_sync_dry_run_does_not_upload(tmp_path, monkeypatch):
+    wandb_dir = tmp_path / "results" / "wandb"
+    (wandb_dir / "offline-run-finished").mkdir(parents=True)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("dry run must not invoke wandb sync")
+
+    monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fail_if_called)
+
+    offline_runs = RayCluster._offline_run_dirs(str(tmp_path))
+
+    assert offline_runs == [str(wandb_dir / "offline-run-finished")]
+
+
+def test_manual_wandb_sync_rejects_non_offline_paths(tmp_path):
+    outcome = RayCluster._sync_offline_run(
+        str(tmp_path),
+        str(tmp_path / "results" / "wandb" / "run-online"),
+    )
+
+    assert outcome["returncode"] == 1
+    assert "Refusing to sync" in outcome["output"]
+
+
 def test_dashboard_opens_when_requested(monkeypatch):
     opened_urls = []
     monkeypatch.setattr(

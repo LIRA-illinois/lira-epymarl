@@ -499,6 +499,16 @@ python src/experiments/grid_search_experiment.py -e exp_46 --computer ray-cluste
 
 To fast-forward the checkouts on currently live configured cluster nodes without starting an experiment, run `python src/experiments/ray_nodes_git_update.py`. It uses the same host inventory and Ray cluster, skips offline hosts, refuses tracked local edits, and does not reset or clean repositories; untracked and ignored result files are left alone.
 
+To manually upload offline W&B runs from configured computers currently connected
+to Ray, run `python -m src.experiments.ray_wandb_sync`. It executes `wandb sync`
+on each selected computer, so each must have W&B installed and authenticated.
+Run `python -m src.experiments.ray_wandb_sync --dry-run` to list matching
+`offline-run-*` folders first, or add `--host titan` (repeatable) to target
+specific computers. Uploads run in parallel, with a cluster-wide limit of five
+at a time by default; use `--parallelism 2` to reduce it. This uploads directly
+from the computers to W&B; it does not copy run files between computers. Finish
+the runs before syncing them.
+
 Generated commands remain in one queue on each driver/head and are dispatched round-robin to any configured host with an open per-experiment runner slot. Each experiment's `n_runners` controls how much work that experiment submits. The shared `max_runners` memory reservations are enforced by Ray's node resource accounting across concurrent experiments; submitted tasks that exceed currently available resources wait in Ray rather than running above the cap. While a grid search is running, change `n_runners` under `ray_cluster.hosts` in that experiment's `cluster_config.yaml`; the scheduler checks it every five seconds. Lowering the target does not cancel submitted tasks; it stops replenishing that experiment's host slots until its in-flight task count is below the new target. Raising it allows that experiment to submit more work, up to the shared cap. The driver logs in-flight counts per host and the number of commands still queued. Host identity, project paths, GPU settings, and `max_runners` are fixed for a run. Do not change shared capacity settings while experiments are active, and do not use different `lab_hosts.yaml` capacity values for concurrent experiments, or their per-task reservations will no longer represent one shared cap. Invalid live target updates are reported and the last valid limits remain in effect. Memory reservations are scheduling hints, not hard process limits, so a command can still trigger the node's OOM killer. A failed or OOM-killed task is reported as a failed command; the remaining commands continue, and W&B syncing is still attempted. GPU IDs are assigned round-robin per host by each experiment; set `gpus: []` for a CPU-only host. With W&B enabled, Ray sync tasks run on each host after all its command tasks finish and upload only new offline run folders. Authenticate W&B on every host beforehand with `wandb login`; use `--no-wandb-sync` to disable automatic syncing. Pass `--ray-dashboard` to open the connected cluster's dashboard once run tasks have been submitted.
 
 # Logging

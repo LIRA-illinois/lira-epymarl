@@ -1,5 +1,7 @@
 import copy
 from collections import defaultdict
+from math import prod
+from numbers import Integral
 from typing import Literal, cast
 
 import pandas as pd
@@ -18,6 +20,16 @@ class MAICLearner:
         self.logger = logger
 
         self.params = list(mac.parameters())
+        policy_context_shape = scheme.get("policy_context", {}).get("vshape")
+        self.policy_context_dim = (
+            0
+            if policy_context_shape is None
+            else (
+                int(policy_context_shape)
+                if isinstance(policy_context_shape, Integral)
+                else int(prod(policy_context_shape))
+            )
+        )
 
         self.last_target_update_t_env = 0
         episode_limit = getattr(args, "episode_limit", None)
@@ -30,7 +42,9 @@ class MAICLearner:
             if args.mixer == "vdn":
                 self.mixer = VDNMixer()
             elif args.mixer == "qmix":
-                self.mixer = QMixer(args)
+                self.mixer = QMixer(
+                    args, additional_state_dim=self.policy_context_dim
+                )
             else:
                 raise ValueError("Mixer {} not recognised.".format(args.mixer))
             self.params += list(self.mixer.parameters())
@@ -140,6 +154,15 @@ class MAICLearner:
 
         return mac_out, aux_losses, agent_logs
 
+    def _get_mixer_states(self, batch: EpisodeBatch, time_slice: slice) -> th.Tensor:
+        states = batch["state"][:, time_slice]
+        if self.policy_context_dim == 0:
+            return states
+
+        states = states.reshape(*states.shape[:2], -1)
+        policy_context = batch["policy_context"][:, time_slice]
+        return th.cat((states, policy_context), dim=-1)
+
     def _compute_q_learning_loss(
         self,
         mac_out: th.Tensor,
@@ -189,13 +212,13 @@ class MAICLearner:
 
             if self.mixer is not None:
                 target_mac_max_qvals = self.target_mixer(
-                    target_mac_max_qvals, batch["state"][:, 1:]
+                    target_mac_max_qvals, self._get_mixer_states(batch, slice(1, None))
                 )
 
         # Mix
         if self.mixer is not None:
             chosen_action_qvals = self.mixer(
-                chosen_action_qvals, batch["state"][:, :-1]
+                chosen_action_qvals, self._get_mixer_states(batch, slice(None, -1))
             )
 
         # Calculate 1-step Q-Learning targets

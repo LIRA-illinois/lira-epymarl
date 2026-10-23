@@ -1,8 +1,8 @@
 ray_cluster:
   hosts:
     - name: jaye-pc
-      n_runners: 7
+      n_runners: 8
     - name: ganymede
-      n_runners: 9
+      n_runners: 5
     - name: titan
-      n_runners: 3
+      n_runners: 4

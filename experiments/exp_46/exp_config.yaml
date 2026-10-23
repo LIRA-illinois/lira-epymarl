@@ -120,7 +120,7 @@ parameters:
             ]
     env_args.hierarchical:
         values: [True]
-    # Train each directed subtask as an independent low-level scenario.
+    # Train each directed subtask as an independent  low-level scenario.
     hl_task:
         values: [[0 1], [1 3]]
     env_args.terminate_on_task_completed:

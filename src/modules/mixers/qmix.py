@@ -5,12 +5,12 @@ import torch.nn.functional as F
 
 
 class QMixer(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, additional_state_dim: int = 0):
         super(QMixer, self).__init__()
 
         self.args = args
         self.n_agents = args.n_agents
-        self.state_dim = int(np.prod(args.state_shape))
+        self.state_dim = int(np.prod(args.state_shape)) + additional_state_dim
 
         self.embed_dim = args.mixing_embed_dim
 
