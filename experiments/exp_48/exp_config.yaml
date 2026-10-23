@@ -75,7 +75,7 @@ parameters:
   policy_mode:
     values: [conditioned_shared, independent_reference]
   hidden_dim:
-    values: [32, 64, 128]
+    values: [32, 64]
 
   # # post_processing for after the run is done
   # post_processing:
@@ -143,6 +143,3 @@ conditional_parameters:
     64:
       nn_hidden_size:
         values: [64]
-    128:
-      nn_hidden_size:
-        values: [128]
