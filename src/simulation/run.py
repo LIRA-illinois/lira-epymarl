@@ -1,5 +1,6 @@
 import ast
 import datetime
+import json
 import multiprocessing as mp
 import threading
 import time
@@ -9,6 +10,7 @@ from os import listdir, makedirs, walk
 from os.path import abspath, isdir, join, splitext
 from shutil import rmtree
 from statistics import NormalDist
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace as SN
 from typing import Optional
 
@@ -21,6 +23,14 @@ from matplotlib.patches import FancyArrowPatch
 import wandb
 from src.modules.agents.ilp_model import ILPModel, InfeasiblePolicyError
 from src.simulation.build import build_sim
+from src.simulation.context_utils import (
+    aggregate_eval_context_rows,
+    context_columns,
+    context_sample_count_label,
+    evaluation_context_label,
+    plot_combined_context_evaluation,
+    plot_context_evaluation,
+)
 from src.simulation.dependent_subtasks import DependentSubtaskTrainingMixin
 from src.simulation.evaluate import (
     run_eval_episodes,
@@ -103,6 +113,7 @@ class Simulation(DependentSubtaskTrainingMixin):
                 ignored_config_keys = {
                     "_wandb",
                     "msg_budget_per_agent",
+                    "hl_task",
                     "scenario",
                     "seed",
                     "config",
@@ -129,6 +140,7 @@ class Simulation(DependentSubtaskTrainingMixin):
                 group_runs_by_seed = {}
                 scenario_runs = {}
                 scenario_runs_by_seed = {}
+                scenario_has_hl_task = {}
                 expected_tasks_by_map = {}
                 expected_task_budgets_by_map_seed = {}
                 expected_seeds_by_map = {}
@@ -151,10 +163,11 @@ class Simulation(DependentSubtaskTrainingMixin):
                             for key, value in run.config.items()
                             if key not in ignored_config_keys
                         )
-                    )
+                    ) + (("_has_hl_task", str(run.config.get("hl_task") is not None)),)
                     scenario_groups[scenario] = group_key
                     hl_task = run.config.get("hl_task")
                     group_has_hl_task[group_key] = hl_task is not None
+                    scenario_has_hl_task[scenario] = hl_task is not None
                     scenario_runs[scenario] = run
                     scenario_runs_by_seed[(scenario, seed)] = run
                     group_runs.setdefault(group_key, run)
@@ -179,10 +192,8 @@ class Simulation(DependentSubtaskTrainingMixin):
                 df_data["map_name"] = df_data["map_name"].fillna("unknown_map")
                 df_data = df_data.loc[df_data["scenario_group"].notna()]
                 df_data["aggregation_seed"] = [
-                    seed if group_has_hl_task[group_key] else -1
-                    for group_key, seed in zip(
-                        df_data["scenario_group"], df_data["seed"]
-                    )
+                    seed if scenario_has_hl_task[int(scenario)] else -1
+                    for scenario, seed in zip(df_data["scenario"], df_data["seed"])
                 ]
 
                 incomplete_map_seeds = set()
@@ -245,7 +256,7 @@ class Simulation(DependentSubtaskTrainingMixin):
                 postprocess_runs = [
                     run
                     for run in api.runs(
-                        self.args.wandb_project,
+                        self._wandb_project_path(api, self.args.wandb_project),
                         filters={"config.time_id": self.args.time_id},
                     )
                     if (getattr(run, "name", "") or "") in {postprocess_name}
@@ -301,21 +312,17 @@ class Simulation(DependentSubtaskTrainingMixin):
                 combined_source_runs_by_map = {}
                 source_runs_by_map = {}
                 policy_eval_data_by_map = {}
+                plot_group_ids = {}
                 for group_idx, ((group_key, aggregation_seed), df_group) in enumerate(
                     df_data.groupby(["scenario_group", "aggregation_seed"], sort=True),
                     start=1,
                 ):
                     seed = None if aggregation_seed == -1 else int(aggregation_seed)
                     group_columns = [
-                        "msg_budget_per_agent",
                         "t_env_rounded",
+                        *context_columns(df_group),
                     ]
-                    df_avg = (
-                        df_group
-                        .groupby(group_columns, dropna=False)
-                        .mean(numeric_only=True)
-                        .reset_index()
-                    )
+                    df_avg = aggregate_eval_context_rows(df_group, group_columns)
                     df_avg["t_env"] = df_avg["t_env_rounded"]
 
                     n_seeds_per_run = df_group[
@@ -340,6 +347,12 @@ class Simulation(DependentSubtaskTrainingMixin):
                     )
                     if group_source_run is None:
                         continue
+                    plot_group_key = tuple(
+                        (key, value) for key, value in group_key if key != "hl_task"
+                    )
+                    plot_group_ids.setdefault(
+                        plot_group_key, len(plot_group_ids) + 1
+                    )
                     map_name = self._map_name_from_config(group_source_run.config)
                     map_name = map_name or "unknown_map"
                     hl_task = group_source_run.config.get("hl_task")
@@ -359,14 +372,9 @@ class Simulation(DependentSubtaskTrainingMixin):
                     plot_group = f"map_{map_name}_{plot_group}"
                     if seed is not None:
                         plot_group = f"map_{map_name}_seed_{seed}_{plot_group}"
-                    map_seed = (map_name, seed)
-                    combined_groups_by_map.setdefault(map_seed, []).append((
-                        f"task {hl_task_label or group_idx}",
-                        df_avg.copy(),
-                        hl_task,
-                    ))
+                    map_group = (map_name, seed, plot_group_key)
                     if hl_task is not None:
-                        policy_eval_data_by_map.setdefault(map_seed, []).append(
+                        policy_eval_data_by_map.setdefault(map_group, []).append(
                             df_group.copy()
                         )
                     source_runs_by_budget = {}
@@ -382,10 +390,55 @@ class Simulation(DependentSubtaskTrainingMixin):
                             scenario_run.config.get("msg_budget_per_agent")
                         ):
                             source_runs_by_budget[budget] = scenario_run
-                    combined_source_runs_by_map.setdefault(map_seed, []).append(
-                        source_runs_by_budget
-                    )
-                    source_runs_by_map.setdefault(map_seed, group_source_run)
+                    source_runs_by_map.setdefault(map_group, group_source_run)
+                    task_column = "hl_task" if "hl_task" in df_avg else None
+                    if task_column is not None:
+                        task_groups = df_avg.groupby(task_column, sort=True, dropna=False)
+                    else:
+                        task_groups = [(hl_task, df_avg)]
+                    for eval_task, task_df in task_groups:
+                        if eval_task is None or (
+                            isinstance(eval_task, float) and np.isnan(eval_task)
+                        ):
+                            task_edge = hl_task
+                        else:
+                            task_edge = self._task_edge_from_config(eval_task)
+                        if task_edge is None:
+                            task_label = f"task {group_idx}"
+                        else:
+                            task_label = "task " + "-".join(
+                                str(state) for state in task_edge
+                            )
+                        matching_runs = [
+                            scenario_runs[scenario]
+                            for scenario in scenario_indices
+                            if scenario in scenario_runs
+                            and (
+                                scenario_runs[scenario].config.get("hl_task") is None
+                                or self._task_edge_from_config(
+                                    scenario_runs[scenario].config["hl_task"]
+                                )
+                                == task_edge
+                            )
+                        ]
+                        if not matching_runs:
+                            matching_runs = [
+                                scenario_runs[scenario]
+                                for scenario in scenario_indices
+                                if scenario in scenario_runs
+                            ]
+                        task_source_runs = {}
+                        for task_run in matching_runs:
+                            for budget in self._configured_message_budgets(
+                                task_run.config.get("msg_budget_per_agent")
+                            ):
+                                task_source_runs[budget] = task_run
+                        combined_groups_by_map.setdefault(map_group, []).append(
+                            (task_label, task_df.copy(), task_edge)
+                        )
+                        combined_source_runs_by_map.setdefault(map_group, []).append(
+                            task_source_runs or source_runs_by_budget
+                        )
                     self.logger.info(
                         f"Plotting aggregated eval stats for group {group_idx}: "
                         f"{parameter_info}"
@@ -397,25 +450,44 @@ class Simulation(DependentSubtaskTrainingMixin):
                             t=np.max(df_avg.t_env_rounded),
                             wandb_run=wandb_run,
                             info_str=(
-                                f"Seed {seed}; Min Runs: {min_n_seeds}, "
+                                f"Seed {seed}; "
+                                f"{context_sample_count_label(df_avg)}; "
+                                f"Min Runs: {min_n_seeds}, "
                                 f"Max Runs: {max_n_seeds}"
                                 if seed is not None
-                                else f"Group {group_idx}; Min Seeds: {min_n_seeds}, "
+                                else f"Group {group_idx}; "
+                                f"{context_sample_count_label(df_avg)}; "
+                                f"Min Seeds: {min_n_seeds}, "
                                 f"Max Seeds: {max_n_seeds}"
                             ),
                             plot_group=plot_group,
                         )
 
-                for map_name, seed in sorted(
+                for map_name, seed, plot_group_key in sorted(
                     combined_groups_by_map,
-                    key=lambda item: (item[0], -1 if item[1] is None else item[1]),
+                    key=lambda item: (
+                        item[0],
+                        -1 if item[1] is None else item[1],
+                        item[2],
+                    ),
                 ):
-                    map_seed = (map_name, seed)
-                    if map_seed in incomplete_map_seeds:
+                    map_group = (map_name, seed, plot_group_key)
+                    if seed is not None and (map_name, seed) in incomplete_map_seeds:
                         continue
-                    map_groups = combined_groups_by_map[map_seed]
+                    map_groups = combined_groups_by_map[map_group]
                     map_t = max(
                         int(df["t_env_rounded"].max()) for _, df, _ in map_groups
+                    )
+                    first_run = source_runs_by_map[map_group]
+                    condition_label_parts = [
+                        str(first_run.config[key])
+                        for key in ("policy_mode", "hidden_dim")
+                        if key in first_run.config
+                    ]
+                    condition_label = "_".join(condition_label_parts) or "model"
+                    condition_label = (
+                        f"{condition_label}_config_"
+                        f"{plot_group_ids[plot_group_key]:02d}"
                     )
                     if not any(hl_task is not None for _, _, hl_task in map_groups):
                         map_df = pd.concat(
@@ -439,26 +511,29 @@ class Simulation(DependentSubtaskTrainingMixin):
                             t=map_t,
                             map_name=map_name,
                             seed=seed,
+                            condition_label=condition_label,
                             wandb_run=wandb_run,
                         )
                         self._make_task_success_frame_plot(
                             map_groups,
-                            source_runs=combined_source_runs_by_map[map_seed],
-                            source_run=source_runs_by_map[map_seed],
+                            source_runs=combined_source_runs_by_map[map_group],
+                            source_run=source_runs_by_map[map_group],
                             t=map_t,
                             map_name=map_name,
                             seed=seed,
+                            condition_label=condition_label,
                             wandb_run=wandb_run,
                         )
-                        if policy_eval_data_by_map.get(map_seed):
+                        if policy_eval_data_by_map.get(map_group):
                             self._make_high_level_success_vs_cost_plot(
                                 pd.concat(
-                                    policy_eval_data_by_map[map_seed],
+                                    policy_eval_data_by_map[map_group],
                                     ignore_index=True,
                                 ),
                                 map_name=map_name,
                                 t=map_t,
                                 seed=seed,
+                                condition_label=condition_label,
                                 wandb_run=wandb_run,
                             )
                 wandb_run.finish()
@@ -758,6 +833,22 @@ class Simulation(DependentSubtaskTrainingMixin):
             self.runner.env.hlmdp, self.args.success_rate_spec
         )
 
+    def _log_context_evaluation_stats(self, eval_data: list[dict]) -> None:
+        for log_stats in eval_data:
+            context_label = evaluation_context_label(log_stats)
+            for key, value in log_stats.items():
+                if not key.startswith("test_") or not isinstance(
+                    value, (int, float, np.number)
+                ):
+                    continue
+                if not np.isfinite(value):
+                    continue
+                self.logger.log_stat(
+                    f"{key}/{context_label}",
+                    float(value),
+                    self.runner.t_env,
+                )
+
     def evaluate(
         self, n_eval_eps: int, reset_options: Optional[dict] = None
     ) -> Optional[float]:
@@ -823,7 +914,44 @@ class Simulation(DependentSubtaskTrainingMixin):
                             has_budget_sweep or condition_on_subtask
                         ),
                     )
-                    eval_data.append(result["log_stats"])
+                    log_stats = result["log_stats"]
+                    context_label = evaluation_context_label(log_stats)
+                    expected_episodes = n_eval_eps * self.runner.batch_size
+                    reported_episodes = log_stats.get("test_n_episodes")
+                    if reported_episodes != expected_episodes:
+                        raise RuntimeError(
+                            f"Evaluation context {context_label} reported "
+                            f"{reported_episodes} episodes; expected "
+                            f"{expected_episodes}."
+                        )
+                    for key in (
+                        "hl_task",
+                        "subtask_idx",
+                        "msg_budget_per_agent",
+                    ):
+                        if (
+                            key in context_options
+                            and log_stats.get(key) != context_options[key]
+                        ):
+                            raise RuntimeError(
+                                f"Evaluation context {context_label} logged "
+                                f"{key}={log_stats.get(key)!r}; expected "
+                                f"{context_options[key]!r}."
+                            )
+                    eval_data.append(log_stats)
+
+            context_labels = [
+                evaluation_context_label(log_stats) for log_stats in eval_data
+            ]
+            expected_contexts = len(subtasks) * len(budgets)
+            if (
+                len(eval_data) != expected_contexts
+                or len(set(context_labels)) != expected_contexts
+            ):
+                raise RuntimeError(
+                    f"Evaluation produced {len(eval_data)} distinct context rows; "
+                    f"expected {expected_contexts}."
+                )
 
             df_eval = pd.DataFrame.from_records(eval_data)
             success_lcbs = [
@@ -832,6 +960,7 @@ class Simulation(DependentSubtaskTrainingMixin):
                 if (lcb := self._evaluation_success_lcb(log_stats)) is not None
             ]
 
+            self._log_context_evaluation_stats(eval_data)
             self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
             if has_budget_sweep:
                 self._make_comms_eval_plots(
@@ -1065,62 +1194,10 @@ class Simulation(DependentSubtaskTrainingMixin):
         Plots each metric in `cols` vs `t_env` for every comms value present
         (or provided in `msg_budget_per_agents`) and logs images to wandb if enabled.
         """
-        df = data_table.get_dataframe()
-        df["msg_budget_per_agent"] = pd.to_numeric(
-            df["msg_budget_per_agent"], errors="coerce"
-        )
         save_dir = abspath(join(self.logger.dir, "images", f"t_{t}"))
         if plot_group:
             save_dir = join(save_dir, plot_group)
-        makedirs(save_dir, exist_ok=True)
-
-        # Columns to plot (exclude t_env as it's the x axis)
-        cols = [
-            "test_return_mean",
-            "test_return_std",
-            "test_task_completed_mean",
-            "test_ep_length_mean",
-        ]
-        msg_budget_per_agents = sorted(df["msg_budget_per_agent"].dropna().unique())
-
-        for col in cols:
-            plt.figure()
-
-            for idx, msg_budget_per_agent in enumerate(msg_budget_per_agents):
-                df_plot = df[
-                    df.get("msg_budget_per_agent") == msg_budget_per_agent
-                ].copy()
-                label = f"Comms: {msg_budget_per_agent}"
-                n_samples = df_plot["test_n_episodes"].astype(int)
-
-                # show N in legend title using first row's n
-                n_samples = int(n_samples.iloc[0]) if len(n_samples) > 0 else 0
-
-                plt.plot(
-                    df_plot["t_env"],
-                    df_plot[col],
-                    marker="o",
-                    alpha=1.0,
-                    label=label,
-                )
-
-                if col == "test_task_completed_mean":
-                    plt.ylim(-0.05, 1.05)
-                legend_title = f"samples={n_samples} (per seed)"
-                if info_str != "":
-                    legend_title += f"\n{info_str}"
-
-            plt.xlabel("t_env")
-            plt.ylabel(col)
-            plt.title(f"{col}")
-
-            plt.legend(title=legend_title)
-            plt.grid(True)
-
-            save_path = join(save_dir, f"comms_eval_{col}.png")
-            plt.tight_layout()
-            plt.savefig(save_path)
-            plt.close()
+        plot_context_evaluation(data_table.get_dataframe(), save_dir, info_str)
 
         # log all images in the image dir
         if wandb_run is not None:
@@ -1146,69 +1223,30 @@ class Simulation(DependentSubtaskTrainingMixin):
         t: int,
         map_name: str = "",
         seed: int | None = None,
+        condition_label: str = "",
         wandb_run=None,
     ) -> None:
         """Make one vertically stacked figure for each metric across tasks."""
         if not groups:
             return
 
-        cols = [
-            "test_return_mean",
-            "test_return_std",
-            "test_task_completed_mean",
-            "test_ep_length_mean",
-        ]
         save_dir = abspath(join(self.logger.dir, "images", f"t_{t}", "combined"))
         if map_name:
             save_dir = join(save_dir, map_name)
         if seed is not None:
             save_dir = join(save_dir, f"seed_{seed}")
-        makedirs(save_dir, exist_ok=True)
-
-        for col in cols:
-            figure, axes = plt.subplots(
-                nrows=len(groups),
-                ncols=1,
-                figsize=(8, max(3.5 * len(groups), 4.0)),
-                squeeze=False,
-                sharex=True,
-            )
-            axes = axes[:, 0]
-
-            for axis, (task_label, df, _) in zip(axes, groups):
-                msg_budget_per_agents = sorted(
-                    df["msg_budget_per_agent"].dropna().unique()
-                )
-                for msg_budget_per_agent in msg_budget_per_agents:
-                    df_plot = df[df["msg_budget_per_agent"] == msg_budget_per_agent]
-                    axis.plot(
-                        df_plot["t_env"],
-                        df_plot[col],
-                        marker="o",
-                        label=f"Comms: {msg_budget_per_agent}",
-                    )
-
-                axis.set_title(task_label, loc="left")
-                axis.set_ylabel(col)
-                axis.grid(True)
-                if col == "test_task_completed_mean":
-                    axis.set_ylim(-0.05, 1.05)
-                axis.legend()
-
-            axes[-1].set_xlabel("t_env")
-            figure.suptitle(col)
-            figure.tight_layout()
-            save_path = join(save_dir, f"comms_eval_combined_{col}.png")
-            figure.savefig(save_path)
-            plt.close(figure)
-
+        if condition_label:
+            save_dir = join(save_dir, condition_label)
+        image_paths = plot_combined_context_evaluation(groups, save_dir)
+        for col, save_path in image_paths.items():
             if wandb_run is not None:
                 data = log_setup(self.logger.step_metric, t)
                 seed_label = f"seed_{seed}/" if seed is not None else ""
                 data[
                     f"comms_eval_aggregated/combined/"
                     f"{map_name + '/' if map_name else ''}"
-                    f"{seed_label}{col}"
+                    f"{seed_label}{condition_label + '/' if condition_label else ''}"
+                    f"{col}"
                     f"{self.logger.log_suffix}"
                 ] = wandb.Image(save_path)
                 wandb_run.log(data=data)
@@ -1221,6 +1259,7 @@ class Simulation(DependentSubtaskTrainingMixin):
         t: int,
         map_name: str = "",
         seed: int | None = None,
+        condition_label: str = "",
         wandb_run=None,
     ) -> None:
         """Pair each task's initial frame with its success-rate curve."""
@@ -1373,6 +1412,8 @@ class Simulation(DependentSubtaskTrainingMixin):
             save_dir = join(save_dir, map_name)
         if seed is not None:
             save_dir = join(save_dir, f"seed_{seed}")
+        if condition_label:
+            save_dir = join(save_dir, condition_label)
         makedirs(save_dir, exist_ok=True)
         save_path = join(save_dir, "comms_eval_combined_task_frames.png")
         figure.savefig(save_path)
@@ -1384,7 +1425,8 @@ class Simulation(DependentSubtaskTrainingMixin):
             data[
                 f"comms_eval_aggregated/combined/"
                 f"{map_name + '/' if map_name else ''}"
-                f"{seed_label}task_frames"
+                f"{seed_label}{condition_label + '/' if condition_label else ''}"
+                f"task_frames"
                 f"{self.logger.log_suffix}"
             ] = wandb.Image(save_path)
             wandb_run.log(data=data)
@@ -1395,16 +1437,37 @@ class Simulation(DependentSubtaskTrainingMixin):
         map_name: str,
         t: int,
         seed: int | None = None,
+        condition_label: str = "",
         wandb_run=None,
     ) -> None:
         """Solve and plot high-level policies across task-completion specs."""
-        hlmdp = getattr(self.runner.env, "hlmdp", None)
+        env = getattr(self.runner, "env", None)
+        close_env = env is None
+        if close_env:
+            from src.envs import REGISTRY as env_REGISTRY
+
+            env_args = deepcopy(self.args.env_args)
+            env_args["common_reward"] = self.args.common_reward
+            env_args["reward_scalarisation"] = self.args.reward_scalarisation
+            env = env_REGISTRY[self.args.env](**env_args)
+        try:
+            hlmdp = getattr(env, "hlmdp", None)
+        finally:
+            if close_env:
+                env.close()
         if hlmdp is None:
             raise RuntimeError(
                 "High-level policy post-processing requires an environment "
                 "with an hlmdp."
             )
-        hlmdp.transition_probs = eval_data
+        try:
+            hlmdp.transition_probs = eval_data
+        except ValueError as error:
+            self.logger.info(
+                f"Skipping high-level success-vs-cost plot for map {map_name}, "
+                f"seed {seed}; evaluation data is incomplete: {error}"
+            )
+            return
 
         success_rate_specs = self._postprocess_success_rate_specs(
             getattr(self.args, "postprocess_success_rate_specs", None)
@@ -1426,6 +1489,8 @@ class Simulation(DependentSubtaskTrainingMixin):
         )
         if seed is not None:
             output_dir = join(output_dir, f"seed_{seed}")
+        if condition_label:
+            output_dir = join(output_dir, condition_label)
         makedirs(output_dir, exist_ok=True)
 
         success_rate_spec = float(getattr(self.args, "success_rate_spec", 0.95))
@@ -1561,6 +1626,7 @@ class Simulation(DependentSubtaskTrainingMixin):
             seed_label = f"/seed_{seed}" if seed is not None else ""
             data[
                 f"high_level_policy/{map_name}{seed_label}/"
+                f"{condition_label + '/' if condition_label else ''}"
                 f"success_vs_cost{self.logger.log_suffix}"
             ] = wandb.Image(plot_path)
             wandb_run.log(data=data)
@@ -1759,7 +1825,7 @@ class Simulation(DependentSubtaskTrainingMixin):
 
         # load all runs w/ the given time_id and get eval stats tables
         runs = api.runs(
-            self.args.wandb_project,
+            self._wandb_project_path(api, self.args.wandb_project),
             filters={"config.time_id": self.args.time_id},
         )
         runs = [
@@ -1769,8 +1835,11 @@ class Simulation(DependentSubtaskTrainingMixin):
         ]
 
         if len(runs) == 0:
-            self.logger.info(f"No wandb runs found for time_id={self.args.time_id}")
-            return
+            raise RuntimeError(
+                f"No W&B runs found in "
+                f"{self._wandb_project_path(api, self.args.wandb_project)} "
+                f"for time_id={self.args.time_id}."
+            )
 
         run_ids = [run.id for run in runs]
         self.logger.info(f"Time ID: {self.args.time_id}")
@@ -1788,56 +1857,122 @@ class Simulation(DependentSubtaskTrainingMixin):
                 )
                 data = artifact.get(art_name)
                 df = data.get_dataframe()
-                df["scenario"] = int(wandb_run.config["scenario"])
-                df["map_name"] = (
-                    self._map_name_from_config(wandb_run.config) or "unknown_map"
-                )
-                try:
-                    df["seed"] = int(wandb_run.config["seed"])
-                except (KeyError, TypeError, ValueError) as error:
-                    raise ValueError(
-                        f"Training run {wandb_run.id} has no valid seed config."
-                    ) from error
-                df["run_id"] = wandb_run.id
-                configured_budget = wandb_run.config.get("msg_budget_per_agent")
-                if (
-                    isinstance(configured_budget, (list, tuple))
-                    and len(configured_budget) == 1
-                ):
-                    configured_budget = configured_budget[0]
-                if configured_budget is not None:
-                    if wandb_run.config.get("unique_policy_per_msg_budget", False):
-                        # For one-policy-per-budget runs, the run config is the
-                        # authoritative budget even if the table has stale values.
-                        df["msg_budget_per_agent"] = configured_budget
-                    elif "msg_budget_per_agent" not in df:
-                        df["msg_budget_per_agent"] = configured_budget
-                    else:
-                        df["msg_budget_per_agent"] = df["msg_budget_per_agent"].fillna(
-                            configured_budget
-                        )
-                hl_task = wandb_run.config.get("hl_task")
-                if hl_task is not None:
-                    task_edge = self._task_edge_from_config(hl_task)
-                    df["hl_task"] = [task_edge] * len(df)
-                    df["hl_start_state"] = int(
-                        wandb_run.config.get("hl_start_state", task_edge[0])
-                    )
-                df["test_interval"] = wandb_run.config.get(
-                    "test_interval", self.args.test_interval
-                )
-                return df
-
             except wandb.CommError:
-                # artifact is missing or deleted, run may have died early
-                return
+                table_info = wandb_run.summary.get(art_name)
+                table_path = (
+                    table_info.get("path")
+                    if callable(getattr(table_info, "get", None))
+                    and table_info.get("_type") == "table-file"
+                    else None
+                )
+                if not table_path:
+                    self.logger.info(
+                        f"Skipping run {wandb_run.id}: artifact "
+                        f"{art_name}:{art_version} and logged table are unavailable."
+                    )
+                    return
+
+                try:
+                    table_file = wandb_run.file(table_path)
+                    if table_file is None:
+                        self.logger.info(
+                            f"Skipping run {wandb_run.id}: logged table "
+                            f"{table_path} is unavailable."
+                        )
+                        return
+                    with TemporaryDirectory(prefix="wandb-eval-table-") as temp_dir:
+                        downloaded_file = table_file.download(
+                            root=temp_dir, replace=True
+                        )
+                        with open(downloaded_file.name, encoding="utf-8") as file:
+                            table_data = json.load(file)
+                except wandb.CommError:
+                    self.logger.info(
+                        f"Skipping run {wandb_run.id}: logged table "
+                        f"{table_path} could not be downloaded."
+                    )
+                    return
+
+                if not isinstance(table_data, dict) or not isinstance(
+                    table_data.get("columns"), list
+                ) or not isinstance(table_data.get("data"), list):
+                    raise RuntimeError(
+                        f"W&B table {table_path} for run {wandb_run.id} "
+                        "has an invalid table format."
+                    )
+                self.logger.info(
+                    f"Loaded {art_name} from logged table for run {wandb_run.id}."
+                )
+                df = pd.DataFrame(
+                    table_data["data"], columns=table_data["columns"]
+                )
+
+            df["scenario"] = int(wandb_run.config["scenario"])
+            df["map_name"] = (
+                self._map_name_from_config(wandb_run.config) or "unknown_map"
+            )
+            try:
+                df["seed"] = int(wandb_run.config["seed"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Training run {wandb_run.id} has no valid seed config."
+                ) from error
+            df["run_id"] = wandb_run.id
+            configured_budget = wandb_run.config.get("msg_budget_per_agent")
+            if isinstance(configured_budget, (list, tuple)):
+                configured_budget = (
+                    configured_budget[0] if len(configured_budget) == 1 else None
+                )
+            if configured_budget is not None:
+                if wandb_run.config.get("unique_policy_per_msg_budget", False):
+                    # For one-policy-per-budget runs, the run config is the
+                    # authoritative budget even if the table has stale values.
+                    df["msg_budget_per_agent"] = configured_budget
+                elif "msg_budget_per_agent" not in df:
+                    df["msg_budget_per_agent"] = configured_budget
+                else:
+                    df["msg_budget_per_agent"] = df["msg_budget_per_agent"].fillna(
+                        configured_budget
+                    )
+            hl_task = wandb_run.config.get("hl_task")
+            if hl_task is not None:
+                task_edge = self._task_edge_from_config(hl_task)
+                if "hl_task" not in df:
+                    df["hl_task"] = [task_edge] * len(df)
+                else:
+                    df["hl_task"] = [
+                        task_edge
+                        if value is None
+                        or (isinstance(value, (float, np.floating)) and np.isnan(value))
+                        else self._task_edge_from_config(value)
+                        for value in df["hl_task"]
+                    ]
+                if "hl_start_state" not in df:
+                    df["hl_start_state"] = [int(edge[0]) for edge in df["hl_task"]]
+                else:
+                    df["hl_start_state"] = df["hl_start_state"].fillna(
+                        pd.Series(
+                            [int(edge[0]) for edge in df["hl_task"]],
+                            index=df.index,
+                        )
+                    )
+            df["test_interval"] = wandb_run.config.get(
+                "test_interval", self.args.test_interval
+            )
+            return df
 
         with ThreadPoolExecutor() as ex:
-            dfs = ex.map(
+            loaded_dfs = list(ex.map(
                 get_wandb_data,
                 [run for run in runs],
-            )
+            ))
 
+        dfs = [df for df in loaded_dfs if df is not None]
+        if not dfs:
+            raise RuntimeError(
+                f"No {art_name} artifacts were available for time_id="
+                f"{self.args.time_id}."
+            )
         df_data = pd.concat(dfs, ignore_index=True)
         # round to the
         # nearest eval time since different seeds eval at slightly different times
@@ -1852,6 +1987,18 @@ class Simulation(DependentSubtaskTrainingMixin):
             return df_data, runs
         else:
             return df_data
+
+    @staticmethod
+    def _wandb_project_path(api, project: str) -> str:
+        if "/" in project:
+            return project
+        entity = getattr(api, "default_entity", None)
+        if not entity:
+            raise RuntimeError(
+                f"Cannot resolve W&B entity for project {project!r}; "
+                "specify it as 'entity/project'."
+            )
+        return f"{entity}/{project}"
 
     def _load_checkpoint(self) -> None:
         # get load time step for both cases

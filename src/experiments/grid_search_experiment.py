@@ -66,6 +66,17 @@ class GridSearch(object):
 
         config = full_config["parameters"]
         conditional_config = full_config.get("conditional_parameters", None)
+        if self.args.post_processing is not None:
+            if self.args.time_id is None:
+                raise ValueError("--post-processing requires an explicit --time-id")
+            config["post_processing"] = {"values": [self.args.post_processing]}
+            config["time_id"] = {"values": [self.args.time_id]}
+        elif self.args.time_id is not None:
+            if not config.get("post_processing", {}).get("values"):
+                raise ValueError(
+                    "--time-id can only override a configured post-processing run"
+                )
+            config["time_id"] = {"values": [self.args.time_id]}
 
         if self.args.debug:
             debug_values = {
@@ -585,6 +596,16 @@ class GridSearch(object):
             type=str,
             required=True,
             help="Experiment name",
+        )
+        parser.add_argument(
+            "--post-processing",
+            choices=["optimize_high_level_policy", "aggregate_runs"],
+            help="Run post-processing without editing the experiment config.",
+        )
+        parser.add_argument(
+            "--time-id",
+            type=str,
+            help="Source experiment time ID for post-processing.",
         )
         parser.add_argument(
             "-g",

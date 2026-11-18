@@ -4,10 +4,12 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import torch
+import wandb
 from gym_multigrid.envs.mdp import ProjectMDP
 
 from src.envs.basic_gymnasium_wrappers import HLMDPEnvWrapper
 from src.modules.agents.ilp_model import ILPModel, InfeasiblePolicyError
+from src.simulation.context_utils import aggregate_eval_context_rows
 from src.simulation.run import Simulation
 
 
@@ -225,6 +227,140 @@ def test_aggregate_high_level_policy_sweep_writes_cost_curves(tmp_path):
     assert (output_dir / "policy" / "comms_budget_policy.csv").is_file()
 
 
+def test_training_evaluation_metrics_are_logged_per_context():
+    simulation = object.__new__(Simulation)
+    logged_stats = []
+    simulation.args = SimpleNamespace()
+    simulation.runner = SimpleNamespace(t_env=500_000)
+    simulation.logger = SimpleNamespace(
+        log_stat=lambda *args: logged_stats.append(args)
+    )
+
+    simulation._log_context_evaluation_stats([
+        {
+            "hl_task": [0, 1],
+            "msg_budget_per_agent": 0,
+            "test_task_completed_mean": 0.4,
+            "test_n_episodes": 50,
+            "successful_terminal_state_distribution": {"states": [], "probs": []},
+        },
+        {
+            "hl_task": [1, 3],
+            "msg_budget_per_agent": 0,
+            "test_task_completed_mean": 0.8,
+            "test_n_episodes": 50,
+        },
+    ])
+
+    assert logged_stats == [
+        ("test_task_completed_mean/hl_task_0_1/msg_budget_per_agent_0", 0.4, 500_000),
+        ("test_n_episodes/hl_task_0_1/msg_budget_per_agent_0", 50.0, 500_000),
+        ("test_task_completed_mean/hl_task_1_3/msg_budget_per_agent_0", 0.8, 500_000),
+        ("test_n_episodes/hl_task_1_3/msg_budget_per_agent_0", 50.0, 500_000),
+    ]
+
+
+def test_training_evaluation_sweeps_and_logs_every_context(monkeypatch):
+    simulation = object.__new__(Simulation)
+    logged_stats = []
+    tables = {}
+    simulation.args = SimpleNamespace(
+        condition_on_msg_budget=True,
+        condition_on_subtask=True,
+        msg_budget_per_agent=[0, 1, 2],
+        subtask_contexts=[[0, 1], [1, 3]],
+    )
+    simulation.runner = SimpleNamespace(
+        batch_size=10,
+        t_env=500_000,
+        get_env_rng_states=lambda: [],
+        set_env_rng_states=lambda _states: None,
+    )
+    simulation.logger = SimpleNamespace(
+        info=lambda *_args, **_kwargs: None,
+        log_stat=lambda *args: logged_stats.append(args),
+        log_table=lambda key, value, t: tables.__setitem__(key, value),
+        data_tables=tables,
+    )
+    simulation._make_comms_eval_plots = lambda *_args, **_kwargs: None
+    evaluated_contexts = []
+
+    def fake_run_eval_episodes(**kwargs):
+        reset_options = kwargs["reset_options"]
+        evaluated_contexts.append(reset_options)
+        return {
+            "log_stats": {
+                **reset_options,
+                "test_task_completed_mean": 0.5,
+                "test_n_episodes": 50,
+                "t_env": 500_000,
+            }
+        }
+
+    monkeypatch.setattr(
+        "src.simulation.run.run_eval_episodes", fake_run_eval_episodes
+    )
+
+    simulation.evaluate(n_eval_eps=5)
+
+    assert len(evaluated_contexts) == 6
+    assert {
+        (tuple(context["hl_task"]), context["msg_budget_per_agent"])
+        for context in evaluated_contexts
+    } == {
+        ((0, 1), 0),
+        ((0, 1), 1),
+        ((0, 1), 2),
+        ((1, 3), 0),
+        ((1, 3), 1),
+        ((1, 3), 2),
+    }
+    assert sum(
+        key.startswith("test_task_completed_mean/") for key, _, _ in logged_stats
+    ) == 6
+
+
+def test_postprocessing_aggregates_samples_within_each_context_and_seed():
+    rows = pd.DataFrame.from_records([
+        {
+            "hl_task": (0, 1),
+            "msg_budget_per_agent": 0,
+            "t_env_rounded": 500_000,
+            "test_task_completed_mean": 0.4,
+            "test_task_completed_std": 0.49,
+            "test_n_episodes": 50,
+        },
+        {
+            "hl_task": (0, 1),
+            "msg_budget_per_agent": 0,
+            "t_env_rounded": 500_000,
+            "test_task_completed_mean": 0.8,
+            "test_task_completed_std": 0.4,
+            "test_n_episodes": 50,
+        },
+        {
+            "hl_task": (1, 3),
+            "msg_budget_per_agent": 0,
+            "t_env_rounded": 500_000,
+            "test_task_completed_mean": 0.6,
+            "test_task_completed_std": 0.49,
+            "test_n_episodes": 50,
+        },
+    ])
+
+    aggregated = aggregate_eval_context_rows(
+        rows,
+        ["t_env_rounded", "hl_task", "msg_budget_per_agent"],
+    )
+
+    task_01 = aggregated.loc[aggregated["hl_task"] == (0, 1)].iloc[0]
+    task_13 = aggregated.loc[aggregated["hl_task"] == (1, 3)].iloc[0]
+    assert task_01["test_n_episodes"] == 100
+    assert np.isclose(task_01["test_task_completed_mean"], 0.6)
+    assert task_13["test_n_episodes"] == 50
+    assert np.isclose(task_13["test_task_completed_mean"], 0.6)
+
+
 def test_independent_high_level_policies_are_synthesized_per_seed(tmp_path):
     simulation = object.__new__(Simulation)
     simulation.args = SimpleNamespace(
@@ -285,9 +421,21 @@ def test_loaded_evaluation_artifact_keeps_source_seed(monkeypatch):
         id="seeded-run",
         entity="entity",
         project="project",
-        config={"scenario": "01", "seed": "17", "test_interval": 100},
+        config={
+            "scenario": "01",
+            "seed": "17",
+            "test_interval": 100,
+            "hl_task": [0, 1],
+        },
     )
-    table = pd.DataFrame.from_records([{"t_env": 100, "test_return_mean": 0.5}])
+    table = pd.DataFrame.from_records([
+        {
+            "t_env": 100,
+            "test_return_mean": 0.5,
+            "hl_task": [1, 3],
+            "hl_start_state": 1,
+        }
+    ])
     artifact = SimpleNamespace(
         get=lambda _name: SimpleNamespace(get_dataframe=lambda: table.copy())
     )
@@ -308,7 +456,104 @@ def test_loaded_evaluation_artifact_keeps_source_seed(monkeypatch):
     loaded, loaded_runs = simulation._load_experiment_table_artifact(return_runs=True)
 
     assert loaded["seed"].tolist() == [17]
+    assert loaded["hl_task"].tolist() == [(1, 3)]
+    assert loaded["hl_start_state"].tolist() == [1]
     assert loaded_runs == [run]
+
+
+def test_loaded_evaluation_table_falls_back_to_wandb_media_file(
+    monkeypatch, tmp_path
+):
+    table_file = tmp_path / "eval_stats.table.json"
+    table_file.write_text(
+        '{"columns":["t_env","test_return_mean","msg_budget_per_agent"],"data":[[100,0.5,0]]}',
+        encoding="utf-8",
+    )
+    run = SimpleNamespace(
+        id="table-run",
+        entity="entity",
+        project="project",
+        config={
+            "scenario": "01",
+            "seed": 17,
+            "test_interval": 100,
+            "msg_budget_per_agent": [0, 1],
+        },
+        summary={
+            "eval_stats": {
+                "_type": "table-file",
+                "path": "media/table/eval_stats.table.json",
+            }
+        },
+        file=lambda _path: SimpleNamespace(
+            download=lambda **_kwargs: SimpleNamespace(name=str(table_file))
+        ),
+    )
+
+    def missing_artifact(**_kwargs):
+        raise wandb.CommError("run-table artifact not found")
+
+    api = SimpleNamespace(
+        runs=lambda *_args, **_kwargs: [run],
+        artifact=missing_artifact,
+    )
+    monkeypatch.setattr("src.simulation.run.wandb.Api", lambda: api)
+
+    simulation = object.__new__(Simulation)
+    simulation.args = SimpleNamespace(
+        wandb_project="entity/project",
+        time_id="test-time",
+        test_interval=100,
+    )
+    simulation.logger = SimpleNamespace(info=lambda *_args, **_kwargs: None)
+
+    loaded = simulation._load_experiment_table_artifact()
+
+    assert loaded[
+        ["t_env", "test_return_mean", "msg_budget_per_agent", "seed"]
+    ].to_dict("records") == [
+        {
+            "t_env": 100,
+            "test_return_mean": 0.5,
+            "msg_budget_per_agent": 0,
+            "seed": 17,
+        }
+    ]
+
+
+def test_high_level_success_cost_plot_skips_incomplete_transition_data():
+    class IncompleteMdp:
+        @property
+        def transition_probs(self):
+            return None
+
+        @transition_probs.setter
+        def transition_probs(self, _value):
+            raise ValueError("missing task/budget pairs")
+
+    messages = []
+    simulation = object.__new__(Simulation)
+    simulation.runner = SimpleNamespace(env=SimpleNamespace(hlmdp=IncompleteMdp()))
+    simulation.logger = SimpleNamespace(info=messages.append)
+
+    simulation._make_high_level_success_vs_cost_plot(
+        pd.DataFrame(), map_name="test-map", t=100, seed=17
+    )
+
+    assert len(messages) == 1
+    assert "evaluation data is incomplete" in messages[0]
+    assert "missing task/budget pairs" in messages[0]
+
+
+def test_wandb_project_name_uses_authenticated_default_entity():
+    api = SimpleNamespace(default_entity="example-entity")
+
+    assert Simulation._wandb_project_path(api, "comm_experiments") == (
+        "example-entity/comm_experiments"
+    )
+    assert Simulation._wandb_project_path(api, "other-entity/project") == (
+        "other-entity/project"
+    )
 
 
 def test_aggregate_postprocessing_keeps_seeds_separate_and_skips_incomplete(
@@ -336,20 +581,22 @@ def test_aggregate_postprocessing_keeps_seeds_separate_and_skips_incomplete(
             )
             if seed == 11 and edge == (1, 2):
                 continue
-            for budget in [0, 1]:
-                rows.append({
-                    "scenario": scenario,
-                    "seed": seed,
-                    "map_name": "test_map",
-                    "hl_task": edge,
-                    "msg_budget_per_agent": budget,
-                    "t_env": 100,
-                    "t_env_rounded": 100,
-                    "test_return_mean": 1.0,
-                    "test_return_std": 0.0,
-                    "test_task_completed_mean": 0.95,
-                    "test_ep_length_mean": 5.0,
-                })
+            for eval_edge in edges:
+                for budget in [0, 1]:
+                    rows.append({
+                        "scenario": scenario,
+                        "seed": seed,
+                        "map_name": "test_map",
+                        "hl_task": eval_edge,
+                        "msg_budget_per_agent": budget,
+                        "t_env": 100,
+                        "t_env_rounded": 100,
+                        "test_n_episodes": 50,
+                        "test_return_mean": 1.0,
+                        "test_return_std": 0.0,
+                        "test_task_completed_mean": 0.95,
+                        "test_ep_length_mean": 5.0,
+                    })
         runs.append(
             SimpleNamespace(
                 id=f"seed-{seed}-flat-scenario",
@@ -370,6 +617,7 @@ def test_aggregate_postprocessing_keeps_seeds_separate_and_skips_incomplete(
             "msg_budget_per_agent": 0,
             "t_env": 100,
             "t_env_rounded": 100,
+            "test_n_episodes": 50,
             "test_return_mean": float(seed == 12),
             "test_return_std": 0.0,
             "test_task_completed_mean": 0.0,
@@ -392,10 +640,13 @@ def test_aggregate_postprocessing_keeps_seeds_separate_and_skips_incomplete(
     )
     policy_inputs = []
     aggregate_plot_inputs = []
+    combined_plot_inputs = []
     simulation._make_comms_eval_plots = lambda table, **_kwargs: (
         aggregate_plot_inputs.append(table)
     )
-    simulation._make_combined_comms_eval_plots = lambda *_args, **_kwargs: None
+    simulation._make_combined_comms_eval_plots = lambda groups, **kwargs: (
+        combined_plot_inputs.append((groups, kwargs))
+    )
     simulation._make_task_success_frame_plot = lambda *_args, **_kwargs: None
     simulation._make_high_level_success_vs_cost_plot = lambda eval_data, **kwargs: (
         policy_inputs.append((kwargs["seed"], set(eval_data["seed"])))
@@ -420,6 +671,14 @@ def test_aggregate_postprocessing_keeps_seeds_separate_and_skips_incomplete(
     assert any(
         set(frame["test_return_mean"]) == {0.5} for frame in aggregate_plot_inputs
     )
+    assert len(combined_plot_inputs) == 1
+    task_groups, plot_options = combined_plot_inputs[0]
+    assert {label for label, _, _ in task_groups} == {"task 0-1", "task 1-2"}
+    assert all(
+        set(frame["test_n_episodes"]) == {100}
+        for _, frame, _ in task_groups
+    )
+    assert plot_options["condition_label"] == "model_config_02"
 
 
 def test_navigation_graph_uses_declared_goal_without_synthetic_task():

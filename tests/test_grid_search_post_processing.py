@@ -1,9 +1,32 @@
 from argparse import Namespace
+import sys
 
 import pandas as pd
 
 from src.experiments import grid_search_experiment
 from src.experiments.grid_search_experiment import GridSearch
+
+
+def test_grid_search_cli_accepts_post_processing_time_id(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "grid_search_experiment.py",
+            "--experiment",
+            "exp_48",
+            "--post-processing",
+            "aggregate_runs",
+            "--time-id",
+            "exp_48_26-10-23_11-04-30",
+        ],
+    )
+
+    args = GridSearch.__new__(GridSearch)._parse_args()
+
+    assert args.experiment == "exp_48"
+    assert args.post_processing == "aggregate_runs"
+    assert args.time_id == "exp_48_26-10-23_11-04-30"
 
 
 def test_post_processing_preserves_all_message_budgets(monkeypatch):

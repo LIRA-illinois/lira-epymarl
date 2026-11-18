@@ -147,7 +147,7 @@ RAY_SSH_USER = $(shell $(RAY_PYTHON) -c 'import yaml; config = yaml.safe_load(op
 RAY_SSH_KEY = $(shell $(RAY_PYTHON) -c 'import os; import yaml; config = yaml.safe_load(open("$(RAY_CLUSTER_CONFIG)")); print(os.path.expanduser(config["auth"]["ssh_private_key"]))')
 RAY_CLUSTER_HOSTS = $(RAY_HEAD_IP) $(RAY_WORKER_IPS)
 
-.PHONY: ray-up ray-status ray-nodes ray-git-status ray-check-hosts ray-remote-path ray-down
+.PHONY: ray-up ray-status ray-nodes ray-git-status ray-check-hosts ray-remote-path ray-wandb-sync ray-down
 ray-up:
 	RAY_AUTH_MODE=token RAY_UP_enable_autoscaler_v2=0 $(RAY_BIN) up $(RAY_CLUSTER_CONFIG) -y --no-config-cache -v
 
@@ -156,6 +156,9 @@ ray-status:
 
 ray-nodes:
 	RAY_AUTH_MODE=token $(RAY_BIN) list nodes --address=$(RAY_HEAD_IP):6379 --filter state=ALIVE --format table
+
+ray-wandb-sync:
+	$(RAY_PYTHON) src/experiments/ray_wandb_sync.py --ray-address=$(ray_address)
 
 ray-git-status:
 	@for host in $(RAY_CLUSTER_HOSTS); do \

@@ -7,3 +7,6 @@
 [submodule "src/envs/join1"]
 	path = submodules/join1
 	url = https://github.com/LIRA-illinois/join1.git
+[submodule "cms_paper"]
+	path = cms_paper
+	url = https://git@git.overleaf.com/68e66eedcf6fbb8b8632409c

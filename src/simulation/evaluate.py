@@ -73,6 +73,8 @@ def run_eval_episodes(
         and args.n_test_replays_save > 0
         and hasattr(runner, "start_recording")
     ):
+        test_returns_snapshot = list(getattr(runner, "test_returns", []))
+        test_stats_snapshot = dict(getattr(runner, "test_stats", {}))
         runner.start_recording(
             n_test_replays_save=args.n_test_replays_save,
             video_prefix=file_name_prefix,
@@ -86,7 +88,13 @@ def run_eval_episodes(
                     reset_options=reset_options,
                 )
         finally:
-            runner.stop_recording(t_env=t_env, video_prefix=file_name_prefix)
+            try:
+                runner.stop_recording(t_env=t_env, video_prefix=file_name_prefix)
+            finally:
+                if hasattr(runner, "test_returns"):
+                    runner.test_returns = test_returns_snapshot
+                if hasattr(runner, "test_stats"):
+                    runner.test_stats = test_stats_snapshot
 
     if evaluation_result is None:
         raise ValueError("n_eval_eps must be greater than zero")
