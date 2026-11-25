@@ -51,7 +51,7 @@ parameters:
   # Environment config
   ##################
   batch_size_run:
-    values: [20]
+    values: [25]
   lr:
     values: [0.00005]
   t_max:

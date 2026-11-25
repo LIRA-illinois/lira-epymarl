@@ -22,6 +22,60 @@ from src.simulation.hierarchical_types import (
 from src.simulation.run import Simulation, UnifiedHierarchicalSeedRunner
 
 
+def test_unified_simulation_defers_runner_build(monkeypatch):
+    build_calls = []
+
+    monkeypatch.setattr(
+        "src.simulation.run_legacy.build_sim",
+        lambda *args, **kwargs: build_calls.append((args, kwargs)),
+    )
+
+    logger = SimpleNamespace()
+    simulation = object.__new__(Simulation)
+    simulation._dependent_cm_total_t_env = 0
+    simulation._parse_config = lambda _config, _log: SimpleNamespace(
+        hierarchical={"task_sequence": [[0, 1]]},
+        test_nepisode=50,
+    )
+    simulation._build_logger = lambda _args, _config, _log: logger
+
+    Simulation.__init__(simulation, {}, logger)
+
+    assert build_calls == []
+    assert simulation.runner.t_env == 0
+    assert simulation.buffer is None
+    assert simulation.learner is None
+
+
+def test_legacy_simulation_still_builds_runner(monkeypatch):
+    build_calls = []
+    runner = SimpleNamespace(t_env=0, batch_size=10)
+    buffer = SimpleNamespace()
+    learner = SimpleNamespace()
+
+    def fake_build(_args, _logger):
+        build_calls.append("built")
+        return _args, runner, buffer, learner
+
+    monkeypatch.setattr("src.simulation.run_legacy.build_sim", fake_build)
+
+    simulation = object.__new__(Simulation)
+    simulation._parse_config = lambda _config, _log: SimpleNamespace(
+        hierarchical=None,
+        test_nepisode=50,
+        batch_size_run=10,
+    )
+    simulation._build_logger = lambda _args, _config, _log: SimpleNamespace()
+
+    Simulation.__init__(simulation, {}, SimpleNamespace())
+
+    assert build_calls == ["built"]
+    assert simulation.runner is runner
+    assert simulation.buffer is buffer
+    assert simulation.learner is learner
+    assert simulation.n_eval_eps == 5
+
+
 def test_wandb_logging_helpers_log_tables_and_pngs(tmp_path):
     from src.simulation.unified_hierarchical_runner import (
         _log_wandb_plot_paths,

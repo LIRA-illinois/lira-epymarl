@@ -85,8 +85,20 @@ class Simulation(DependentSubtaskTrainingMixin):
         self._dependent_cm_total_t_env = 0
 
         self.logger: MainLogger = self._build_logger(args, _config, _log)
-        self.args, self.runner, self.buffer, self.learner = build_sim(args, self.logger)
-        self.n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
+        self.args = args
+        if getattr(args, "hierarchical", None) is not None:
+            self.runner = SN(t_env=0)
+            self.buffer = None
+            self.learner = None
+            self.n_eval_eps = max(1, args.test_nepisode)
+        else:
+            self.args, self.runner, self.buffer, self.learner = build_sim(
+                args, self.logger
+            )
+            self.n_eval_eps = max(
+                1,
+                self.args.test_nepisode // self.runner.batch_size,
+            )
 
     def run(self) -> None:
         if self.args.evaluate:
