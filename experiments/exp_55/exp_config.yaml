@@ -8,8 +8,10 @@ parameters:
   ##################
   # seeds are grid-searched over and are haPndled with a wrapper which assigns each combo of params (except seeds) a unique scenario index
   # use fixed seeds like this to enable reproducible results
-  seed:
-    values: [101, 202, 303]
+  # seed:
+  # values: [101, 202, 303]
+  n_seeds:
+    values: [3]
 
   ##################
   # Project setup + logging
