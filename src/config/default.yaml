@@ -29,6 +29,8 @@ learner_log_interval: 2000 # Log training stats every {} timesteps
 
 parallel_comms_eval: False # Whether to evaluate different comms values in parallel, if False evaluate sequentially
 
+hierarchical: null # Unified hierarchical pipeline configuration; legacy options remain separately controlled
+
 t_max: 10000 # Stop running after this many timesteps
 early_stopping: False # Stop when training reward stabilizes
 early_stopping_window: 500000 # Timesteps used to assess reward stabilization

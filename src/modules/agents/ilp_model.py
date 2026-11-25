@@ -109,7 +109,9 @@ class ILPModel(OptimizationProblem):
     ) -> dict:
         """Sample the next task from the solved policy and return its capacity."""
         if self.policy.task_policy.empty:
-            raise RuntimeError("Optimize the high-level policy before selecting actions.")
+            raise RuntimeError(
+                "Optimize the high-level policy before selecting actions."
+            )
 
         hl_state = ep_batch["hl_state"][:, t_ep, :].cpu().numpy().flatten()
         state = int(hl_state[0])
@@ -117,7 +119,9 @@ class ILPModel(OptimizationProblem):
             self.policy.task_policy.state == state
         ]
         if state_actions.empty:
-            raise ValueError(f"The optimized high-level policy has no action for state {state}.")
+            raise ValueError(
+                f"The optimized high-level policy has no action for state {state}."
+            )
 
         probabilities = state_actions.action_probability.to_numpy(
             dtype=float, copy=True
@@ -151,14 +155,11 @@ class ILPModel(OptimizationProblem):
         normal_rows = transitions.loc[transitions.state_type == "normal"]
         if self.fixed_comms_budget is not None:
             available_edges = {
-                (int(row.state), int(row.action[0]))
-                for row in normal_rows.itertuples()
+                (int(row.state), int(row.action[0])) for row in normal_rows.itertuples()
             }
             matching_rows = normal_rows.loc[
                 normal_rows.action.map(
-                    lambda action: np.isclose(
-                        float(action[1]), self.fixed_comms_budget
-                    )
+                    lambda action: np.isclose(float(action[1]), self.fixed_comms_budget)
                 )
             ]
             fixed_budget_edges = {
@@ -242,9 +243,7 @@ class ILPModel(OptimizationProblem):
             if distances[state] < 0:
                 continue
             for successor in self._graph.successors(state):
-                distances[successor] = max(
-                    distances[successor], distances[state] + 1
-                )
+                distances[successor] = max(distances[successor], distances[state] + 1)
         longest_goal_path = max(
             (distances.get(goal, -1) for goal in goal_states),
             default=-1,
@@ -289,8 +288,7 @@ class ILPModel(OptimizationProblem):
         for edge, budgets in self._edge_budgets.items():
             self.model.addConstr(
                 quicksum(
-                    self.opt_vars.message_budget[(*edge, budget)]
-                    for budget in budgets
+                    self.opt_vars.message_budget[(*edge, budget)] for budget in budgets
                 )
                 == 1,
                 name=f"choose_capacity_{edge[0]}_{edge[1]}",
@@ -302,9 +300,7 @@ class ILPModel(OptimizationProblem):
                 indicator = self.opt_vars.message_budget[key]
                 self.model.addConstr(selected_occupancy <= occupancy)
                 self.model.addConstr(selected_occupancy <= indicator)
-                self.model.addConstr(
-                    selected_occupancy >= occupancy + indicator - 1
-                )
+                self.model.addConstr(selected_occupancy >= occupancy + indicator - 1)
 
         incoming_edges: dict[int, list[tuple[int, int]]] = {}
         for edge in self._edge_budgets:
@@ -362,19 +358,15 @@ class ILPModel(OptimizationProblem):
                 action_probability = variable.X / outgoing_occupancy
             else:
                 action_count = sum(
-                    1
-                    for edge in self.opt_vars.task_occupancy
-                    if edge[0] == state
+                    1 for edge in self.opt_vars.task_occupancy if edge[0] == state
                 )
                 action_probability = 1.0 / action_count if action_count else 0.0
-            task_rows.append(
-                {
-                    "state": state,
-                    "next_state": next_state,
-                    "occupancy": variable.X,
-                    "action_probability": action_probability,
-                }
-            )
+            task_rows.append({
+                "state": state,
+                "next_state": next_state,
+                "occupancy": variable.X,
+                "action_probability": action_probability,
+            })
 
         capacity_rows = [
             {

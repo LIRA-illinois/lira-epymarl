@@ -292,9 +292,21 @@ class HLMDPEnvWrapper(gym.Wrapper):
         if "navigation_init_state_dist" in options:
             # dependent subtasks pass the predecessor's learned successful
             # final-state distribution to override the catalog's fixed spawn config
-            ll_options["navigation_init_state_dist"] = options[
-                "navigation_init_state_dist"
-            ]
+            init_state_dist = options["navigation_init_state_dist"]
+            states = init_state_dist.get("states", []) if isinstance(
+                init_state_dist, dict
+            ) else ()
+            has_position_states = bool(states) and all(
+                isinstance(joint_state, (list, tuple))
+                and all(
+                    isinstance(position, (list, tuple))
+                    and len(position) >= 2
+                    for position in joint_state
+                )
+                for joint_state in states
+            )
+            if has_position_states:
+                ll_options["navigation_init_state_dist"] = init_state_dist
 
         _, hl_info = self.hlmdp.reset(seed=seed, options=hl_options)
         ll_obs, ll_info = self.env.reset(seed=seed, options=ll_options)

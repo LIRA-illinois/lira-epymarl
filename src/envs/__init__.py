@@ -8,6 +8,7 @@ from .smaclite_wrapper import SMACliteWrapper
 
 # Additional environments
 from .gym_multigrid_wrapper import GymMultiGridWrapper
+from .mock_hierarchical_env import MockHierarchicalEnv
 from .basic_gymnasium_wrappers import (
     BasicGymnasiumWrapper,
     HLMDPEnvWrapper,
@@ -22,9 +23,9 @@ if sys.platform == "linux":
 
 def __check_and_prepare_smac_kwargs(kwargs):
     assert "common_reward" in kwargs and "reward_scalarisation" in kwargs
-    assert kwargs[
-        "common_reward"
-    ], "SMAC only supports common reward. Please set `common_reward=True` or choose a different environment that supports general sum rewards."
+    assert kwargs["common_reward"], (
+        "SMAC only supports common reward. Please set `common_reward=True` or choose a different environment that supports general sum rewards."
+    )
     del kwargs["common_reward"]
     del kwargs["reward_scalarisation"]
     assert "map_name" in kwargs, "Please specify the map_name in the env_args"
@@ -78,6 +79,13 @@ def gym_multigrid_fn(**kwargs) -> gym.Env:
 
 
 REGISTRY["gym_multigrid"] = gym_multigrid_fn
+
+
+def mock_hierarchical_fn(**kwargs) -> MockHierarchicalEnv:
+    return MockHierarchicalEnv(**kwargs)
+
+
+REGISTRY["mock-hierarchical-v0"] = mock_hierarchical_fn
 
 
 def gym_env_fn(common_reward=None, reward_scalarisation=None, **env_args) -> gym.Env:

@@ -1,12 +1,69 @@
 from types import SimpleNamespace
+from collections import defaultdict
 
 import numpy as np
 import pytest
 import torch as th
 
 from src.components.episode_buffer import EpisodeBatch
+from src.components.action_selectors import EpsilonGreedyActionSelector
 from src.controllers.maic_controller import MAICMAC
 from src.utils.policy_context import build_policy_context
+from src.utils.logging import MainLogger
+
+
+def test_epsilon_greedy_test_mode_preserves_training_epsilon():
+    args = SimpleNamespace(
+        epsilon_start=1.0,
+        epsilon_finish=0.05,
+        epsilon_anneal_time=100,
+        evaluation_epsilon=0.0,
+        correlated_exploration=False,
+        correlated_exploration_prob=0.5,
+    )
+    selector = EpsilonGreedyActionSelector(args)
+    q_values = th.zeros((2, 3, 4))
+    avail_actions = th.ones((2, 3, 4), dtype=th.long)
+
+    selector.select_action(
+        q_values,
+        avail_actions,
+        t_env=50,
+        test_mode=False,
+    )
+    training_epsilon = selector.epsilon
+    assert training_epsilon == pytest.approx(0.525)
+
+    selector.select_action(
+        q_values,
+        avail_actions,
+        t_env=50,
+        test_mode=True,
+    )
+    assert selector.epsilon == pytest.approx(training_epsilon)
+
+
+def test_epsilon_logging_rejects_reset_or_upward_jump():
+    logger = MainLogger.__new__(MainLogger)
+    logger.step_metric = "t_env"
+    logger.stats = defaultdict(list)
+    logger.use_wandb = True
+    logger.log_suffix = ""
+    logger.wandb_current_t = -1
+    logger.wandb_current_data = {}
+    logged = []
+    logger.wandb = SimpleNamespace(
+        log=lambda data: logged.append(dict(data))
+    )
+    logger._last_epsilon = None
+    logger._last_epsilon_t_env = None
+
+    logger.log_stat("epsilon", 0.525, 500)
+    logger.log_stat("epsilon", 0.050, 1000)
+    logger.log_stat("epsilon", 1.0, 1001)
+    logger.log_stat("epsilon", 0.525, 192)
+
+    assert [value for _, value in logger.stats["epsilon"]] == [0.525, 0.05]
 
 
 def test_policy_context_encodes_normalized_budget_and_subtask_one_hot():

@@ -505,6 +505,10 @@ class RayCluster:
                 capture_output=True,
                 text=True,
                 check=False,
+                env={
+                    **os.environ,
+                    "WANDB_DIR": join(project_dir, "results", "wandb"),
+                },
             )
             outcomes.append({
                 "run_dir": run_dir,
@@ -545,6 +549,10 @@ class RayCluster:
                 capture_output=True,
                 text=True,
                 check=False,
+                env={
+                    **os.environ,
+                    "WANDB_DIR": join(project_dir, "results", "wandb"),
+                },
             )
         except OSError as error:
             return {"run_dir": run_dir, "returncode": 1, "output": str(error)}

@@ -112,6 +112,14 @@ def test_conditioned_budget_enforces_message_filter_during_training(monkeypatch)
     assert filtered == [False]
 
 
+def test_float_message_budget_is_normalized_for_hard_topk():
+    agent = MAICAgent(input_shape=5, args=_agent_args(3, msg_filter_type="hard_topk"))
+    agent.msg_budget_per_agent = 1.0
+
+    assert agent.msg_budget_per_agent == 1
+    assert isinstance(agent.msg_budget_per_agent, int)
+
+
 def test_conditioned_budgets_apply_per_episode_topk_limits():
     agent = MAICAgent(input_shape=5, args=_agent_args(3, condition_on_msg_budget=True))
     alpha = th.ones(2, 3, 3, 1)

@@ -1,5 +1,6 @@
 from collections import defaultdict
 from functools import partial
+import os
 from os import makedirs
 from os.path import join
 from typing import Optional
@@ -81,7 +82,18 @@ class EpisodeRunner:
         if t_env is None:
             t_env = self.t_env
 
-        replay_dir = join(self.logger.dir, "replays", f"t_{t_env}")
+        safe_prefix = "".join(
+            character
+            if character.isalnum() or character in ("-", "_")
+            else "_"
+            for character in video_prefix
+        )
+        replay_dir = join(
+            self.logger.dir,
+            "replays",
+            f"t_{t_env}",
+            safe_prefix,
+        )
         makedirs(replay_dir, exist_ok=True)
         self.logger.info(f"Saving {n_test_replays_save} test episode replays")
         self.env = RecordVideoExtended(
@@ -108,7 +120,17 @@ class EpisodeRunner:
             )
 
             # remove the video recorder wrapper
+            video_folder = self.env.video_folder
             self.env = self.env.env
+            for root, dirs, files in os.walk(video_folder, topdown=False):
+                for filename in files:
+                    os.remove(join(root, filename))
+                for dirname in dirs:
+                    os.rmdir(join(root, dirname))
+            try:
+                os.rmdir(video_folder)
+            except FileNotFoundError:
+                pass
 
     def close_env(self):
         self.env.close()

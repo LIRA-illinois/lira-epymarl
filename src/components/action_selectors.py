@@ -82,10 +82,11 @@ class EpsilonGreedyActionSelector:
 
         # Assuming agent_inputs is a batch of Q-Values for each agent bav
         self.epsilon = self.schedule.eval(t_env)
-
-        if test_mode:
-            # Greedy action selection only
-            self.epsilon = self.args.evaluation_epsilon
+        epsilon = (
+            float(self.args.evaluation_epsilon)
+            if test_mode
+            else float(self.epsilon)
+        )
 
         # mask actions that are excluded from selection
         masked_q_values = agent_inputs.clone()
@@ -95,7 +96,7 @@ class EpsilonGreedyActionSelector:
 
         # Choose the exploration mode per team, without enumerating joint actions.
         independent_pick_random = (
-            th.rand_like(agent_inputs[:, :, 0]) < self.epsilon
+            th.rand_like(agent_inputs[:, :, 0]) < epsilon
         ).long()
         independent_actions = Categorical(avail_actions.float()).sample().long()
 
@@ -111,7 +112,7 @@ class EpsilonGreedyActionSelector:
             correlated_pick_random = (
                 (
                     th.rand(agent_inputs.shape[0], device=agent_inputs.device)
-                    < self.epsilon
+                    < epsilon
                 )
                 .long()
                 .unsqueeze(1)

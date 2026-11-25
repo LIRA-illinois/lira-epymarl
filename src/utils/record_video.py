@@ -114,6 +114,17 @@ class RecordVideoExtended(RecordVideo):
 
             gc.collect()
 
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict | None = None,
+    ):
+        num_agents = self.env.get_wrapper_attr("num_agents")
+        self.env.set_wrapper_attr("_pre_step_actions", np.full(num_agents, None))
+        self.env.set_wrapper_attr("t_render", 0)
+        return super().reset(seed=seed, options=options)
+
     def step(
         self,
         action: ActType,
@@ -131,6 +142,8 @@ class RecordVideoExtended(RecordVideo):
             )
         else:
             self.env.set_wrapper_attr("_pre_step_actions", np.asarray(action))
+        t_render = self.env.get_wrapper_attr("_t")
+        self.env.set_wrapper_attr("t_render", int(t_render))
 
         if capture_before_step:
             if self.recording:
@@ -154,7 +167,8 @@ class RecordVideoExtended(RecordVideo):
                 "_pre_step_actions",
                 np.full(num_agents, None),
             )
-            self.env.set_wrapper_attr("t_render", "Final")
+            t_render = self.env.get_wrapper_attr("_t")
+            self.env.set_wrapper_attr("t_render", int(t_render))
 
             if self.recording:
                 self._capture_frame()

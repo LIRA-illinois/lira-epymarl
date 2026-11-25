@@ -1,0 +1,2105 @@
+import datetime
+import json
+import multiprocessing as mp
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from os import listdir, makedirs, walk
+from os.path import abspath, isdir, join, splitext
+from shutil import rmtree
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace as SN
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch as th
+
+import wandb
+from src.modules.agents.ilp_model import ILPModel, InfeasiblePolicyError
+from src.simulation.build import build_sim
+from src.simulation.context_utils import (
+    aggregate_eval_context_rows,
+    context_columns,
+    context_sample_count_label,
+    evaluation_context_label,
+    plot_combined_context_evaluation,
+    plot_context_evaluation,
+    plot_high_level_environment,
+)
+from src.simulation.dependent_subtasks import DependentSubtaskTrainingMixin
+
+
+def run_eval_episodes(*args, **kwargs):
+    """Compatibility proxy so public run-module monkeypatches are honored."""
+    try:
+        import src.simulation.run as public_run
+        import src.simulation.run_legacy as legacy_run
+
+        public_runner = getattr(public_run, "run_eval_episodes", None)
+        if (
+            callable(public_runner)
+            and public_runner is not legacy_run.run_eval_episodes
+        ):
+            return public_runner(*args, **kwargs)
+    except (AttributeError, ImportError):
+        pass
+    from src.simulation.evaluate import run_eval_episodes as evaluate_runner
+
+    return evaluate_runner(*args, **kwargs)
+
+
+from src.simulation.hierarchical_config import (
+    get_unified_hierarchical_config,
+)
+from src.simulation.simulation_utils import (
+    configured_message_budgets,
+    episode_batch_reward_totals,
+    load_test_returns,
+    map_name_from_config,
+    postprocess_success_rate_specs,
+    success_rate_lcb,
+    task_edge_from_config,
+    training_reward_stabilized,
+    wandb_project_path,
+)
+from src.simulation.unified_hierarchical_runner import (
+    UnifiedHierarchicalSeedRunner as UnifiedSeedRunner,
+)
+from src.utils.general_reward_support import test_alg_config_supports_reward
+from src.utils.logging import RESULTS_DIR, MainLogger, log_setup
+from src.utils.navigation_rendering import (
+    render_navigation_task_frames,
+)
+from src.utils.timehelper import time_left, time_str
+
+# use agg backend to support multiprocessing
+plt.switch_backend("agg")
+
+
+class Simulation(DependentSubtaskTrainingMixin):
+    def __init__(self, _config, _log) -> None:
+        mp.set_start_method("spawn", force=True)
+        args: SN = self._parse_config(_config, _log)
+        self._dependent_cm_total_t_env = 0
+
+        self.logger: MainLogger = self._build_logger(args, _config, _log)
+        self.args, self.runner, self.buffer, self.learner = build_sim(args, self.logger)
+        self.n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
+
+    def run(self) -> None:
+        if self.args.evaluate:
+            self._load_checkpoint()
+
+            # run evaluation on loaded checkpoint
+            if self.args.evaluate or self.args.save_replay:
+                self.evaluate_loaded()
+                return
+
+        elif hasattr(self.args, "post_processing"):
+            assert self.args.post_processing in [
+                "optimize_high_level_policy",
+                "aggregate_runs",
+            ]
+
+            if self.args.post_processing == "optimize_high_level_policy":
+                df_data = self._load_experiment_table_artifact(
+                    art_name="eval_stats",
+                    art_version="latest",
+                    art_type="run_table",
+                )
+                self.logger.info("Optimizing High-Level Policy", log_header=True)
+                self._train_high_level_policy(df_data)
+                policy = self.runner.mac.comms_agent.policy
+                print(policy.task_policy)
+                print(policy.comms_budget_policy)
+                policy_dir = join(
+                    self.args.local_results_path,
+                    "high_level_policies",
+                    self.args.time_id or self.args.unique_token,
+                )
+                makedirs(policy_dir, exist_ok=True)
+                policy.task_policy.to_csv(
+                    join(policy_dir, "task_policy.csv"), index=False
+                )
+                policy.comms_budget_policy.to_csv(
+                    join(policy_dir, "comms_budget_policy.csv"), index=False
+                )
+                self.logger.info(f"Saved optimized high-level policy to {policy_dir}.")
+                self.runner.close_env()
+                return
+
+            elif self.args.post_processing == "aggregate_runs":
+                df_data, runs = self._load_experiment_table_artifact(
+                    art_name="eval_stats",
+                    art_version="latest",
+                    art_type="run_table",
+                    return_runs=True,
+                )
+
+                # Group scenarios by experimental conditions while allowing
+                # different model implementations to contribute to one plot.
+                ignored_config_keys = {
+                    "_wandb",
+                    "msg_budget_per_agent",
+                    "hl_task",
+                    "scenario",
+                    "seed",
+                    "config",
+                    "agent",
+                    "learner",
+                    "mac",
+                    "mixer",
+                }
+
+                def without_seed(value):
+                    if isinstance(value, dict):
+                        return {
+                            key: without_seed(item)
+                            for key, item in value.items()
+                            if key != "seed"
+                        }
+                    if isinstance(value, (list, tuple)):
+                        return type(value)(without_seed(item) for item in value)
+                    return value
+
+                scenario_groups = {}
+                group_has_hl_task = {}
+                group_runs = {}
+                group_runs_by_seed = {}
+                scenario_runs = {}
+                scenario_runs_by_seed = {}
+                scenario_has_hl_task = {}
+                expected_tasks_by_map = {}
+                expected_task_budgets_by_map_seed = {}
+                expected_seeds_by_map = {}
+                for run in runs:
+                    scenario_value = run.config.get("scenario")
+                    try:
+                        scenario = int(scenario_value)
+                    except (TypeError, ValueError):
+                        continue
+                    try:
+                        seed = int(run.config["seed"])
+                    except (KeyError, TypeError, ValueError) as error:
+                        raise ValueError(
+                            f"Training run {run.id} has no valid seed config."
+                        ) from error
+
+                    group_key = tuple(
+                        sorted(
+                            (key, repr(without_seed(value)))
+                            for key, value in run.config.items()
+                            if key not in ignored_config_keys
+                        )
+                    ) + (("_has_hl_task", str(run.config.get("hl_task") is not None)),)
+                    scenario_groups[scenario] = group_key
+                    hl_task = run.config.get("hl_task")
+                    group_has_hl_task[group_key] = hl_task is not None
+                    scenario_has_hl_task[scenario] = hl_task is not None
+                    scenario_runs[scenario] = run
+                    scenario_runs_by_seed[(scenario, seed)] = run
+                    group_runs.setdefault(group_key, run)
+                    group_runs_by_seed.setdefault((group_key, seed), run)
+                    if hl_task is not None:
+                        map_name = (
+                            self._map_name_from_config(run.config) or "unknown_map"
+                        )
+                        task_edge = self._task_edge_from_config(hl_task)
+                        budgets = set(
+                            self._configured_message_budgets(
+                                run.config.get("msg_budget_per_agent")
+                            )
+                        )
+                        expected_tasks_by_map.setdefault(map_name, set()).add(task_edge)
+                        expected_task_budgets_by_map_seed.setdefault(
+                            (map_name, seed, task_edge), set()
+                        ).update(budgets)
+                        expected_seeds_by_map.setdefault(map_name, set()).add(seed)
+
+                df_data["scenario_group"] = df_data["scenario"].map(scenario_groups)
+                df_data["map_name"] = df_data["map_name"].fillna("unknown_map")
+                df_data = df_data.loc[df_data["scenario_group"].notna()]
+                df_data["aggregation_seed"] = [
+                    seed if scenario_has_hl_task[int(scenario)] else -1
+                    for scenario, seed in zip(df_data["scenario"], df_data["seed"])
+                ]
+
+                incomplete_map_seeds = set()
+                for map_name, seeds in expected_seeds_by_map.items():
+                    expected_tasks = expected_tasks_by_map[map_name]
+                    for seed in seeds:
+                        seed_rows = df_data.loc[
+                            (df_data["map_name"] == map_name)
+                            & (df_data["seed"] == seed)
+                        ]
+                        observed_budgets_by_task = {}
+                        for row in seed_rows.itertuples(index=False):
+                            source_run = scenario_runs_by_seed.get(
+                                (
+                                    int(row.scenario),
+                                    seed,
+                                )
+                            )
+                            if source_run is None:
+                                continue
+                            hl_task = source_run.config.get("hl_task")
+                            if hl_task is None:
+                                continue
+                            task_edge = self._task_edge_from_config(hl_task)
+                            observed_budgets_by_task.setdefault(
+                                task_edge, set()
+                            ).update(
+                                self._configured_message_budgets(
+                                    row.msg_budget_per_agent
+                                )
+                            )
+
+                        missing_results = []
+                        for task_edge in expected_tasks:
+                            expected_budgets = expected_task_budgets_by_map_seed.get(
+                                (map_name, seed, task_edge), set()
+                            )
+                            observed_budgets = observed_budgets_by_task.get(
+                                task_edge, set()
+                            )
+                            missing_budgets = expected_budgets - observed_budgets
+                            if not expected_budgets:
+                                missing_results.append(
+                                    f"task {task_edge} (no source run)"
+                                )
+                            elif missing_budgets:
+                                missing_results.append(
+                                    f"task {task_edge}, budgets {sorted(missing_budgets)}"
+                                )
+                        if missing_results:
+                            incomplete_map_seeds.add((map_name, seed))
+                            self.logger.info(
+                                f"Skipping high-level synthesis for map {map_name}, "
+                                f"seed {seed}; missing results: "
+                                f"{'; '.join(missing_results)}"
+                            )
+
+                source_run = next(iter(group_runs.values()), runs[0])
+
+                postprocess_name = f"{self.args.time_id}_postprocess"
+                api = wandb.Api()
+                postprocess_runs = [
+                    run
+                    for run in api.runs(
+                        self._wandb_project_path(api, self.args.wandb_project),
+                        filters={"config.time_id": self.args.time_id},
+                    )
+                    if (getattr(run, "name", "") or "") in {postprocess_name}
+                    or (getattr(run, "name", "") or "").startswith(
+                        f"{postprocess_name}_"
+                    )
+                ]
+                active_postprocess_run = next(
+                    (
+                        run
+                        for run in postprocess_runs
+                        if (getattr(run, "state", "") or "").lower() == "running"
+                    ),
+                    None,
+                )
+
+                if active_postprocess_run is not None:
+                    self.logger.info(
+                        f"Resuming active post-processing run {active_postprocess_run.id}"
+                    )
+                    wandb_run = wandb.init(
+                        entity=getattr(active_postprocess_run, "entity", None),
+                        project=getattr(active_postprocess_run, "project", None),
+                        id=active_postprocess_run.id,
+                        resume="allow",
+                        dir=RESULTS_DIR,
+                    )
+                else:
+                    finished_postprocess_run = any(
+                        (getattr(run, "state", "") or "").lower() == "finished"
+                        for run in postprocess_runs
+                    )
+                    if finished_postprocess_run:
+                        revision = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        postprocess_name = f"{postprocess_name}_{revision}"
+
+                    # Use a dedicated online run for aggregate images.
+                    wandb_run = wandb.init(
+                        entity=getattr(source_run, "entity", None),
+                        project=getattr(source_run, "project", None),
+                        name=postprocess_name,
+                        config={
+                            "experiment": self.args.experiment,
+                            "scenario": "postprocess",
+                            "time_id": self.args.time_id,
+                            "post_processing": self.args.post_processing,
+                        },
+                        mode="online",
+                        dir=RESULTS_DIR,
+                    )
+
+                combined_groups_by_map = {}
+                combined_source_runs_by_map = {}
+                source_runs_by_map = {}
+                policy_eval_data_by_map = {}
+                plot_group_ids = {}
+                for group_idx, ((group_key, aggregation_seed), df_group) in enumerate(
+                    df_data.groupby(["scenario_group", "aggregation_seed"], sort=True),
+                    start=1,
+                ):
+                    seed = None if aggregation_seed == -1 else int(aggregation_seed)
+                    group_columns = [
+                        "t_env_rounded",
+                        *context_columns(df_group),
+                    ]
+                    df_avg = aggregate_eval_context_rows(df_group, group_columns)
+                    df_avg["t_env"] = df_avg["t_env_rounded"]
+
+                    n_seeds_per_run = df_group[
+                        ["t_env_rounded", "scenario", "msg_budget_per_agent"]
+                    ].value_counts()
+                    min_n_seeds, max_n_seeds = (
+                        min(n_seeds_per_run),
+                        max(n_seeds_per_run),
+                    )
+
+                    parameter_info = ", ".join(
+                        f"{key}={value}" for key, value in group_key
+                    )
+                    scenario_indices = sorted(
+                        {
+                            int(scenario)
+                            for scenario in df_group["scenario"].dropna().unique()
+                        }
+                    )
+                    group_source_run = (
+                        group_runs_by_seed.get((group_key, seed))
+                        if seed is not None
+                        else group_runs.get(group_key)
+                    )
+                    if group_source_run is None:
+                        continue
+                    plot_group_key = tuple(
+                        (key, value) for key, value in group_key if key != "hl_task"
+                    )
+                    plot_group_ids.setdefault(plot_group_key, len(plot_group_ids) + 1)
+                    map_name = self._map_name_from_config(group_source_run.config)
+                    map_name = map_name or "unknown_map"
+                    hl_task = group_source_run.config.get("hl_task")
+                    scenario_label = "_".join(
+                        str(scenario) for scenario in scenario_indices
+                    )
+                    if isinstance(hl_task, (list, tuple)):
+                        hl_task_label = "-".join(str(state) for state in hl_task)
+                    elif hl_task is not None:
+                        hl_task_label = str(hl_task)
+                    else:
+                        hl_task_label = None
+
+                    plot_group = f"s{scenario_label}"
+                    if hl_task_label is not None:
+                        plot_group += f"_t{hl_task_label}"
+                    plot_group = f"map_{map_name}_{plot_group}"
+                    if seed is not None:
+                        plot_group = f"map_{map_name}_seed_{seed}_{plot_group}"
+                    map_group = (map_name, seed, plot_group_key)
+                    if hl_task is not None:
+                        policy_eval_data_by_map.setdefault(map_group, []).append(
+                            df_group.copy()
+                        )
+                    source_runs_by_budget = {}
+                    for scenario in scenario_indices:
+                        scenario_run = (
+                            scenario_runs_by_seed.get((scenario, seed))
+                            if seed is not None
+                            else scenario_runs.get(scenario)
+                        )
+                        if scenario_run is None:
+                            continue
+                        for budget in self._configured_message_budgets(
+                            scenario_run.config.get("msg_budget_per_agent")
+                        ):
+                            source_runs_by_budget[budget] = scenario_run
+                    source_runs_by_map.setdefault(map_group, group_source_run)
+                    task_column = "hl_task" if "hl_task" in df_avg else None
+                    if task_column is not None:
+                        task_groups = df_avg.groupby(
+                            task_column, sort=True, dropna=False
+                        )
+                    else:
+                        task_groups = [(hl_task, df_avg)]
+                    for eval_task, task_df in task_groups:
+                        if eval_task is None or (
+                            isinstance(eval_task, float) and np.isnan(eval_task)
+                        ):
+                            task_edge = hl_task
+                        else:
+                            task_edge = self._task_edge_from_config(eval_task)
+                        if task_edge is None:
+                            task_label = f"task {group_idx}"
+                        else:
+                            task_label = "task " + "-".join(
+                                str(state) for state in task_edge
+                            )
+                        matching_runs = [
+                            scenario_runs[scenario]
+                            for scenario in scenario_indices
+                            if scenario in scenario_runs
+                            and (
+                                scenario_runs[scenario].config.get("hl_task") is None
+                                or self._task_edge_from_config(
+                                    scenario_runs[scenario].config["hl_task"]
+                                )
+                                == task_edge
+                            )
+                        ]
+                        if not matching_runs:
+                            matching_runs = [
+                                scenario_runs[scenario]
+                                for scenario in scenario_indices
+                                if scenario in scenario_runs
+                            ]
+                        task_source_runs = {}
+                        for task_run in matching_runs:
+                            for budget in self._configured_message_budgets(
+                                task_run.config.get("msg_budget_per_agent")
+                            ):
+                                task_source_runs[budget] = task_run
+                        combined_groups_by_map.setdefault(map_group, []).append(
+                            (
+                                task_label,
+                                task_df.copy(),
+                                task_edge,
+                            )
+                        )
+                        combined_source_runs_by_map.setdefault(map_group, []).append(
+                            task_source_runs or source_runs_by_budget
+                        )
+                    self.logger.info(
+                        f"Plotting aggregated eval stats for group {group_idx}: "
+                        f"{parameter_info}"
+                    )
+                    if hl_task is not None:
+                        aggregate_table = wandb.Table(dataframe=df_avg)
+                        self._make_comms_eval_plots(
+                            aggregate_table,
+                            t=np.max(df_avg.t_env_rounded),
+                            wandb_run=wandb_run,
+                            info_str=(
+                                f"Seed {seed}; "
+                                f"{context_sample_count_label(df_avg)}; "
+                                f"Min Runs: {min_n_seeds}, "
+                                f"Max Runs: {max_n_seeds}"
+                                if seed is not None
+                                else f"Group {group_idx}; "
+                                f"{context_sample_count_label(df_avg)}; "
+                                f"Min Seeds: {min_n_seeds}, "
+                                f"Max Seeds: {max_n_seeds}"
+                            ),
+                            plot_group=plot_group,
+                        )
+
+                for map_name, seed, plot_group_key in sorted(
+                    combined_groups_by_map,
+                    key=lambda item: (
+                        item[0],
+                        -1 if item[1] is None else item[1],
+                        item[2],
+                    ),
+                ):
+                    map_group = (map_name, seed, plot_group_key)
+                    if seed is not None and (map_name, seed) in incomplete_map_seeds:
+                        continue
+                    map_groups = combined_groups_by_map[map_group]
+                    map_t = max(
+                        int(df["t_env_rounded"].max()) for _, df, _ in map_groups
+                    )
+                    first_run = source_runs_by_map[map_group]
+                    condition_label_parts = [
+                        str(first_run.config[key])
+                        for key in ("policy_mode", "hidden_dim")
+                        if key in first_run.config
+                    ]
+                    condition_label = "_".join(condition_label_parts) or "model"
+                    condition_label = (
+                        f"{condition_label}_config_{plot_group_ids[plot_group_key]:02d}"
+                    )
+                    if not any(hl_task is not None for _, _, hl_task in map_groups):
+                        map_df = pd.concat(
+                            [df for _, df, _ in map_groups], ignore_index=True
+                        )
+                        map_df = (
+                            map_df.groupby(
+                                ["msg_budget_per_agent", "t_env"], dropna=False
+                            )
+                            .mean(numeric_only=True)
+                            .reset_index()
+                        )
+                        self._make_comms_eval_plots(
+                            wandb.Table(dataframe=map_df),
+                            t=map_t,
+                            wandb_run=wandb_run,
+                            plot_group=f"map_{map_name}",
+                        )
+                    if any(hl_task is not None for _, _, hl_task in map_groups):
+                        self._make_combined_comms_eval_plots(
+                            map_groups,
+                            t=map_t,
+                            map_name=map_name,
+                            seed=seed,
+                            condition_label=condition_label,
+                            wandb_run=wandb_run,
+                        )
+                        self._make_task_success_frame_plot(
+                            map_groups,
+                            source_runs=combined_source_runs_by_map[map_group],
+                            source_run=source_runs_by_map[map_group],
+                            t=map_t,
+                            map_name=map_name,
+                            seed=seed,
+                            condition_label=condition_label,
+                            wandb_run=wandb_run,
+                        )
+                        if policy_eval_data_by_map.get(map_group):
+                            self._make_high_level_success_vs_cost_plot(
+                                pd.concat(
+                                    policy_eval_data_by_map[map_group],
+                                    ignore_index=True,
+                                ),
+                                map_name=map_name,
+                                t=map_t,
+                                seed=seed,
+                                condition_label=condition_label,
+                                wandb_run=wandb_run,
+                            )
+                wandb_run.finish()
+
+                return
+
+        hierarchical_value = getattr(self.args, "hierarchical", None)
+        if hierarchical_value is not None:
+            hierarchical_config = get_unified_hierarchical_config(hierarchical_value)
+            if hierarchical_config is None:
+                raise RuntimeError(
+                    "Unified hierarchical configuration resolved to no config."
+                )
+            self._run_unified_hierarchical(hierarchical_config)
+            return
+
+        # # run training
+        # if hierarchical:
+        #     self.train_hierarchical()
+
+        # else:
+
+        hl_task_sequence = getattr(self.args, "hl_task_sequence", None)
+        if hl_task_sequence is not None:
+            self.train_dependent_subtasks(hl_task_sequence)
+            return
+
+        hl_task = getattr(self.args, "hl_task", None)
+        reset_options = None
+        if hl_task is not None:
+            reset_options = {"hl_start_state": hl_task[0], "hl_task": hl_task}
+
+        self.train_single_task(reset_options=reset_options)
+
+    def _run_unified_hierarchical(self, hierarchical_config) -> None:
+        artifact_root = getattr(
+            self.args,
+            "artifact_root",
+            join(
+                self.args.local_results_path,
+                "hierarchical_artifacts",
+                self.args.time_id or self.args.unique_token,
+                f"seed_{self.args.seed}",
+            ),
+        )
+        UnifiedSeedRunner(self).run(
+            hierarchical_config,
+            artifact_root,
+        )
+
+    def _run_mock_unified_hierarchical(
+        self,
+        hierarchical_config,
+        artifact_root: str,
+    ) -> dict:
+        """Compatibility delegate for tests and legacy callers."""
+        from src.simulation.unified_hierarchical_runner import run_mock_seed
+
+        return run_mock_seed(
+            self,
+            hierarchical_config,
+            artifact_root,
+        )
+
+    def train_single_task(
+        self,
+        reset_options: dict | None = None,
+        close_env: bool = True,
+        option_snapshot_callback=None,
+    ) -> None:
+        """
+        original EPYMARL training for non-hierarchical policies for a project with a single task
+        """
+        self.logger.info("Training Policy", log_header=True)
+
+        # timing setup
+        episode = 0
+        last_test_t = 0
+        last_log_t = 0
+        model_save_time = 0
+
+        start_time = time.time()
+        last_time = start_time
+        episode_reward_history: list[tuple[int, float]] = []
+        evaluation_success_lcb: float | None = None
+
+        # training loop
+        self.logger.info(f"Beginning training for {self.args.t_max} timesteps")
+
+        if getattr(self.args, "unique_policy_per_msg_budget", False):
+            self.runner.mac.msg_budget_per_agent = self.args.msg_budget_per_agent[0]
+
+        condition_on_budget = getattr(self.args, "condition_on_msg_budget", False)
+        condition_on_subtask = getattr(self.args, "condition_on_subtask", False)
+        rollout_budgets = (
+            list(self.args.msg_budget_per_agent) if condition_on_budget else [None]
+        )
+        rollout_subtasks = (
+            list(self.args.subtask_contexts) if condition_on_subtask else [None]
+        )
+        if condition_on_budget and not rollout_budgets:
+            raise ValueError(
+                "msg_budget_per_agent must contain values when "
+                "condition_on_msg_budget is enabled."
+            )
+        if condition_on_subtask and not rollout_subtasks:
+            raise ValueError(
+                "subtask_contexts must contain values when condition_on_subtask is enabled."
+            )
+        conditioned_rollout_index = 0
+
+        while self.runner.t_env <= self.args.t_max:
+            # Run for a whole episode at a time
+            rollout_options = reset_options
+            if condition_on_budget or condition_on_subtask:
+                rollout_options = deepcopy(reset_options) if reset_options else {}
+                budget_index = conditioned_rollout_index % len(rollout_budgets)
+                subtask_index = (
+                    conditioned_rollout_index // len(rollout_budgets)
+                ) % len(rollout_subtasks)
+                budget = rollout_budgets[budget_index]
+                subtask = rollout_subtasks[subtask_index]
+
+                if budget is not None:
+                    budget = int(budget)
+                    rollout_options["msg_budget_per_agent"] = budget
+                    self.runner.mac.msg_budget_per_agent = budget
+
+                if subtask is not None:
+                    if isinstance(subtask, int):
+                        rollout_options["subtask_idx"] = subtask
+                    else:
+                        edge = [int(subtask[0]), int(subtask[1])]
+                        rollout_options["hl_start_state"] = edge[0]
+                        rollout_options["hl_task"] = edge
+
+                conditioned_rollout_index += 1
+
+            result = self.runner.run(test_mode=False, reset_options=rollout_options)
+
+            episode_batch = result["batch"] if isinstance(result, dict) else result
+            self.buffer.insert_episode_batch(episode_batch)
+
+            if getattr(self.args, "early_stopping", False):
+                episode_reward_history.extend(
+                    (self.runner.t_env, episode_reward_total)
+                    for episode_reward_total in self._episode_batch_reward_totals(
+                        episode_batch
+                    )
+                )
+                window = getattr(self.args, "early_stopping_window", 500000)
+                episode_reward_history = [
+                    (timestamp, episode_reward_total)
+                    for timestamp, episode_reward_total in episode_reward_history
+                    if timestamp >= self.runner.t_env - window
+                ]
+
+            # Keep the learner update count proportional to collected episodes.
+            n_updates = episode_batch.batch_size
+            for update_idx in range(n_updates):
+                if not self.buffer.can_sample(self.args.batch_size):
+                    break
+
+                episode_sample = self.buffer.sample(self.args.batch_size)
+
+                # Truncate batch to only filled timesteps
+                max_ep_t = episode_sample.max_t_filled()
+                episode_sample = episode_sample[:, :max_ep_t]
+
+                if episode_sample.device != self.args.device:
+                    episode_sample.to(self.args.device)
+
+                self.learner.train(
+                    episode_sample,
+                    self.runner.t_env,
+                    episode + update_idx,
+                )
+
+            # run evaluation episodes
+            if self.runner.t_env - last_test_t >= self.args.test_interval:
+                self.logger.info(f"t_env: {self.runner.t_env} / {self.args.t_max}")
+                self.logger.info(
+                    "Estimated time left: "
+                    f"{time_left(last_time, last_test_t, self.runner.t_env, self.args.t_max)}. "
+                    "Time passed: "
+                    f"{time_str(time.time() - start_time)}"
+                )
+
+                last_time = time.time()
+                last_test_t = self.runner.t_env
+                if hasattr(self.runner, "get_env_attr"):
+                    termination_setting = self.runner.get_env_attr(
+                        "terminate_on_task_completed"
+                    )
+                elif hasattr(self.runner, "env"):
+                    termination_setting = getattr(
+                        self.runner.env, "terminate_on_task_completed", None
+                    )
+                else:
+                    termination_setting = None
+                try:
+                    evaluation_success_lcb = self.evaluate(
+                        n_eval_eps=self.n_eval_eps, reset_options=reset_options
+                    )
+                finally:
+                    if termination_setting is not None:
+                        if hasattr(self.runner, "set_env_attr"):
+                            self.runner.set_env_attr(
+                                "terminate_on_task_completed", termination_setting
+                            )
+                        else:
+                            self.runner.env.terminate_on_task_completed = (
+                                termination_setting
+                            )
+                if option_snapshot_callback is not None:
+                    option_snapshot_callback(self.runner.t_env)
+                if evaluation_success_lcb is not None:
+                    self.logger.log_stat(
+                        "early_stopping_success_lcb",
+                        evaluation_success_lcb,
+                        self.runner.t_env,
+                    )
+
+            reward_stabilized = self._training_reward_stabilized(
+                episode_reward_history,
+                self.runner.t_env,
+                getattr(self.args, "early_stopping_window", 500000),
+                getattr(self.args, "early_stopping_min_delta", 0.01),
+            )
+            min_success_lcb = getattr(self.args, "early_stopping_min_success_lcb", None)
+            success_lcb_ready = min_success_lcb is None or (
+                evaluation_success_lcb is not None
+                and evaluation_success_lcb >= min_success_lcb
+            )
+            if (
+                getattr(self.args, "early_stopping", False)
+                and reward_stabilized
+                and success_lcb_ready
+            ):
+                stopping_reason = "episode reward stabilized"
+                if min_success_lcb is not None:
+                    stopping_reason += (
+                        f"; success-rate LCB reached {evaluation_success_lcb:.3f}"
+                    )
+                self.logger.info(
+                    "Stopping training early: "
+                    f"{stopping_reason} over "
+                    f"{self.args.early_stopping_window} timesteps."
+                )
+                break
+
+            # save model to disk
+            if (
+                self.args.save_model
+                and self.runner.t_env - model_save_time >= self.args.save_model_interval
+            ):
+                model_save_time = self.runner.t_env
+                self.save()
+
+            episode += self.args.batch_size_run
+
+            # log key training / eval metrics
+            if (self.runner.t_env - last_log_t) >= self.args.log_interval:
+                self.logger.log_stat("episode", episode, self.runner.t_env)
+                self.logger.print_recent_stats()
+                last_log_t = self.runner.t_env
+
+        if close_env:
+            self.runner.close_env()
+        self.logger.info("Finished Training")
+
+    @staticmethod
+    def _episode_batch_reward_totals(episode_batch) -> np.ndarray:
+        return episode_batch_reward_totals(episode_batch)
+
+    @staticmethod
+    def _training_reward_stabilized(
+        episode_reward_history: list[tuple[int, float]],
+        t_env: int,
+        window: int,
+        min_delta: float,
+    ) -> bool:
+        return training_reward_stabilized(
+            episode_reward_history,
+            t_env,
+            window,
+            min_delta,
+        )
+
+    @staticmethod
+    def _success_rate_lcb(
+        success_rate: float, n_episodes: int, confidence: float
+    ) -> float | None:
+        return success_rate_lcb(success_rate, n_episodes, confidence)
+
+    def _evaluation_success_lcb(self, log_stats: dict) -> float | None:
+        success_rate = log_stats.get("test_task_completed_mean")
+        n_episodes = log_stats.get("test_n_episodes")
+        if success_rate is None or n_episodes is None:
+            return None
+        return self._success_rate_lcb(
+            float(success_rate),
+            int(n_episodes),
+            getattr(self.args, "early_stopping_confidence", 0.95),
+        )
+
+    def _train_high_level_policy(self, df_data: pd.DataFrame) -> None:
+        self.runner.env.hlmdp.transition_probs = df_data
+        self.learner.optimize_hl_agent(
+            self.runner.env.hlmdp, self.args.success_rate_spec
+        )
+
+    def _log_context_evaluation_stats(self, eval_data: list[dict]) -> None:
+        for log_stats in eval_data:
+            context_label = evaluation_context_label(log_stats)
+            for key, value in log_stats.items():
+                if not key.startswith("test_") or not isinstance(
+                    value, (int, float, np.number)
+                ):
+                    continue
+                if not np.isfinite(value):
+                    continue
+                self.logger.log_stat(
+                    f"{key}/{context_label}",
+                    float(value),
+                    self.runner.t_env,
+                )
+
+    def evaluate(
+        self, n_eval_eps: int, reset_options: dict | None = None
+    ) -> float | None:
+        """Evaluation entry point."""
+
+        condition_on_subtask = getattr(self.args, "condition_on_subtask", False)
+        has_budget_sweep = hasattr(self.args, "msg_budget_per_agent")
+        if has_budget_sweep or condition_on_subtask:
+            budgets = (
+                list(self.args.msg_budget_per_agent) if has_budget_sweep else [None]
+            )
+            subtasks = (
+                list(self.args.subtask_contexts) if condition_on_subtask else [None]
+            )
+            self.logger.info(
+                "Evaluating Policy Across Contexts: "
+                f"budgets={budgets}, subtasks={subtasks}",
+                log_header=True,
+            )
+
+            eval_data: list[dict] = []
+
+            # Keep evaluation layouts matched across policy contexts.
+            # Process-backed runners keep their RNGs in the worker processes.
+            if hasattr(self.runner, "get_env_rng_states"):
+                init_rng_state = self.runner.get_env_rng_states()
+            else:
+                env_rng = self.runner.env.get_wrapper_attr("np_random")
+                init_rng_state = env_rng.bit_generator.state
+
+            base_reset_options = deepcopy(reset_options) if reset_options else {}
+            for subtask in subtasks:
+                for budget in budgets:
+                    if hasattr(self.runner, "set_env_rng_states"):
+                        self.runner.set_env_rng_states(init_rng_state)
+                    else:
+                        env_rng = self.runner.env.get_wrapper_attr("np_random")
+                        env_rng.bit_generator.state = init_rng_state
+
+                    context_options = deepcopy(base_reset_options)
+                    if subtask is not None:
+                        if isinstance(subtask, int):
+                            context_options["subtask_idx"] = subtask
+                        else:
+                            edge = [int(subtask[0]), int(subtask[1])]
+                            context_options["hl_start_state"] = edge[0]
+                            context_options["hl_task"] = edge
+                            context_options["navigation_task_transition"] = edge
+                    if budget is not None:
+                        context_options["msg_budget_per_agent"] = budget
+
+                    self.logger.info(
+                        "Evaluating with "
+                        f"msg_budget_per_agent={budget}, subtask={subtask}"
+                    )
+
+                    result = run_eval_episodes(
+                        args=self.args,
+                        runner=self.runner,
+                        n_eval_eps=n_eval_eps,
+                        t_env=self.runner.t_env,
+                        reset_options=context_options or None,
+                        include_terminal_state_distribution=(
+                            has_budget_sweep or condition_on_subtask
+                        ),
+                    )
+                    log_stats = result["log_stats"]
+                    context_label = evaluation_context_label(log_stats)
+                    expected_episodes = n_eval_eps * self.runner.batch_size
+                    reported_episodes = log_stats.get("test_n_episodes")
+                    if reported_episodes != expected_episodes:
+                        raise RuntimeError(
+                            f"Evaluation context {context_label} reported "
+                            f"{reported_episodes} episodes; expected "
+                            f"{expected_episodes}."
+                        )
+                    for key in (
+                        "hl_task",
+                        "subtask_idx",
+                        "msg_budget_per_agent",
+                    ):
+                        if (
+                            key in context_options
+                            and log_stats.get(key) != context_options[key]
+                        ):
+                            raise RuntimeError(
+                                f"Evaluation context {context_label} logged "
+                                f"{key}={log_stats.get(key)!r}; expected "
+                                f"{context_options[key]!r}."
+                            )
+                    eval_data.append(log_stats)
+
+            context_labels = [
+                evaluation_context_label(log_stats) for log_stats in eval_data
+            ]
+            expected_contexts = len(subtasks) * len(budgets)
+            if (
+                len(eval_data) != expected_contexts
+                or len(set(context_labels)) != expected_contexts
+            ):
+                raise RuntimeError(
+                    f"Evaluation produced {len(eval_data)} distinct context rows; "
+                    f"expected {expected_contexts}."
+                )
+
+            df_eval = pd.DataFrame.from_records(eval_data)
+            success_lcbs = [
+                lcb
+                for log_stats in eval_data
+                if (lcb := self._evaluation_success_lcb(log_stats)) is not None
+            ]
+
+            self._log_context_evaluation_stats(eval_data)
+            self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
+            if has_budget_sweep:
+                self._make_comms_eval_plots(
+                    self.logger.data_tables["eval_stats"], t=self.runner.t_env
+                )
+            if condition_on_subtask or getattr(
+                self.args, "condition_on_msg_budget", False
+            ):
+                return min(success_lcbs, default=None)
+            return max(success_lcbs, default=None)
+
+            """
+            if self.args.parallel_comms_eval:
+                agent_state_dict = {k: v.cpu() for k, v in self.runner.mac.agent.state_dict().items()}
+                wandb_attrs = ["entity", "project", "id", "name"]
+                wandb_config = {attr: getattr(self.logger.wandb, attr) for attr in wandb_attrs}
+
+                n_procs = getattr(self.args, "max_parallel_eval_processes", min(len(msg_budget_per_agents), max(1, (cpu_count() or 1) - 1)))
+
+                inputs = []
+                for msg_budget_per_agent in msg_budget_per_agents:
+                    input_args = {
+                        "function": eval_worker,
+                        "args": self.args,
+                        "n_eval_e
+                        ps": n_eval_eps,
+                        "t_env": self.runner.t_env,
+                        "agent_state_dict": agent_state_dict,
+                        "logger_dir": self.logger.dir,
+                        "wandb_config": wandb_config,
+                        "reset_options": {"msg_budget_per_agent": msg_budget_per_agent},
+                    }
+                    inputs.append(input_args)
+
+                with mp.Pool(processes=n_procs, maxtasksperchild=2) as pool:
+                    results: list[dict] = list(pool.map(mp_kwargs_wrapper, inputs))
+
+                eval_data = [res["log_stats"] for res in results]
+
+            else:
+            """
+
+        # non-hierarchical evaluation w/ no comms sweep
+        else:
+            self.logger.info("Evaluating Policy", log_header=True)
+            result = run_eval_episodes(
+                args=self.args, runner=self.runner, n_eval_eps=n_eval_eps
+            )
+            if result is None:
+                return None
+            return self._evaluation_success_lcb(result["log_stats"])
+
+        """
+        # Hierarchical env handling
+        only needed if you want to eval multiple tasks in one process
+        if hasattr(self.runner.env, "hlmdp"):
+            hlmdp = self.runner.env.hlmdp
+
+            # goal-conditioned approach, 1 policy for multiple tasks, not quite there yet
+            # # Full sweep across all HL actions
+            # if reset_options is None:
+            #     df_actions = hlmdp.transition_probs.copy()
+            #     df_actions = df_actions.loc[df_actions.state_type == "normal"]
+            #     hl_actions = df_actions.action.drop_duplicates().tolist()
+
+            #     self.logger.info(f"Evaluating Policy Across Tasks", log_header=True)
+
+            #     eval_data: list[dict] = []
+            #     for action in hl_actions:
+            #         state = df_actions.loc[df_actions.action == action, "state"].unique().item()
+            #         chosen_next_state, comms_val = action
+            #         ro = {"hl_start_state": int(state), "msg_budget_per_agent": comms_val}
+
+            #         result = run_eval_episodes(
+            #             args=self.args,
+            #             runner=self.runner,
+            #             n_eval_eps=n_eval_eps,
+            #             t_env=self.runner.t_env,
+            #             reset_options=ro,
+            #         )
+
+            #         eval_data.append(result["log_stats"])
+
+            #         # update transition probs
+            #         success_rate = result["log_stats"].get("test_task_completed_mean")
+            #         df = hlmdp.transition_probs
+            #         df.loc[(df.action == action) & (df.next_state == chosen_next_state), "prob"] = success_rate
+            #         df.loc[(df.action == action) & (df.next_state != chosen_next_state), "prob"] = (1.0 - success_rate)
+
+            #     df_eval = pd.DataFrame.from_records(eval_data)
+            #     self.logger.log_table(df_eval, t=self.runner.t_env)
+
+            # Single-task evaluation
+            result = run_eval_episodes(
+                args=self.args,
+                runner=self.runner,
+                n_eval_eps=n_eval_eps,
+                t_env=self.runner.t_env,
+                reset_options=reset_options,
+            )
+
+            df_data = pd.DataFrame.from_records([result["log_stats"]])
+            self.logger.log_table(df_data, t=self.runner.t_env)
+
+            # Optionally update HLMDP if caller provided the exact action tuple
+            action = reset_options.get("action") if reset_options is not None else None
+            if action is not None:
+                success_rate = result["log_stats"].get("test_task_completed_mean")
+                df = hlmdp.transition_probs
+                chosen_next_state, _ = action
+                df.loc[(df.action == action) & (df.next_state == chosen_next_state), "prob"] = success_rate
+                df.loc[(df.action == action) & (df.next_state != chosen_next_state), "prob"] = (1.0 - success_rate)
+        """
+
+    def _evaluate_all_tasks(
+        self,
+        hlmdp,
+        n_eval_eps: int,
+    ) -> None:
+        """
+        Evaluate the policy starting from every non-terminating HLMDP state.
+
+        Parameters
+        ----------
+        hlmdp : ProjectMDP
+            High-level MDP instance used by the hierarchical environment.
+        """
+        # gather all normal-state outgoing actions (tuples)
+        df_actions = hlmdp.transition_probs.copy()
+        df_actions = df_actions.loc[df_actions.state_type == "normal"]
+
+        # unique action tuples: (chosen_next_state, comms_val)
+        hl_actions = df_actions.action.drop_duplicates().tolist()
+
+        self.logger.info("Evaluating Policy Across Tasks", log_header=True)
+
+        eval_data: list[dict] = []
+
+        # For each unique HL action, run evals from the state it goes out of
+        for action in hl_actions:
+            # action is expected to be a tuple (chosen_next_state, comms_val)
+            state = df_actions.loc[df_actions.action == action, "state"].unique().item()
+            chosen_next_state, message_budget = action
+            reset_options = {
+                "hl_start_state": int(state),
+                "msg_budget_per_agent": message_budget,
+            }
+
+            # set comms value if provided
+            result = run_eval_episodes(
+                args=self.args,
+                runner=self.runner,
+                n_eval_eps=n_eval_eps,
+                t_env=self.runner.t_env,
+                reset_options=reset_options,
+            )
+
+            eval_data.append(result["log_stats"])
+
+            # update transition probs in hlmdp, 2 possible outcomes of task success or failure
+            df = hlmdp.transition_probs
+            success_rate = result["log_stats"].get("test_task_completed_mean")
+            df.loc[
+                (df.action == action) & (df.next_state == chosen_next_state), "prob"
+            ] = success_rate
+            df.loc[
+                (df.action == action) & (df.next_state != chosen_next_state), "prob"
+            ] = 1.0 - success_rate
+
+        df_eval = pd.DataFrame.from_records(eval_data)
+        self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
+
+        # TODO it may make sense to log each tasks's success rate to wandb too
+
+        # if msg_budget_per_agents is not None:
+        #     self._make_comms_eval_plots(self.logger.data_table, t=self.runner.t_env)
+
+    def _evaluate_multi_comms(
+        self,
+        msg_budget_per_agents: list[float],
+        n_eval_eps: int,
+        parallel_eval: bool = True,
+    ) -> None:
+        """
+        Evaluate a trained policy across multiple comms allocation values.
+
+        Parameters
+        ----------
+        msg_budget_per_agents : list[float]
+            List of comms values to evaluate (e.g., [0.0, 0.5, 1.0])
+        """
+        self.logger.info(
+            f"Evaluating Policy Across Comms Values: {msg_budget_per_agents}",
+            log_header=True,
+        )
+
+        eval_data: list[dict] = []
+
+        # Serial evaluation
+        if not parallel_eval:
+            for mb in msg_budget_per_agents:
+                self.logger.info(f"Evaluating with msg_budget_per_agent = {mb}")
+
+                result = run_eval_episodes(
+                    args=self.args,
+                    runner=self.runner,
+                    n_eval_eps=n_eval_eps,
+                    t_env=self.runner.t_env,
+                    reset_options={"msg_budget_per_agent": mb},
+                )
+
+                eval_data.append(result["log_stats"])
+
+        # Convert to DataFrame and log
+        df_eval = pd.DataFrame.from_records(eval_data)
+        self.logger.log_table(key="eval_stats", value=df_eval, t=self.runner.t_env)
+        self._make_comms_eval_plots(
+            self.logger.data_tables["eval_stats"], t=self.runner.t_env
+        )
+
+    def _make_comms_eval_plots(
+        self,
+        data_table: wandb.Table,
+        t: int,
+        wandb_run=None,
+        info_str: str = "",
+        plot_group: str = "",
+    ) -> None:
+        """Make plots for comms evaluation.
+
+        Plots each metric in `cols` vs `t_env` for every comms value present
+        (or provided in `msg_budget_per_agents`) and logs images to wandb if enabled.
+        """
+        save_dir = abspath(join(self.logger.dir, "images", f"t_{t}"))
+        if plot_group:
+            save_dir = join(save_dir, plot_group)
+        plot_context_evaluation(data_table.get_dataframe(), save_dir, info_str)
+
+        # log all images in the image dir
+        if wandb_run is not None:
+            log_prefix = "comms_eval_aggregated"
+            if plot_group:
+                log_prefix = f"{log_prefix}/{plot_group}"
+            for _, _, files in walk(save_dir):
+                for file in files:
+                    data = log_setup(self.logger.step_metric, t)
+                    path = join(save_dir, file)
+                    fn = splitext(file)[0]
+                    data[f"{log_prefix}/{fn}{self.logger.log_suffix}"] = wandb.Image(
+                        path
+                    )
+                    wandb_run.log(data=data)
+            return
+
+        self.logger.log_images(save_dir, t=self.runner.t_env, group="comms_eval/")
+
+    def _make_combined_comms_eval_plots(
+        self,
+        groups: list[tuple[str, pd.DataFrame, object]],
+        t: int,
+        map_name: str = "",
+        seed: int | None = None,
+        condition_label: str = "",
+        wandb_run=None,
+    ) -> None:
+        """Make one vertically stacked figure for each metric across tasks."""
+        if not groups:
+            return
+
+        save_dir = abspath(join(self.logger.dir, "images", f"t_{t}", "combined"))
+        if map_name:
+            save_dir = join(save_dir, map_name)
+        if seed is not None:
+            save_dir = join(save_dir, f"seed_{seed}")
+        if condition_label:
+            save_dir = join(save_dir, condition_label)
+        image_paths = plot_combined_context_evaluation(groups, save_dir)
+        for col, save_path in image_paths.items():
+            if wandb_run is not None:
+                data = log_setup(self.logger.step_metric, t)
+                seed_label = f"seed_{seed}/" if seed is not None else ""
+                data[
+                    f"comms_eval_aggregated/combined/"
+                    f"{map_name + '/' if map_name else ''}"
+                    f"{seed_label}{condition_label + '/' if condition_label else ''}"
+                    f"{col}"
+                    f"{self.logger.log_suffix}"
+                ] = wandb.Image(save_path)
+                wandb_run.log(data=data)
+
+    def _make_task_success_frame_plot(
+        self,
+        groups: list[tuple[str, pd.DataFrame, object]],
+        source_runs: list,
+        source_run,
+        t: int,
+        map_name: str = "",
+        seed: int | None = None,
+        condition_label: str = "",
+        wandb_run=None,
+    ) -> None:
+        """Pair each task's initial frame with its success-rate curve."""
+        if not groups:
+            return
+
+        frames = self._render_task_frames(groups, source_run)
+        figure = plt.figure(
+            figsize=(max(3.0 * len(groups) + 2.5, 13.0), 11),
+        )
+        grid = figure.add_gridspec(
+            nrows=4,
+            ncols=len(groups) + 2,
+            height_ratios=[1.4, 1.0, 1.0, 1.0],
+            width_ratios=[1] * len(groups) + [1.4, 0.8],
+            hspace=0.45,
+        )
+        frame_axes = [
+            figure.add_subplot(grid[0, column]) for column in range(len(groups))
+        ]
+        high_level_axis = figure.add_subplot(grid[0, -2])
+        self._plot_high_level_env(high_level_axis, source_run, map_name)
+        curve_axes = [figure.add_subplot(grid[1, 0])]
+        curve_axes.extend(
+            figure.add_subplot(grid[1, column], sharey=curve_axes[0])
+            for column in range(1, len(groups))
+        )
+        for curve_axis in curve_axes[1:]:
+            curve_axis.tick_params(axis="y", labelleft=False)
+        test_return_axes = [figure.add_subplot(grid[2, 0])]
+        test_return_axes.extend(
+            figure.add_subplot(grid[2, column], sharey=test_return_axes[0])
+            for column in range(1, len(groups))
+        )
+        for test_return_axis in test_return_axes[1:]:
+            test_return_axis.tick_params(axis="y", labelleft=False)
+        test_return_axes[0].set_ylabel("test return")
+        legend_axis = figure.add_subplot(grid[1, -1])
+        legend_axis.axis("off")
+        bottom_width = min(2, len(groups))
+        bottom_start = (len(groups) + 1 - bottom_width) // 2
+        final_axis = figure.add_subplot(
+            grid[3, bottom_start : bottom_start + bottom_width]
+        )
+        final_legend_axis = figure.add_subplot(grid[3, -1])
+        final_legend_axis.axis("off")
+        curve_handles = []
+        curve_labels = []
+        final_handles = []
+        final_labels = []
+
+        for column, ((task_label, df, hl_task), source_runs_by_budget) in enumerate(
+            zip(groups, source_runs)
+        ):
+            frame_axis = frame_axes[column]
+            curve_axis = curve_axes[column]
+            frame = frames.get(
+                tuple(hl_task) if isinstance(hl_task, (list, tuple)) else hl_task
+            )
+            if frame is not None:
+                frame_axis.imshow(frame)
+            else:
+                frame_axis.text(
+                    0.5,
+                    0.5,
+                    "frame unavailable",
+                    ha="center",
+                    va="center",
+                )
+            frame_axis.set_title(task_label, loc="left")
+            frame_axis.axis("off")
+
+            success_lines = {}
+            msg_budgets = sorted(df["msg_budget_per_agent"].dropna().unique())
+            for msg_budget_per_agent in msg_budgets:
+                df_plot = df[df["msg_budget_per_agent"] == msg_budget_per_agent]
+                (line,) = curve_axis.plot(
+                    df_plot["t_env"],
+                    df_plot["test_task_completed_mean"],
+                    marker="o",
+                    label=f"Comms: {msg_budget_per_agent}",
+                )
+                success_lines[float(msg_budget_per_agent)] = line
+                if column == 0:
+                    curve_handles.append(line)
+                    curve_labels.append(f"Comms: {msg_budget_per_agent}")
+
+            if column == 0:
+                curve_axis.set_ylabel("success rate")
+            curve_axis.set_ylim(-0.05, 1.05)
+            curve_axis.set_xlabel("t_env")
+            curve_axis.grid(True)
+
+            test_return_axis = test_return_axes[column]
+            for msg_budget_per_agent in msg_budgets:
+                source_run = source_runs_by_budget.get(float(msg_budget_per_agent))
+                if source_run is None:
+                    continue
+                test_return_df = self._load_test_returns(source_run)
+                if test_return_df.empty:
+                    continue
+                test_return_axis.plot(
+                    test_return_df["t_env"],
+                    test_return_df["test_return"],
+                    color=success_lines[float(msg_budget_per_agent)].get_color(),
+                    linewidth=1.5,
+                    label=f"Comms: {msg_budget_per_agent:g}",
+                )
+            test_return_axis.set_xlabel("t_env")
+            test_return_axis.grid(True)
+
+        final_step = max(df["t_env"].max() for _, df, _ in groups)
+        for task_label, df, _ in groups:
+            final_t = df["t_env"].max()
+            final_df = df[df["t_env"] == final_t].sort_values("msg_budget_per_agent")
+            (line,) = final_axis.plot(
+                final_df["msg_budget_per_agent"],
+                final_df["test_task_completed_mean"],
+                marker="o",
+                alpha=0.65,
+                label=task_label,
+            )
+            final_handles.append(line)
+            final_labels.append(task_label)
+        final_axis.set_title(f"{final_step / 1_000_000:g}M steps")
+        final_axis.set_xlabel("comms budget")
+        final_axis.set_ylabel("success rate")
+        final_axis.set_ylim(-0.05, 1.05)
+        final_axis.grid(True)
+        if final_handles:
+            final_legend_axis.legend(
+                final_handles,
+                final_labels,
+                loc="center",
+                title="task",
+                fontsize="small",
+            )
+
+        if curve_handles:
+            legend_axis.legend(
+                curve_handles,
+                curve_labels,
+                loc="center",
+                title="communication budget",
+            )
+        figure.tight_layout()
+
+        save_dir = abspath(join(self.logger.dir, "images", f"t_{t}", "combined"))
+        if map_name:
+            save_dir = join(save_dir, map_name)
+        if seed is not None:
+            save_dir = join(save_dir, f"seed_{seed}")
+        if condition_label:
+            save_dir = join(save_dir, condition_label)
+        makedirs(save_dir, exist_ok=True)
+        save_path = join(save_dir, "comms_eval_combined_task_frames.png")
+        figure.savefig(save_path)
+        plt.close(figure)
+
+        if wandb_run is not None:
+            data = log_setup(self.logger.step_metric, t)
+            seed_label = f"seed_{seed}/" if seed is not None else ""
+            data[
+                f"comms_eval_aggregated/combined/"
+                f"{map_name + '/' if map_name else ''}"
+                f"{seed_label}{condition_label + '/' if condition_label else ''}"
+                f"task_frames"
+                f"{self.logger.log_suffix}"
+            ] = wandb.Image(save_path)
+            wandb_run.log(data=data)
+
+    def _make_high_level_success_vs_cost_plot(
+        self,
+        eval_data: pd.DataFrame,
+        map_name: str,
+        t: int,
+        seed: int | None = None,
+        condition_label: str = "",
+        wandb_run=None,
+    ) -> None:
+        """Solve and plot high-level policies across task-completion specs."""
+        env = getattr(self.runner, "env", None)
+        close_env = env is None
+        if close_env:
+            from src.envs import REGISTRY as env_REGISTRY
+
+            env_args = deepcopy(self.args.env_args)
+            env_args["common_reward"] = self.args.common_reward
+            env_args["reward_scalarisation"] = self.args.reward_scalarisation
+            env = env_REGISTRY[self.args.env](**env_args)
+        try:
+            hlmdp = getattr(env, "hlmdp", None)
+        finally:
+            if close_env:
+                env.close()
+        if hlmdp is None:
+            raise RuntimeError(
+                "High-level policy post-processing requires an environment "
+                "with an hlmdp."
+            )
+        try:
+            hlmdp.transition_probs = eval_data
+        except ValueError as error:
+            self.logger.info(
+                f"Skipping high-level success-vs-cost plot for map {map_name}, "
+                f"seed {seed}; evaluation data is incomplete: {error}"
+            )
+            return
+
+        success_rate_specs = self._postprocess_success_rate_specs(
+            getattr(self.args, "postprocess_success_rate_specs", None)
+        )
+        fixed_budgets = sorted(
+            set(self._configured_message_budgets(hlmdp.msg_budget_per_agent))
+        )
+        if not fixed_budgets:
+            raise ValueError(
+                "High-level policy post-processing requires configured message budgets."
+            )
+
+        policy_id = f"{self.args.time_id or self.args.unique_token}_postprocess"
+        output_dir = join(
+            self.args.local_results_path,
+            "high_level_policy_analysis",
+            policy_id,
+            map_name,
+        )
+        if seed is not None:
+            output_dir = join(output_dir, f"seed_{seed}")
+        if condition_label:
+            output_dir = join(output_dir, condition_label)
+        makedirs(output_dir, exist_ok=True)
+
+        success_rate_spec = float(getattr(self.args, "success_rate_spec", 0.95))
+        optimizer = ILPModel(self.args)
+        try:
+            solution = optimizer.optimize_policy(
+                hlmdp, success_rate_spec=success_rate_spec
+            )
+        except InfeasiblePolicyError:
+            self.logger.info(
+                f"No policy for seed {seed} meets success-rate spec "
+                f"{success_rate_spec:g} for map {map_name}."
+            )
+        else:
+            policy_dir = join(output_dir, "policy")
+            makedirs(policy_dir, exist_ok=True)
+            solution.task_policy.to_csv(
+                join(policy_dir, "task_policy.csv"), index=False
+            )
+            solution.comms_budget_policy.to_csv(
+                join(policy_dir, "comms_budget_policy.csv"), index=False
+            )
+        finally:
+            optimizer.dispose()
+
+        formulations = {
+            "our_formulation": (None,),
+            "baseline_formulation": tuple(fixed_budgets),
+        }
+        colors = {"our_formulation": "black", "baseline_formulation": "darkorange"}
+        markers = {"our_formulation": "^", "baseline_formulation": "o"}
+        labels = {
+            "our_formulation": "Ours",
+            "baseline_formulation": "Fixed Comms. Baseline",
+        }
+        formulation_data = {}
+
+        for formulation, budgets_to_try in formulations.items():
+            result_rows = []
+            for success_rate_spec in success_rate_specs:
+                best_solution = None
+                best_budget = None
+                for budget in budgets_to_try:
+                    optimizer = ILPModel(self.args)
+                    try:
+                        solution = optimizer.optimize_policy(
+                            hlmdp,
+                            success_rate_spec=success_rate_spec,
+                            fixed_comms_budget=budget,
+                        )
+                    except InfeasiblePolicyError:
+                        continue
+                    finally:
+                        optimizer.dispose()
+
+                    if (
+                        best_solution is None
+                        or solution.objective_value < best_solution.objective_value
+                    ):
+                        best_solution = solution
+                        best_budget = budget
+
+                result = {
+                    "success_prob_spec": success_rate_spec,
+                    "total_comms_cost": (
+                        best_solution.objective_value
+                        if best_solution is not None
+                        else np.nan
+                    ),
+                    "goal_reach_probability": (
+                        best_solution.goal_reach_probability
+                        if best_solution is not None
+                        else np.nan
+                    ),
+                    "feasible": best_solution is not None,
+                    "fixed_comms_budget": best_budget,
+                }
+                result_rows.append(result)
+
+                if best_solution is None:
+                    self.logger.info(
+                        f"No {formulation} policy meets success-rate spec "
+                        f"{success_rate_spec:g} for map {map_name}."
+                    )
+                    continue
+
+            result_df = pd.DataFrame.from_records(result_rows)
+            result_df.to_csv(
+                join(output_dir, f"success_vs_cost_{formulation}.csv"),
+                index=False,
+            )
+            formulation_data[formulation] = result_df
+
+        figure, axis = plt.subplots(figsize=(4.2, 3.2))
+        for formulation, df in formulation_data.items():
+            axis.plot(
+                df["success_prob_spec"],
+                df["total_comms_cost"],
+                marker=markers[formulation],
+                markersize=4,
+                color=colors[formulation],
+                linewidth=1,
+                alpha=0.8,
+                label=labels[formulation],
+            )
+
+        x_min = min(success_rate_specs)
+        x_max = max(1.0, max(success_rate_specs))
+        if x_max <= x_min:
+            x_max = x_min + 0.05
+        axis.set_xlim(x_min, x_max)
+        x_tick_step = 0.05 if x_max - x_min <= 0.25 else 0.2
+        axis.set_xticks(
+            np.arange(
+                np.ceil(x_min / x_tick_step) * x_tick_step,
+                x_max + 0.001,
+                x_tick_step,
+            )
+        )
+        axis.set_xlabel("Task Completion Spec., $p_c$")
+        axis.set_ylabel("Optimal Comms. Cost, $J^*$")
+        axis.legend()
+        axis.grid(True)
+        figure.tight_layout()
+
+        plot_path = join(output_dir, "success_vs_cost.png")
+        figure.savefig(plot_path, dpi=500)
+        figure.savefig(join(output_dir, "success_vs_cost.pdf"))
+        plt.close(figure)
+
+        if wandb_run is not None:
+            data = log_setup(self.logger.step_metric, t)
+            seed_label = f"/seed_{seed}" if seed is not None else ""
+            data[
+                f"high_level_policy/{map_name}{seed_label}/"
+                f"{condition_label + '/' if condition_label else ''}"
+                f"success_vs_cost{self.logger.log_suffix}"
+            ] = wandb.Image(plot_path)
+            wandb_run.log(data=data)
+
+    @staticmethod
+    def _map_name_from_config(config: dict) -> str:
+        return map_name_from_config(config)
+
+    def _plot_high_level_env(self, axis, source_run, map_name: str) -> None:
+        plot_high_level_environment(axis, source_run, map_name)
+
+    @staticmethod
+    def _configured_message_budgets(value) -> list[float]:
+        return configured_message_budgets(value)
+
+    @staticmethod
+    def _postprocess_success_rate_specs(value) -> list[float]:
+        return postprocess_success_rate_specs(value)
+
+    @staticmethod
+    def _task_edge_from_config(value) -> tuple[int, int]:
+        return task_edge_from_config(value)
+
+    @staticmethod
+    def _load_test_returns(source_run) -> pd.DataFrame:
+        return load_test_returns(source_run)
+
+    def _render_task_frames(self, groups, source_run) -> dict:
+        return render_navigation_task_frames(
+            groups,
+            getattr(source_run, "config", {}),
+            logger=self.logger,
+        )
+
+    def evaluate_loaded(self) -> None:
+        """probably doesn't work given new eval functions"""
+        self.runner.log_train_stats_t = self.runner.t_env
+
+        self.evaluate(n_eval_eps=self.n_eval_eps)
+
+        self.runner.close_env()
+        self.logger.log_stat("episode", self.runner.t_env, self.runner.t_env)
+        self.logger.print_recent_stats()
+        self.logger.info("Finished Evaluation")
+
+    def save(self) -> None:
+        model_dir = join(
+            self.args.local_results_path,
+            "models",
+        )
+        save_path = join(
+            model_dir,
+            self.args.unique_token,
+            str(self.runner.t_env),
+        )
+
+        # "results/models/{}".format(unique_token)
+        makedirs(save_path, exist_ok=True)
+        self.logger.info(f"Saving models to {save_path}")
+
+        # learner should handle saving/loading -- delegate actor save/load to mac,
+        # use appropriate filenames to do critics, optimizer states
+        self.learner.save_models(save_path)
+
+        if self.args.use_wandb:
+            self.logger.log_agent(
+                save_path=save_path,
+                t=self.runner.t_env,
+            )
+
+        # models are saved locally and on the wandb server
+        # as wandb artifacts and can be accessed with the wandb API
+        if self.args.delete_local_models:
+            rmtree(model_dir, ignore_errors=True)
+
+    def _load_experiment_table_artifact(
+        self,
+        art_name: str = "eval_stats",
+        art_version: str = "latest",
+        art_type: str = "run_table",
+        return_runs: bool = False,
+    ):
+        api = wandb.Api()
+
+        # load all runs w/ the given time_id and get eval stats tables
+        runs = api.runs(
+            self._wandb_project_path(api, self.args.wandb_project),
+            filters={"config.time_id": self.args.time_id},
+        )
+        runs = [
+            run
+            for run in runs
+            if "_postprocess" not in (getattr(run, "name", "") or "")
+        ]
+
+        if len(runs) == 0:
+            raise RuntimeError(
+                f"No W&B runs found in "
+                f"{self._wandb_project_path(api, self.args.wandb_project)} "
+                f"for time_id={self.args.time_id}."
+            )
+
+        run_ids = [run.id for run in runs]
+        self.logger.info(f"Time ID: {self.args.time_id}")
+        self.logger.info(f"Loading {len(run_ids)} runs with ids: {run_ids}")
+
+        dfs = []
+
+        # parallel download
+        def get_wandb_data(wandb_run):
+            try:
+                art_info = f"run-{wandb_run.id}-{art_name}:{art_version}"
+                artifact = api.artifact(
+                    name=join(wandb_run.entity, wandb_run.project, art_info),
+                    type=art_type,
+                )
+                data = artifact.get(art_name)
+                df = data.get_dataframe()
+            except wandb.CommError:
+                table_info = wandb_run.summary.get(art_name)
+                table_path = (
+                    table_info.get("path")
+                    if callable(getattr(table_info, "get", None))
+                    and table_info.get("_type") == "table-file"
+                    else None
+                )
+                if not table_path:
+                    self.logger.info(
+                        f"Skipping run {wandb_run.id}: artifact "
+                        f"{art_name}:{art_version} and logged table are unavailable."
+                    )
+                    return
+
+                try:
+                    table_file = wandb_run.file(table_path)
+                    if table_file is None:
+                        self.logger.info(
+                            f"Skipping run {wandb_run.id}: logged table "
+                            f"{table_path} is unavailable."
+                        )
+                        return
+                    with TemporaryDirectory(prefix="wandb-eval-table-") as temp_dir:
+                        downloaded_file = table_file.download(
+                            root=temp_dir, replace=True
+                        )
+                        with open(downloaded_file.name, encoding="utf-8") as file:
+                            table_data = json.load(file)
+                except wandb.CommError:
+                    self.logger.info(
+                        f"Skipping run {wandb_run.id}: logged table "
+                        f"{table_path} could not be downloaded."
+                    )
+                    return
+
+                if (
+                    not isinstance(table_data, dict)
+                    or not isinstance(table_data.get("columns"), list)
+                    or not isinstance(table_data.get("data"), list)
+                ):
+                    raise RuntimeError(
+                        f"W&B table {table_path} for run {wandb_run.id} "
+                        "has an invalid table format."
+                    )
+                self.logger.info(
+                    f"Loaded {art_name} from logged table for run {wandb_run.id}."
+                )
+                df = pd.DataFrame(table_data["data"], columns=table_data["columns"])
+
+            df["scenario"] = int(wandb_run.config["scenario"])
+            df["map_name"] = (
+                self._map_name_from_config(wandb_run.config) or "unknown_map"
+            )
+            try:
+                df["seed"] = int(wandb_run.config["seed"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Training run {wandb_run.id} has no valid seed config."
+                ) from error
+            df["run_id"] = wandb_run.id
+            configured_budget = wandb_run.config.get("msg_budget_per_agent")
+            if isinstance(configured_budget, (list, tuple)):
+                configured_budget = (
+                    configured_budget[0] if len(configured_budget) == 1 else None
+                )
+            if configured_budget is not None:
+                if wandb_run.config.get("unique_policy_per_msg_budget", False):
+                    # For one-policy-per-budget runs, the run config is the
+                    # authoritative budget even if the table has stale values.
+                    df["msg_budget_per_agent"] = configured_budget
+                elif "msg_budget_per_agent" not in df:
+                    df["msg_budget_per_agent"] = configured_budget
+                else:
+                    df["msg_budget_per_agent"] = df["msg_budget_per_agent"].fillna(
+                        configured_budget
+                    )
+            hl_task = wandb_run.config.get("hl_task")
+            if hl_task is not None:
+                task_edge = self._task_edge_from_config(hl_task)
+                if "hl_task" not in df:
+                    df["hl_task"] = [task_edge] * len(df)
+                else:
+                    df["hl_task"] = [
+                        task_edge
+                        if value is None
+                        or (isinstance(value, (float, np.floating)) and np.isnan(value))
+                        else self._task_edge_from_config(value)
+                        for value in df["hl_task"]
+                    ]
+                if "hl_start_state" not in df:
+                    df["hl_start_state"] = [int(edge[0]) for edge in df["hl_task"]]
+                else:
+                    df["hl_start_state"] = df["hl_start_state"].fillna(
+                        pd.Series(
+                            [int(edge[0]) for edge in df["hl_task"]],
+                            index=df.index,
+                        )
+                    )
+            df["test_interval"] = wandb_run.config.get(
+                "test_interval", self.args.test_interval
+            )
+            return df
+
+        with ThreadPoolExecutor() as ex:
+            loaded_dfs = list(
+                ex.map(
+                    get_wandb_data,
+                    [run for run in runs],
+                )
+            )
+
+        dfs = [df for df in loaded_dfs if df is not None]
+        if not dfs:
+            raise RuntimeError(
+                f"No {art_name} artifacts were available for time_id="
+                f"{self.args.time_id}."
+            )
+        df_data = pd.concat(dfs, ignore_index=True)
+        # round to the
+        # nearest eval time since different seeds eval at slightly different times
+        df_data["t_env_rounded"] = (
+            df_data["t_env"] / df_data["test_interval"]
+        ).round() * df_data["test_interval"]
+        df_data.drop(columns=["test_interval"], inplace=True)
+
+        df_data.sort_values("scenario").reset_index(drop=True, inplace=True)
+
+        if return_runs:
+            return df_data, runs
+        else:
+            return df_data
+
+    @staticmethod
+    def _wandb_project_path(api, project: str) -> str:
+        return wandb_project_path(api, project)
+
+    def _load_checkpoint(self) -> None:
+        # get load time step for both cases
+        timesteps = []
+        timestep_to_load = 0
+
+        if self.args.eval_run_id is not None:
+            artifacts = self.logger.wandb_inactive.logged_artifacts()
+
+            # go thru metadata and get all time steps saved
+            agent_artifacts = []
+            for artifact in artifacts:
+                # Check if this artifact is a model and has the correct step in its metadata
+                if artifact.type == "agent":
+                    agent_artifacts.append(artifact)
+                    timesteps.append(artifact.metadata["t_env"])
+
+        else:
+            if not isdir(self.args.checkpoint_path):
+                self.logger.info(
+                    f"Checkpoint directiory {self.args.checkpoint_path} doesn't exist"
+                )
+                return
+
+            # Go through all files in args.checkpoint_path
+            for name in listdir(self.args.checkpoint_path):
+                full_name = join(self.args.checkpoint_path, name)
+                # Check if they are dirs the names of which are numbers
+                if isdir(full_name) and name.isdigit():
+                    timesteps.append(int(name))
+
+        if self.args.load_step == 0:
+            # choose the max timestep
+            timestep_to_load = max(timesteps)
+        else:
+            # choose the timestep closest to load_step
+            timestep_to_load = min(
+                timesteps, key=lambda x: abs(x - self.args.load_step)
+            )
+
+        if self.args.eval_run_id is not None:
+            for artifact in agent_artifacts:
+                if artifact.metadata["t_env"] == timestep_to_load:
+                    model_path = artifact.download()
+        else:
+            model_path = join(self.args.checkpoint_path, str(timestep_to_load))
+
+        self.logger.info(f"Loading model from t={timestep_to_load} ({model_path})")
+        self.learner.load_models(model_path)
+        self.runner.t_env = timestep_to_load
+
+        if self.args.eval_run_id is not None:
+            # clean up local files that have been loaded into memory
+            rmtree("artifacts", ignore_errors=True)
+
+    def _parse_config(self, _config, _log) -> SN:
+        _config = self._args_sanity_check(_config, _log)
+
+        args = SN(**_config)
+        args.device = "cuda" if args.use_cuda else "cpu"
+        assert test_alg_config_supports_reward(args), (
+            "The specified algorithm does not support the general reward setup. Please choose a different algorithm or set `common_reward=True`."
+        )
+
+        # update for parallel comms eval, can't be done offline
+        # due to parallel to a single wandb run on a remote server
+        if args.parallel_comms_eval:
+            args.wandb_mode = "shared"
+
+        return args
+
+    def _args_sanity_check(self, config, _log):
+        # set CUDA flags
+        # config["use_cuda"] = True # Use cuda whenever possible!
+        hierarchical_value = None
+        for key in ("hierarchical", "hl_env", "hl_env_config"):
+            if key in config:
+                hierarchical_value = config[key]
+                break
+        if hierarchical_value is not None:
+            hierarchical_config = get_unified_hierarchical_config(hierarchical_value)
+            if hierarchical_config is None:
+                raise RuntimeError(
+                    "Unified hierarchical configuration resolved to no config."
+                )
+            normalized = hierarchical_config.to_dict()
+            for key in ("hl_env", "hl_env_config"):
+                config.pop(key, None)
+            config["hierarchical"] = normalized
+
+        if config["use_cuda"] and not th.cuda.is_available():
+            config["use_cuda"] = False
+            _log.warning(
+                "CUDA flag use_cuda was switched OFF automatically because no CUDA devices are available!"
+            )
+
+        if config["test_nepisode"] < config["batch_size_run"]:
+            config["test_nepisode"] = config["batch_size_run"]
+        else:
+            config["test_nepisode"] = (
+                config["test_nepisode"] // config["batch_size_run"]
+            ) * config["batch_size_run"]
+
+        return config
+
+    def _build_logger(self, args: SN, _config, _log) -> MainLogger:
+        # get unique token for this run
+        env_args = _config["env_args"]
+        map_name = None
+        try:
+            map_name = env_args["map_name"]
+        except (KeyError, TypeError):
+            pass
+        if map_name is None:
+            try:
+                map_name = env_args["key"]
+            except (KeyError, TypeError):
+                map_name = args.env
+
+        # run_name has a unique datetime in it, so only include curr_time if that is not available
+        curr_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[2:][:-3]
+        unique_token = (
+            f"{args.run_name if args.run_name != '' else curr_time}_"
+            f"{args.env}_{map_name + '_' if map_name != args.env else ''}"
+            f"{args.name}_seed_{args.seed}"
+        )
+
+        args.unique_token = unique_token
+
+        # logger setup
+        return MainLogger(_log, config=_config, args=args)
+
+    def finish(self) -> None:
+        # Finish logging
+        self.logger.finish()
+
+        # Clean up after finishing
+        print("Exiting Main")
+
+        print("Stopping all threads")
+        for t in threading.enumerate():
+            if t.name != "MainThread":
+                print(f"Thread {t.name} is alive! Is daemon: {t.daemon}")
+                t.join(timeout=1)
+                print("Thread joined")
+
+        print("Exiting script")
+
+    # def train_hierarchical(self) -> None:
+    #     """
+    #     Two-stage training: first train low-level policy, then use its success rates
+    #     in the high-level agent that interfaces with the HLMDP.
+    #     """
+
+    #     # Train low-level policy for a single task
+    #     self.logger.info("Training Low-Level Policy", log_header=True)
+
+    #     self.train_single_task()
+
+    #     # may need to eval here for more samples than during training to get good statistical estimates of init state dists
+    #     # only really needed for the dependent tasks
+
+    #     # # Train high-level policy with learned success rates
+    #     self.logger.info("Optimizing High-Level Policy", log_header=True)
+    #     self._train_high_level_policy(self.runner.env.hlmdp)
+
+    #     # evaluate Hl policy (only relevant for dependent tasks)
+
+    #     self.runner.close_env()
+    #     self.logger.info("Finished Hierarchical Training")

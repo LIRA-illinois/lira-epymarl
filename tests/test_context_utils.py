@@ -4,6 +4,7 @@ from src.simulation.context_utils import (
     evaluation_context_label,
     plot_combined_context_evaluation,
     plot_context_evaluation,
+    plot_mixed_initial_distributions,
 )
 
 
@@ -54,3 +55,98 @@ def test_context_plot_apis_save_metrics_for_all_contexts(tmp_path):
     assert len(combined_image_paths) == 4
     assert all(path.endswith(".png") for path in image_paths)
     assert all(path.endswith(".png") for path in combined_image_paths.values())
+
+
+def test_mixed_initial_distribution_plot_exports_png_pdf_and_csv(tmp_path):
+    rows = pd.DataFrame.from_records(
+        [
+            {
+                "seed": 101,
+                "pg": 0.65,
+                "context_id": "unified",
+                "iteration": 0,
+                "status": "no_certified_candidate",
+                "state": 1,
+                "start_state": "((1, 1), (1, 3), (1, 5))",
+                "probability": 0.5,
+            },
+            {
+                "seed": 101,
+                "pg": 0.65,
+                "context_id": "unified",
+                "iteration": 0,
+                "status": "no_certified_candidate",
+                "state": 1,
+                "start_state": "((2, 1), (2, 3), (2, 5))",
+                "probability": 0.5,
+            },
+            {
+                "seed": 101,
+                "pg": 0.65,
+                "context_id": "unified",
+                "iteration": 1,
+                "status": "certified",
+                "state": 1,
+                "start_state": "((1, 1), (1, 3), (1, 5))",
+                "probability": 0.25,
+            },
+            {
+                "seed": 101,
+                "pg": 0.65,
+                "context_id": "unified",
+                "iteration": 1,
+                "status": "certified",
+                "state": 1,
+                "start_state": "((2, 1), (2, 3), (2, 5))",
+                "probability": 0.75,
+            },
+        ]
+    )
+
+    paths = plot_mixed_initial_distributions(
+        rows,
+        str(tmp_path),
+        seed=101,
+    )
+
+    assert len(paths) == 3
+    assert (
+        tmp_path / "mixed_initial_distributions_seed_101_pg_0p65.png"
+    ).is_file()
+    assert (
+        tmp_path / "mixed_initial_distributions_seed_101_pg_0p65.pdf"
+    ).is_file()
+    assert (tmp_path / "mixed_initial_distributions_seed_101.csv").is_file()
+
+
+def test_mixed_initial_distribution_plot_uses_shared_probability_scale(
+    tmp_path,
+):
+    rows = pd.DataFrame.from_records(
+        [
+            {
+                "pg": pg,
+                "iteration": iteration,
+                "state": 1,
+                "start_state": f"S{start_index}",
+                "probability": (
+                    0.10
+                    + 0.01 * start_index
+                    + 0.005 * pg
+                    + 0.002 * iteration
+                ),
+            }
+            for pg in (0.55, 0.65, 0.75)
+            for iteration in (0, 1, 2)
+            for start_index in range(8)
+        ]
+    )
+
+    paths = plot_mixed_initial_distributions(
+        rows,
+        str(tmp_path),
+        seed=101,
+    )
+
+    assert len(paths) == 7
+    assert all(path.endswith(".png") or path.endswith(".pdf") or path.endswith(".csv") for path in paths)

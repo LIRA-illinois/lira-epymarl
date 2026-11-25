@@ -1,0 +1,88 @@
+# Unified hierarchical tiny-hall team-delay sweep
+# 1000-step MAIC shared-policy run with one candidate delayed agent.
+
+parameters:
+  seed:
+    values: [101]
+
+  wandb_project:
+    values: [comm_experiments]
+  wandb_mode:
+    values: [online]
+  use_wandb:
+    values: [True]
+  use_sacred:
+    values: [False]
+
+  config:
+    values: [maic]
+  mixer:
+    values: [qmix]
+  runner:
+    values: [parallel_shared_memory]
+
+  batch_size_run:
+    values: [10]
+  lr:
+    values: [0.00005]
+  t_max:
+    values: [5000]
+  test_nepisode:
+    values: [20]
+  test_interval:
+    values: [500]
+  save_model_interval:
+    values: [500]
+  save_model:
+    values: [False]
+  save_test_replays:
+    values: [True]
+  n_test_replays_save:
+    values: [2]
+  wandb_save_test_replays:
+    values: [True]
+
+  msg_budget_per_agent:
+    values: [[0 1]]
+  msg_filter_type:
+    values: [hard_topk]
+
+  env-config:
+    values: [team-nav-v0]
+  env_args.map_name:
+    values: [3ga_1r_very_small_hall]
+  env_args.navigation_config:
+    values:
+      [
+        submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_hallway_cm_smoke.yaml,
+      ]
+  env_args.hierarchical:
+    values: [True]
+  env_args.n_agents:
+    values: [3]
+  env_args.n_agents_delay:
+    values: [1]
+  env_args.team_delay_prob:
+    values: [0.05, 0.10, 0.20]
+  env_args.max_episode_steps:
+    values: [15]
+  env_args.terminate_on_task_completed:
+    values: [True]
+  env_args.goal_type:
+    values: [simultaneous_arrival]
+  env_args.reward_config.simultaneous_goal_reward_type:
+    values: [per_step_arrival_group_size]
+
+  hierarchical:
+    values:
+      - policy_scope: shared_across_contexts
+        task_sequence: [[0, 1], [1, 2]]
+        pg_values: [0.55, 0.65, 0.75]
+        epsilon_est: 0.05
+        beta: 0.95
+        epsilon_p: 0.20
+        n_max: 2
+        n_calibration_episodes: 100
+        held_out_episodes: 20
+        max_iterations: 3
+        resume: none

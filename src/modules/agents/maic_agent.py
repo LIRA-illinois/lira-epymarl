@@ -149,7 +149,7 @@ class MAICAgent(nn.Module):
 
     @msg_budget_per_agent.setter
     def msg_budget_per_agent(self, value: int):
-        self._msg_budget_per_agent = value
+        self._msg_budget_per_agent = int(value)
 
     def forward(
         self,
@@ -372,11 +372,11 @@ class MAICAgent(nn.Module):
         # keep only the top-k message weights and zero out the rest
         if msg_budget_per_agent is None:
             budgets = None
-            k = self._msg_budget_per_agent
+            k = int(self._msg_budget_per_agent)
         else:
             budgets = msg_budget_per_agent.to(device=alpha.device).clamp(
                 0, self.n_agents - 1
-            )
+            ).round()
             k = self.n_agents - 1
 
         _, top_k_idx = hard_topk(alpha, k=k, dim=2)

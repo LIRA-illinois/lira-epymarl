@@ -4,7 +4,7 @@ import os
 from collections import defaultdict
 from hashlib import sha256
 from logging import Logger
-from os.path import join
+from os.path import abspath, dirname, join
 from shutil import rmtree
 from typing import Optional
 from uuid import uuid4
@@ -17,7 +17,11 @@ import wandb
 # 10 minute timeout to try to prevent crashes due to wandb
 # API upload limits
 os.environ["WANDB_HTTP_TIMEOUT"] = "600"
-RESULTS_DIR = "results"
+PROJECT_ROOT = os.path.abspath(join(dirname(__file__), "..", ".."))
+RESULTS_DIR = join(PROJECT_ROOT, "results")
+WANDB_DIR = join(RESULTS_DIR, "wandb")
+os.makedirs(WANDB_DIR, exist_ok=True)
+os.environ["WANDB_DIR"] = WANDB_DIR
 
 
 def log_setup(step_metric: str, t: int) -> dict:
@@ -42,6 +46,8 @@ class MainLogger:
         self.data_tables: dict = {}
         self.step_metric = "t_env"
         self.log_suffix = ""
+        self._last_epsilon = None
+        self._last_epsilon_t_env = None
 
         self._setup(config, args)
 
@@ -155,6 +161,19 @@ class MainLogger:
         logging is delayed by period due to how finish() works
         used for printing stats periodically
         """
+        if key == "epsilon":
+            epsilon = float(value)
+            t_env = int(t)
+            if self._last_epsilon_t_env is not None:
+                if t_env < self._last_epsilon_t_env:
+                    return
+                if (
+                    epsilon > float(self._last_epsilon) + 1e-9
+                    and t_env >= self._last_epsilon_t_env
+                ):
+                    return
+            self._last_epsilon = epsilon
+            self._last_epsilon_t_env = t_env
         # used for printing stats periodically
         self.stats[key].append((t, value))
 
@@ -370,6 +389,19 @@ class LocalLogger:
         self.console_logger.info(log_str)
 
     def log_stat(self, key, value, t: int) -> None:
+        if key == "epsilon":
+            epsilon = float(value)
+            t_env = int(t)
+            if self._last_epsilon_t_env is not None:
+                if t_env < self._last_epsilon_t_env:
+                    return
+                if (
+                    epsilon > float(self._last_epsilon) + 1e-9
+                    and t_env >= self._last_epsilon_t_env
+                ):
+                    return
+            self._last_epsilon = epsilon
+            self._last_epsilon_t_env = t_env
         data = log_setup(self.step_metric, t)
         data[key] = value
         self.wandb.log(data)

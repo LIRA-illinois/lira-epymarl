@@ -33,6 +33,12 @@ from src.experiments.slurm_config import (
     get_slurm_config_lines,
 )
 from src.main import main
+from src.simulation.hierarchical_config import (
+    UnifiedRunIdentity,
+    extract_unified_hierarchical_config,
+    is_unified_hierarchical_scenario,
+)
+from src.simulation.hierarchical_evaluation import write_seed_postprocessing
 from src.utils.utils import is_debugger_active, string_inputs_to_list
 
 
@@ -82,7 +88,7 @@ class GridSearch(object):
             debug_values = {
                 "t_max": 100000,
                 "test_nepisode": 1,
-                "n_test_replays": 1,
+                "n_test_replays_save": 1,
             }
             for parameter, value in debug_values.items():
                 config[parameter] = {"values": [value]}
@@ -235,13 +241,44 @@ class GridSearch(object):
         # budgets is useful for training runs, but post-processing runs only once.
         post_processing_config["unique_policy_per_msg_budget"] = {"values": [False]}
 
-        scenarios, _, _ = self._get_scenarios(
+        scenarios, scenario_names, _ = self._get_scenarios(
             post_processing_config,
             conditional_config,
             run_priority=run_priority,
         )
         if not scenarios:
             raise ValueError("No configuration was generated for post-processing")
+
+        unified_scenarios = []
+        for scenario_index, scenario in enumerate(scenarios):
+            unified_config = extract_unified_hierarchical_config(scenario)
+            if unified_config is not None:
+                unified_scenarios.append(
+                    (
+                        scenario_names[scenario_index],
+                        unified_config,
+                    )
+                )
+        if unified_scenarios:
+            aggregated_paths = {}
+            for scenario_name, _ in unified_scenarios:
+                scenario_root = join(
+                    "results",
+                    "hierarchical_artifacts",
+                    time_id,
+                    scenario_name,
+                )
+                output_dir = join(scenario_root, "postprocessing")
+                paths = write_seed_postprocessing(
+                    scenario_root,
+                    output_dir,
+                )
+                aggregated_paths[scenario_name] = paths
+            print(
+                "Unified seed post-processing:",
+                json.dumps(aggregated_paths, indent=2),
+            )
+            return
 
         seed = seed_values[0] if seed_values else 0
         run_setup = self._get_run_setups(
@@ -285,10 +322,19 @@ class GridSearch(object):
         # expand scenarios so each comms value becomes its own scenario
         updated_scenarios = []
         for scenario in scenarios:
+            if is_unified_hierarchical_scenario(scenario) and scenario.get(
+                "msg_budget_per_agent"
+            ):
+                scenario = string_inputs_to_list(
+                    scenario,
+                    "msg_budget_per_agent",
+                    output_type=int,
+                )
             if (
                 scenario.get("msg_budget_per_agent")
                 and scenario.get("unique_policy_per_msg_budget")
                 and not scenario.get("hl_task_sequence")
+                and not is_unified_hierarchical_scenario(scenario)
             ):
                 if "msg_budget_per_agent" not in varied_param_names:
                     varied_param_names.append("msg_budget_per_agent")
@@ -337,9 +383,21 @@ class GridSearch(object):
                                     "unique_policy_per_msg_budget",
                                     scenario.get("unique_policy_per_msg_budget", False),
                                 )
+                                unified_combo = scenario | combo
+                                if is_unified_hierarchical_scenario(
+                                    unified_combo
+                                ) and unified_combo.get("msg_budget_per_agent"):
+                                    unified_combo = string_inputs_to_list(
+                                        unified_combo,
+                                        "msg_budget_per_agent",
+                                        output_type=int,
+                                    )
                                 if (
                                     combo.get("msg_budget_per_agent")
                                     and unique_policy_per_msg_budget
+                                    and not is_unified_hierarchical_scenario(
+                                        unified_combo
+                                    )
                                 ):
                                     if "msg_budget_per_agent" not in varied_param_names:
                                         varied_param_names.append(
@@ -359,7 +417,7 @@ class GridSearch(object):
                                         new_c["msg_budget_per_agent"] = [f"{val}"]
                                         updated_scenarios.append(scenario | new_c)
                                 else:
-                                    updated_scenarios.append(scenario | combo)
+                                    updated_scenarios.append(unified_combo)
 
                                 indices_remove.append(i)
 
@@ -368,6 +426,10 @@ class GridSearch(object):
                         s for i, s in enumerate(scenarios) if i not in indices_remove
                     ]
                     scenarios += updated_scenarios
+
+        for scenario in scenarios:
+            if is_unified_hierarchical_scenario(scenario):
+                extract_unified_hierarchical_config(scenario)
 
         scenarios = self._prioritize_scenarios(scenarios, run_priority)
 
@@ -455,6 +517,24 @@ class GridSearch(object):
                 run_params = scenario_params.copy()
                 run_params.update(combo_dict)
                 run_updates = [shlex.quote(f"--{k}={v}") for k, v in run_params.items()]
+                unified_config = extract_unified_hierarchical_config(params)
+                if unified_config is not None:
+                    identity = UnifiedRunIdentity(
+                        experiment=str(self.args.experiment),
+                        time_id=time_id,
+                        scenario=scenario_names[scenario_idx],
+                        seed=int(combo_dict["seed"]),
+                    )
+                    run_params["unified_hierarchical"] = True
+                    run_params["artifact_root"] = join(
+                        "results",
+                        "hierarchical_artifacts",
+                        identity.artifact_key,
+                    )
+                    run_params["pg_values"] = list(unified_config.pg_values)
+                    run_updates.append(
+                        shlex.quote(f"--artifact_root={run_params['artifact_root']}")
+                    )
 
                 # needed for debugging while using Sacred
                 # --force makes Sacred ignore this error since it sucks at checking whether params are actually used in your code or not

@@ -4,13 +4,29 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import torch
-import wandb
 from gym_multigrid.envs.mdp import ProjectMDP
 
+import wandb
 from src.envs.basic_gymnasium_wrappers import HLMDPEnvWrapper
 from src.modules.agents.ilp_model import ILPModel, InfeasiblePolicyError
-from src.simulation.context_utils import aggregate_eval_context_rows
+from src.simulation.context_utils import (
+    aggregate_eval_context_rows,
+    plot_success_vs_cost_frontier,
+)
 from src.simulation.run import Simulation
+from src.simulation.simulation_utils import (
+    configured_message_budgets,
+    postprocess_success_rate_specs,
+    success_rate_lcb,
+    task_edge_from_config,
+)
+
+
+def test_simulation_utils_parse_and_validate_common_inputs():
+    assert configured_message_budgets("[0, 1]") == [0.0, 1.0]
+    assert postprocess_success_rate_specs([0.65, 0.60]) == [0.60, 0.65]
+    assert task_edge_from_config("[0, 1]") == (0, 1)
+    assert success_rate_lcb(0.8, 100, 0.95) is not None
 
 
 def _evaluation(
@@ -73,12 +89,14 @@ def test_transition_probabilities_use_latest_pooled_success_rates():
 
 def test_ilp_optimizes_capacity_and_exposes_action_policy():
     mdp = _chain_mdp()
-    evaluations = pd.DataFrame.from_records([
-        _evaluation((0, 1), 0, 0.8),
-        _evaluation((0, 1), 1, 0.95),
-        _evaluation((1, 2), 0, 0.8),
-        _evaluation((1, 2), 1, 0.95),
-    ])
+    evaluations = pd.DataFrame.from_records(
+        [
+            _evaluation((0, 1), 0, 0.8),
+            _evaluation((0, 1), 1, 0.95),
+            _evaluation((1, 2), 0, 0.8),
+            _evaluation((1, 2), 1, 0.95),
+        ]
+    )
     mdp.transition_probs = evaluations
     optimizer = ILPModel(SimpleNamespace())
 
@@ -127,10 +145,12 @@ def test_ilp_extracts_stochastic_task_policy_for_reliability_tradeoff():
         ((2, 3), 0): 1.0,
         ((2, 3), 1): 1.0,
     }
-    mdp.transition_probs = pd.DataFrame.from_records([
-        _evaluation(edge, budget, success_rate)
-        for (edge, budget), success_rate in probabilities.items()
-    ])
+    mdp.transition_probs = pd.DataFrame.from_records(
+        [
+            _evaluation(edge, budget, success_rate)
+            for (edge, budget), success_rate in probabilities.items()
+        ]
+    )
     optimizer = ILPModel(SimpleNamespace())
 
     try:
@@ -149,12 +169,14 @@ def test_ilp_extracts_stochastic_task_policy_for_reliability_tradeoff():
 
 def test_ilp_can_solve_with_one_fixed_communication_budget():
     mdp = _chain_mdp()
-    mdp.transition_probs = pd.DataFrame.from_records([
-        _evaluation((0, 1), 0, 0.8),
-        _evaluation((0, 1), 1, 0.95),
-        _evaluation((1, 2), 0, 0.8),
-        _evaluation((1, 2), 1, 0.95),
-    ])
+    mdp.transition_probs = pd.DataFrame.from_records(
+        [
+            _evaluation((0, 1), 0, 0.8),
+            _evaluation((0, 1), 1, 0.95),
+            _evaluation((1, 2), 0, 0.8),
+            _evaluation((1, 2), 1, 0.95),
+        ]
+    )
 
     infeasible_optimizer = ILPModel(SimpleNamespace())
     try:
@@ -187,12 +209,14 @@ def test_ilp_can_solve_with_one_fixed_communication_budget():
 
 def test_aggregate_high_level_policy_sweep_writes_cost_curves(tmp_path):
     mdp = _chain_mdp()
-    eval_data = pd.DataFrame.from_records([
-        _evaluation((0, 1), 0, 0.8),
-        _evaluation((0, 1), 1, 0.95),
-        _evaluation((1, 2), 0, 0.8),
-        _evaluation((1, 2), 1, 0.95),
-    ])
+    eval_data = pd.DataFrame.from_records(
+        [
+            _evaluation((0, 1), 0, 0.8),
+            _evaluation((0, 1), 1, 0.95),
+            _evaluation((1, 2), 0, 0.8),
+            _evaluation((1, 2), 1, 0.95),
+        ]
+    )
     simulation = object.__new__(Simulation)
     simulation.args = SimpleNamespace(
         postprocess_success_rate_specs=[0.9],
@@ -227,6 +251,47 @@ def test_aggregate_high_level_policy_sweep_writes_cost_curves(tmp_path):
     assert (output_dir / "policy" / "comms_budget_policy.csv").is_file()
 
 
+def test_mock_success_vs_cost_frontier_writes_single_ours_and_baseline_curves(
+    tmp_path,
+):
+    frontier = pd.DataFrame.from_records(
+        [
+            {
+                "pg": 0.55,
+                "ours_cost": 0.40,
+                "baseline_cost": 0.52,
+                "task_greedy_cost": 0.60,
+                "comms_greedy_cost": 0.30,
+            },
+            {
+                "pg": 0.65,
+                "ours_cost": 0.50,
+                "baseline_cost": 0.52,
+                "task_greedy_cost": 0.60,
+                "comms_greedy_cost": 0.40,
+            },
+        ]
+    )
+
+    paths = plot_success_vs_cost_frontier(
+        frontier,
+        str(tmp_path),
+        seed=101,
+    )
+
+    assert len(paths) == 3
+    assert (tmp_path / "success_vs_cost_seed_101.png").is_file()
+    assert (tmp_path / "success_vs_cost_seed_101.pdf").is_file()
+    saved = pd.read_csv(tmp_path / "success_vs_cost_seed_101.csv")
+    assert list(saved.columns) == [
+        "pg",
+        "ours_cost",
+        "baseline_cost",
+        "task_greedy_cost",
+        "comms_greedy_cost",
+    ]
+
+
 def test_training_evaluation_metrics_are_logged_per_context():
     simulation = object.__new__(Simulation)
     logged_stats = []
@@ -236,21 +301,23 @@ def test_training_evaluation_metrics_are_logged_per_context():
         log_stat=lambda *args: logged_stats.append(args)
     )
 
-    simulation._log_context_evaluation_stats([
-        {
-            "hl_task": [0, 1],
-            "msg_budget_per_agent": 0,
-            "test_task_completed_mean": 0.4,
-            "test_n_episodes": 50,
-            "successful_terminal_state_distribution": {"states": [], "probs": []},
-        },
-        {
-            "hl_task": [1, 3],
-            "msg_budget_per_agent": 0,
-            "test_task_completed_mean": 0.8,
-            "test_n_episodes": 50,
-        },
-    ])
+    simulation._log_context_evaluation_stats(
+        [
+            {
+                "hl_task": [0, 1],
+                "msg_budget_per_agent": 0,
+                "test_task_completed_mean": 0.4,
+                "test_n_episodes": 50,
+                "successful_terminal_state_distribution": {"states": [], "probs": []},
+            },
+            {
+                "hl_task": [1, 3],
+                "msg_budget_per_agent": 0,
+                "test_task_completed_mean": 0.8,
+                "test_n_episodes": 50,
+            },
+        ]
+    )
 
     assert logged_stats == [
         ("test_task_completed_mean/hl_task_0_1/msg_budget_per_agent_0", 0.4, 500_000),
@@ -273,7 +340,7 @@ def test_training_evaluation_sweeps_and_logs_every_context(monkeypatch):
     simulation.runner = SimpleNamespace(
         batch_size=10,
         t_env=500_000,
-        get_env_rng_states=lambda: [],
+        get_env_rng_states=list,
         set_env_rng_states=lambda _states: None,
     )
     simulation.logger = SimpleNamespace(
@@ -297,9 +364,7 @@ def test_training_evaluation_sweeps_and_logs_every_context(monkeypatch):
             }
         }
 
-    monkeypatch.setattr(
-        "src.simulation.run.run_eval_episodes", fake_run_eval_episodes
-    )
+    monkeypatch.setattr("src.simulation.run.run_eval_episodes", fake_run_eval_episodes)
 
     simulation.evaluate(n_eval_eps=5)
 
@@ -315,38 +380,41 @@ def test_training_evaluation_sweeps_and_logs_every_context(monkeypatch):
         ((1, 3), 1),
         ((1, 3), 2),
     }
-    assert sum(
-        key.startswith("test_task_completed_mean/") for key, _, _ in logged_stats
-    ) == 6
+    assert (
+        sum(key.startswith("test_task_completed_mean/") for key, _, _ in logged_stats)
+        == 6
+    )
 
 
 def test_postprocessing_aggregates_samples_within_each_context_and_seed():
-    rows = pd.DataFrame.from_records([
-        {
-            "hl_task": (0, 1),
-            "msg_budget_per_agent": 0,
-            "t_env_rounded": 500_000,
-            "test_task_completed_mean": 0.4,
-            "test_task_completed_std": 0.49,
-            "test_n_episodes": 50,
-        },
-        {
-            "hl_task": (0, 1),
-            "msg_budget_per_agent": 0,
-            "t_env_rounded": 500_000,
-            "test_task_completed_mean": 0.8,
-            "test_task_completed_std": 0.4,
-            "test_n_episodes": 50,
-        },
-        {
-            "hl_task": (1, 3),
-            "msg_budget_per_agent": 0,
-            "t_env_rounded": 500_000,
-            "test_task_completed_mean": 0.6,
-            "test_task_completed_std": 0.49,
-            "test_n_episodes": 50,
-        },
-    ])
+    rows = pd.DataFrame.from_records(
+        [
+            {
+                "hl_task": (0, 1),
+                "msg_budget_per_agent": 0,
+                "t_env_rounded": 500_000,
+                "test_task_completed_mean": 0.4,
+                "test_task_completed_std": 0.49,
+                "test_n_episodes": 50,
+            },
+            {
+                "hl_task": (0, 1),
+                "msg_budget_per_agent": 0,
+                "t_env_rounded": 500_000,
+                "test_task_completed_mean": 0.8,
+                "test_task_completed_std": 0.4,
+                "test_n_episodes": 50,
+            },
+            {
+                "hl_task": (1, 3),
+                "msg_budget_per_agent": 0,
+                "t_env_rounded": 500_000,
+                "test_task_completed_mean": 0.6,
+                "test_task_completed_std": 0.49,
+                "test_n_episodes": 50,
+            },
+        ]
+    )
 
     aggregated = aggregate_eval_context_rows(
         rows,
@@ -428,14 +496,16 @@ def test_loaded_evaluation_artifact_keeps_source_seed(monkeypatch):
             "hl_task": [0, 1],
         },
     )
-    table = pd.DataFrame.from_records([
-        {
-            "t_env": 100,
-            "test_return_mean": 0.5,
-            "hl_task": [1, 3],
-            "hl_start_state": 1,
-        }
-    ])
+    table = pd.DataFrame.from_records(
+        [
+            {
+                "t_env": 100,
+                "test_return_mean": 0.5,
+                "hl_task": [1, 3],
+                "hl_start_state": 1,
+            }
+        ]
+    )
     artifact = SimpleNamespace(
         get=lambda _name: SimpleNamespace(get_dataframe=lambda: table.copy())
     )
@@ -461,9 +531,7 @@ def test_loaded_evaluation_artifact_keeps_source_seed(monkeypatch):
     assert loaded_runs == [run]
 
 
-def test_loaded_evaluation_table_falls_back_to_wandb_media_file(
-    monkeypatch, tmp_path
-):
+def test_loaded_evaluation_table_falls_back_to_wandb_media_file(monkeypatch, tmp_path):
     table_file = tmp_path / "eval_stats.table.json"
     table_file.write_text(
         '{"columns":["t_env","test_return_mean","msg_budget_per_agent"],"data":[[100,0.5,0]]}',
@@ -583,20 +651,22 @@ def test_aggregate_postprocessing_keeps_seeds_separate_and_skips_incomplete(
                 continue
             for eval_edge in edges:
                 for budget in [0, 1]:
-                    rows.append({
-                        "scenario": scenario,
-                        "seed": seed,
-                        "map_name": "test_map",
-                        "hl_task": eval_edge,
-                        "msg_budget_per_agent": budget,
-                        "t_env": 100,
-                        "t_env_rounded": 100,
-                        "test_n_episodes": 50,
-                        "test_return_mean": 1.0,
-                        "test_return_std": 0.0,
-                        "test_task_completed_mean": 0.95,
-                        "test_ep_length_mean": 5.0,
-                    })
+                    rows.append(
+                        {
+                            "scenario": scenario,
+                            "seed": seed,
+                            "map_name": "test_map",
+                            "hl_task": eval_edge,
+                            "msg_budget_per_agent": budget,
+                            "t_env": 100,
+                            "t_env_rounded": 100,
+                            "test_n_episodes": 50,
+                            "test_return_mean": 1.0,
+                            "test_return_std": 0.0,
+                            "test_task_completed_mean": 0.95,
+                            "test_ep_length_mean": 5.0,
+                        }
+                    )
         runs.append(
             SimpleNamespace(
                 id=f"seed-{seed}-flat-scenario",
@@ -610,19 +680,21 @@ def test_aggregate_postprocessing_keeps_seeds_separate_and_skips_incomplete(
                 project="project",
             )
         )
-        rows.append({
-            "scenario": 3,
-            "seed": seed,
-            "map_name": "test_map",
-            "msg_budget_per_agent": 0,
-            "t_env": 100,
-            "t_env_rounded": 100,
-            "test_n_episodes": 50,
-            "test_return_mean": float(seed == 12),
-            "test_return_std": 0.0,
-            "test_task_completed_mean": 0.0,
-            "test_ep_length_mean": 5.0,
-        })
+        rows.append(
+            {
+                "scenario": 3,
+                "seed": seed,
+                "map_name": "test_map",
+                "msg_budget_per_agent": 0,
+                "t_env": 100,
+                "t_env_rounded": 100,
+                "test_n_episodes": 50,
+                "test_return_mean": float(seed == 12),
+                "test_return_std": 0.0,
+                "test_task_completed_mean": 0.0,
+                "test_ep_length_mean": 5.0,
+            }
+        )
 
     simulation = object.__new__(Simulation)
     simulation.args = SimpleNamespace(
@@ -674,10 +746,7 @@ def test_aggregate_postprocessing_keeps_seeds_separate_and_skips_incomplete(
     assert len(combined_plot_inputs) == 1
     task_groups, plot_options = combined_plot_inputs[0]
     assert {label for label, _, _ in task_groups} == {"task 0-1", "task 1-2"}
-    assert all(
-        set(frame["test_n_episodes"]) == {100}
-        for _, frame, _ in task_groups
-    )
+    assert all(set(frame["test_n_episodes"]) == {100} for _, frame, _ in task_groups)
     assert plot_options["condition_label"] == "model_config_02"
 
 
@@ -692,15 +761,17 @@ def test_navigation_graph_uses_declared_goal_without_synthetic_task():
         / "team_navigation"
         / "navigation_branching_small_hall.yaml"
     )
-    env = HLMDPEnvWrapper({
-        "key": "team-nav-v0",
-        "seed": 1,
-        "map_name": "3ga_1r_small_hall",
-        "navigation_config": str(navigation_config),
-        "n_agents": 3,
-        "max_episode_steps": 15,
-        "msg_budget_per_agent": [0, 1],
-    })
+    env = HLMDPEnvWrapper(
+        {
+            "key": "team-nav-v0",
+            "seed": 1,
+            "map_name": "3ga_1r_small_hall",
+            "navigation_config": str(navigation_config),
+            "n_agents": 3,
+            "max_episode_steps": 15,
+            "msg_budget_per_agent": [0, 1],
+        }
+    )
 
     try:
         assert env.hlmdp.goal_states == {4}
@@ -720,15 +791,17 @@ def test_navigation_task_with_asynchronous_arrival_transitions_to_fail():
         / "team_navigation"
         / "navigation_branching_small_hall.yaml"
     )
-    env = HLMDPEnvWrapper({
-        "key": "team-nav-v0",
-        "seed": 1,
-        "map_name": "3ga_1r_small_hall",
-        "navigation_config": str(navigation_config),
-        "n_agents": 3,
-        "max_episode_steps": 15,
-        "msg_budget_per_agent": [0, 1],
-    })
+    env = HLMDPEnvWrapper(
+        {
+            "key": "team-nav-v0",
+            "seed": 1,
+            "map_name": "3ga_1r_small_hall",
+            "navigation_config": str(navigation_config),
+            "n_agents": 3,
+            "max_episode_steps": 15,
+            "msg_budget_per_agent": [0, 1],
+        }
+    )
 
     try:
         env.reset(options={"hl_task": [0, 1]})
@@ -736,17 +809,21 @@ def test_navigation_task_with_asynchronous_arrival_transitions_to_fail():
         hl_actions = {"chosen_next_state": 1, "comms_budget": 0}
 
         for _ in range(3):
-            _, _, terminated, _, _ = env.step({
-                "hl_actions": hl_actions,
-                "env_actions": [actions.RIGHT, actions.STAY, actions.STAY],
-            })
+            _, _, terminated, _, _ = env.step(
+                {
+                    "hl_actions": hl_actions,
+                    "env_actions": [actions.RIGHT, actions.STAY, actions.STAY],
+                }
+            )
             assert not terminated
 
         for _ in range(3):
-            _, _, terminated, _, info = env.step({
-                "hl_actions": hl_actions,
-                "env_actions": [actions.STAY, actions.RIGHT, actions.RIGHT],
-            })
+            _, _, terminated, _, info = env.step(
+                {
+                    "hl_actions": hl_actions,
+                    "env_actions": [actions.STAY, actions.RIGHT, actions.RIGHT],
+                }
+            )
 
         assert terminated
         assert not info["task_completed"]
@@ -755,10 +832,12 @@ def test_navigation_task_with_asynchronous_arrival_transitions_to_fail():
 
         env.reset(options={"hl_task": [0, 1]})
         for _ in range(3):
-            _, _, terminated, _, info = env.step({
-                "hl_actions": hl_actions,
-                "env_actions": [actions.RIGHT, actions.RIGHT, actions.RIGHT],
-            })
+            _, _, terminated, _, info = env.step(
+                {
+                    "hl_actions": hl_actions,
+                    "env_actions": [actions.RIGHT, actions.RIGHT, actions.RIGHT],
+                }
+            )
 
         assert terminated
         assert info["task_completed"]

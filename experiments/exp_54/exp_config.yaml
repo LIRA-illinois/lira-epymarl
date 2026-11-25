@@ -1,0 +1,102 @@
+# Evaluation-only mock verification for the two-goal branching environment.
+# No low-level training episodes are collected; statewise mock evaluations
+# drive calibration, frontier synthesis, held-out, tables, plots, and W&B.
+
+parameters:
+  seed:
+    values: [101]
+
+  wandb_project:
+    values: [comm_experiments]
+  wandb_mode:
+    values: [online]
+  use_wandb:
+    values: [True]
+  use_sacred:
+    values: [False]
+
+  config:
+    values: [maic]
+  env:
+    values: [mock-hierarchical-v0]
+  mixer:
+    values: [qmix]
+  runner:
+    values: [parallel_shared_memory]
+
+  batch_size_run:
+    values: [10]
+  lr:
+    values: [0.00005]
+  t_max:
+    values: [1]
+  test_nepisode:
+    values: [100]
+  test_interval:
+    values: [1]
+  save_model_interval:
+    values: [1]
+  save_model:
+    values: [False]
+  save_test_replays:
+    values: [False]
+  n_test_replays_save:
+    values: [0]
+  wandb_save_test_replays:
+    values: [False]
+
+  msg_budget_per_agent:
+    values: [[0, 1, 2]]
+  msg_filter_type:
+    values: [hard_topk]
+
+  env-config:
+    values: [gym_multigrid]
+  env_args.map_name:
+    values: [3ga_1r_two_level_small_hall]
+  env_args.navigation_config:
+    values:
+      [
+        submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_two_goals_small_hall.yaml,
+      ]
+  env_args.mock_low_level:
+    values: [True]
+  env_args.n_agents:
+    values: [3]
+  env_args.n_agents_delay:
+    values: [1]
+  env_args.team_delay_prob:
+    values: [0.05, 0.10]
+  env_args.max_episode_steps:
+    values: [1]
+  env_args.n_final_positions:
+    values: [8]
+  env_args.n_comms_values:
+    values: [3]
+  env_args.n_subtasks:
+    values: [5]
+  env_args.msg_budget_per_agent:
+    values: [[0, 1, 2]]
+
+  hierarchical:
+    values:
+      - policy_scope: shared_across_contexts
+        task_sequence:
+          [
+            [0, 1],
+            [0, 2],
+            [1, 3],
+            [2, 3],
+            [3, 4],
+          ]
+        pg_values: [0.55, 0.65, 0.75]
+        epsilon_est: 0.01
+        beta: 0.95
+        epsilon_p: 0.05
+        n_max: 5
+        n_calibration_episodes: 100
+        held_out_episodes: 50
+        max_iterations: 10
+        resume: none
+        low_level_mode: train
+        mock_evaluation_times: [1, 2, 3, 4, 5]

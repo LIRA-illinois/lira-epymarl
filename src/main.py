@@ -17,6 +17,7 @@ from torch import set_num_threads as th_set_num_threads
 
 from src.runners.shared_memory_parallel_runner import SharedMemoryParallelRunner
 from src.simulation.run import Simulation
+from src.simulation.hierarchical_config import get_unified_hierarchical_config
 from src.utils.logging import get_logger
 from src.utils.utils import get_config_updates, string_inputs_to_list
 
@@ -44,6 +45,21 @@ def experiment_main(_config, logger: Logger) -> None:
     if "hl_task" in config:
         config = string_inputs_to_list(config, "hl_task", output_type=int)
 
+    hierarchical_value = None
+    for key in ("hierarchical", "hl_env", "hl_env_config"):
+        if key in config:
+            hierarchical_value = config[key]
+            break
+    if hierarchical_value is not None:
+        hierarchical_config = get_unified_hierarchical_config(hierarchical_value)
+        if hierarchical_config is None:
+            raise RuntimeError(
+                "Unified hierarchical configuration resolved to no config."
+            )
+        for key in ("hl_env", "hl_env_config"):
+            config.pop(key, None)
+        config["hierarchical"] = hierarchical_config.to_dict()
+
     # run the framework
     sim = Simulation(config, logger)
     try:
@@ -58,7 +74,10 @@ def get_run_config(params: str | None) -> dict:
     def recursive_dict_update(d, u):
         for k, v in u.items():
             if isinstance(v, Mapping):
-                d[k] = recursive_dict_update(d.get(k, {}), v)
+                existing = d.get(k)
+                if not isinstance(existing, Mapping):
+                    existing = {}
+                d[k] = recursive_dict_update(existing, v)
             else:
                 d[k] = v
 

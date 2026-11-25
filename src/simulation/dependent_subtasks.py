@@ -12,7 +12,12 @@ import pandas as pd
 import torch as th
 
 from src.simulation.build import build_sim
-from src.simulation.evaluate import collect_successful_final_state_dist
+from src.simulation.context_utils import merge_state_distributions
+from src.simulation.evaluate import (
+    collect_statewise_calibration_row,
+    collect_successful_final_state_dist,
+)
+from src.simulation.hierarchical_types import OptionSettingKey
 
 
 class DependentSubtaskTrainingMixin:
@@ -338,13 +343,15 @@ class DependentSubtaskTrainingMixin:
                     f"Root task {edge[0]}->{edge[1]} has no configured initial "
                     "state distribution."
                 )
-            root_dists.append({
-                "states": [
-                    [list(position) for position in joint_state]
-                    for joint_state in task.init_state_dist.states
-                ],
-                "probs": list(task.init_state_dist.probs),
-            })
+            root_dists.append(
+                {
+                    "states": [
+                        [list(position) for position in joint_state]
+                        for joint_state in task.init_state_dist.states
+                    ],
+                    "probs": list(task.init_state_dist.probs),
+                }
+            )
 
         first_dist = root_dists[0]
         if any(
@@ -364,6 +371,9 @@ class DependentSubtaskTrainingMixin:
         budget: float,
         policy_seed: int,
         n_eval_eps: int,
+        setting: OptionSettingKey | None = None,
+        include_calibration_row: bool = False,
+        option_snapshot_callback=None,
     ) -> tuple[dict, float, dict]:
         original_context = (
             self.args,
@@ -398,20 +408,56 @@ class DependentSubtaskTrainingMixin:
             candidate_runner = self.runner
             self.n_eval_eps = max(1, self.args.test_nepisode // self.runner.batch_size)
             self.runner.mac.msg_budget_per_agent = int(budget)
+
+            def snapshot_option(t_env: int) -> None:
+                if option_snapshot_callback is None or setting is None:
+                    return
+                snapshot_row = collect_statewise_calibration_row(
+                    self.runner,
+                    setting=setting,
+                    seed=policy_seed,
+                    n_eval_eps=n_eval_eps,
+                    reset_options=reset_options,
+                    record_replays=False,
+                )
+                option_snapshot_callback(int(t_env), snapshot_row)
+
             self.train_single_task(
                 reset_options=reset_options,
                 close_env=False,
+                option_snapshot_callback=snapshot_option,
             )
             final_state_dist, success_rate = collect_successful_final_state_dist(
                 self.runner,
                 n_eval_eps=n_eval_eps,
                 reset_options=reset_options,
             )
+            calibration_row = None
+            if include_calibration_row:
+                if setting is None:
+                    raise ValueError(
+                        "include_calibration_row requires an explicit OptionSettingKey."
+                    )
+                calibration_row = collect_statewise_calibration_row(
+                    self.runner,
+                    setting=setting,
+                    seed=policy_seed,
+                    n_eval_eps=n_eval_eps,
+                    reset_options=reset_options,
+                    record_replays=False,
+                )
+                if option_snapshot_callback is not None:
+                    option_snapshot_callback(
+                        int(getattr(self.runner, "t_env", 100)),
+                        calibration_row,
+                    )
             policy_weights = {
                 key: value.detach().cpu().clone()
                 for key, value in self.runner.mac.agent.state_dict().items()
             }
             self._dependent_cm_total_t_env += self.runner.t_env
+            if include_calibration_row:
+                return final_state_dist, success_rate, policy_weights, calibration_row
             return final_state_dist, success_rate, policy_weights
         finally:
             if candidate_runner is not None:
@@ -535,13 +581,15 @@ class DependentSubtaskTrainingMixin:
                 f"seed_{policy_seed}.th"
             )
             th.save(policy_weights, join(save_path, filename))
-            candidate_rows.append({
-                "from_state": from_state,
-                "to_state": to_state,
-                "msg_budget_per_agent": budget,
-                "seed": policy_seed,
-                "filename": filename,
-            })
+            candidate_rows.append(
+                {
+                    "from_state": from_state,
+                    "to_state": to_state,
+                    "msg_budget_per_agent": budget,
+                    "seed": policy_seed,
+                    "filename": filename,
+                }
+            )
 
         pd.DataFrame.from_records(candidate_rows).to_csv(
             join(save_path, "candidate_manifest.csv"), index=False
@@ -728,28 +776,4 @@ class DependentSubtaskTrainingMixin:
 
     @staticmethod
     def _merge_state_dists(dists: list[dict], weights: list[float]) -> dict:
-        """Combine several `{"states": [...], "probs": [...]}` distributions into
-        one, weighted by how often trajectories reach each distribution's edge."""
-        total_weight = sum(weights)
-        if total_weight <= 0:
-            weights = [1.0] * len(weights)
-            total_weight = float(len(weights))
-
-        merged: dict[tuple, float] = defaultdict(float)
-        for dist, weight in zip(dists, weights):
-            if not dist["states"]:
-                continue
-            scale = weight / total_weight
-            for state, prob in zip(dist["states"], dist["probs"]):
-                merged[tuple(tuple(position) for position in state)] += scale * prob
-
-        if not merged:
-            raise ValueError(
-                "No successful terminal states available to build the next "
-                "subtask's spawn distribution; predecessor subtask(s) never succeeded."
-            )
-
-        states = list(merged.keys())
-        probs = np.array(list(merged.values()))
-        probs = probs / probs.sum()
-        return {"states": [list(state) for state in states], "probs": probs.tolist()}
+        return merge_state_distributions(dists, weights)

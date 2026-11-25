@@ -79,14 +79,16 @@ if __name__ == "__main__":
         "--config",
         type=Path,
         default=REPO_ROOT
-        / "submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_small_hall.yaml",
+        / "submodules/gym-multigrid/gym_multigrid/envs/maps/team_navigation/navigation_branching_two_goals_small_hall.yaml",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=REPO_ROOT / "tmp/navigation_branching.png",
+        default=REPO_ROOT
+        / "scratch"
+        / "navigation_branching_two_goals.png",
     )
-    parser.add_argument("--map-name", default="3ga_1r_small_hall")
+    parser.add_argument("--map-name", default="3ga_1r_two_level_small_hall")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--dpi", type=int, default=160)
     args = parser.parse_args()

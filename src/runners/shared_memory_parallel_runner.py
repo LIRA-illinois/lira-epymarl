@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import torch as th
+import os
 
 from src.components.episode_buffer import EpisodeBatch
 from src.envs import REGISTRY as env_REGISTRY
@@ -158,11 +159,32 @@ class SharedMemoryParallelRunner:
         self.parent_conns[0].send(("save_replay", None))
         self.parent_conns[0].recv()
 
-    def reset(self, options: dict | None = None) -> None:
+    def reset(self, options: dict | list[dict] | None = None) -> None:
         self.batch = self.new_batch()
-        self._policy_context = build_policy_context(self.args, options)
+        if isinstance(options, list):
+            if len(options) != self.batch_size:
+                raise ValueError(
+                    "Per-worker reset options must match the runner batch size."
+                )
+            worker_options = options
+        else:
+            worker_options = [options] * self.batch_size
+        policy_contexts = [
+            build_policy_context(self.args, worker_option)
+            for worker_option in worker_options
+        ]
+        self._policy_contexts = policy_contexts
+        self._policy_context = policy_contexts[0] if policy_contexts else None
+        for conn, worker_option in zip(
+            self.parent_conns,
+            worker_options,
+            strict=True,
+        ):
+            conn.send(("reset", worker_option))
         for conn in self.parent_conns:
-            conn.send(("reset", options))
+            conn.recv()
+        for conn in self.parent_conns:
+            conn.send(("set_attr", ("t_render", 0)))
         for conn in self.parent_conns:
             conn.recv()
         self._write_pre_transition_data(ts=0)
@@ -181,9 +203,12 @@ class SharedMemoryParallelRunner:
             data["hl_state"] = [
                 self._arrays["hl_state"][i].copy() for i in range(self.batch_size)
             ]
-        if self._policy_context is not None:
+        if (
+            getattr(self, "_policy_contexts", None)
+            and "policy_context" in getattr(self.batch, "scheme", {})
+        ):
             data["policy_context"] = [
-                self._policy_context for _ in range(self.batch_size)
+                context for context in self._policy_contexts
             ]
         self.batch.update(data, ts=ts)
 
@@ -238,6 +263,8 @@ class SharedMemoryParallelRunner:
             action_idx = 0
             for idx, conn in enumerate(self.parent_conns):
                 if not terminated[idx]:
+                    conn.send(("set_attr", ("t_render", self.t)))
+                    conn.recv()
                     conn.send(("step", cpu_actions[action_idx]))
                     action_idx += 1
 
@@ -404,7 +431,18 @@ class SharedMemoryParallelRunner:
     ) -> None:
         if t_env is None:
             t_env = self.t_env
-        replay_folder = join(self.logger.dir, "replays", f"t_{t_env}")
+        safe_prefix = "".join(
+            character
+            if character.isalnum() or character in ("-", "_")
+            else "_"
+            for character in video_prefix
+        )
+        replay_folder = join(
+            self.logger.dir,
+            "replays",
+            f"t_{t_env}",
+            safe_prefix,
+        )
         makedirs(replay_folder, exist_ok=True)
         self.parent_conns[0].send((
             "start_recording",
@@ -429,6 +467,15 @@ class SharedMemoryParallelRunner:
                 t=self._recording_t_env if t_env is None else t_env,
                 video_prefix=video_prefix,
             )
+            for root, dirs, files in os.walk(self._recording_folder, topdown=False):
+                for filename in files:
+                    os.remove(join(root, filename))
+                for dirname in dirs:
+                    os.rmdir(join(root, dirname))
+            try:
+                os.rmdir(self._recording_folder)
+            except FileNotFoundError:
+                pass
         self._recording_folder = None
         self._recording_t_env = None
 

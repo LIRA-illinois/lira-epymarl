@@ -496,8 +496,9 @@ def test_wandb_sync_only_selects_new_run_folders(tmp_path, monkeypatch):
     (wandb_dir / "offline-run-new").mkdir()
     sync_calls = []
 
-    def fake_run(command, cwd, capture_output, text, check):
+    def fake_run(command, cwd, capture_output, text, check, env):
         sync_calls.append(command[-1])
+        assert env["WANDB_DIR"] == str(wandb_dir)
         return type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fake_run)
@@ -516,8 +517,9 @@ def test_manual_wandb_sync_selects_only_offline_runs(tmp_path, monkeypatch):
     (wandb_dir / "run-online").mkdir()
     sync_calls = []
 
-    def fake_run(command, cwd, capture_output, text, check):
+    def fake_run(command, cwd, capture_output, text, check, env):
         sync_calls.append(command[-1])
+        assert env["WANDB_DIR"] == str(wandb_dir)
         return type("Completed", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
 
     monkeypatch.setattr("src.experiments.ray_cluster.subprocess.run", fake_run)

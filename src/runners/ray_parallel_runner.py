@@ -512,7 +512,10 @@ class RayParallelRunner:
         ]
         selector = getattr(self.mac, "action_selector", None)
         if epsilons and hasattr(selector, "epsilon"):
-            selector.epsilon = epsilons[0]
+            candidate_epsilon = float(epsilons[0])
+            current_epsilon = float(selector.epsilon)
+            if candidate_epsilon <= current_epsilon + 1e-9:
+                selector.epsilon = candidate_epsilon
 
         episode_indices = [
             result["episode_index"]
